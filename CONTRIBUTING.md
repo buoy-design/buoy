@@ -1,6 +1,6 @@
-# Contributing to Bouy
+# Contributing to Buoy
 
-Thanks for your interest in contributing to Bouy! This document covers how to get started.
+Thanks for your interest in contributing to Buoy! This document covers how to get started.
 
 ## Reporting Issues
 

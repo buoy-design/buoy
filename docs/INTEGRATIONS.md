@@ -1,4 +1,4 @@
-# Bouy Integrations
+# Buoy Integrations
 
 > Framework, design system, and tool integrations
 > Last updated: December 27, 2024

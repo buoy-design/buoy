@@ -1,4 +1,4 @@
-# Bouy Roadmap
+# Buoy Roadmap
 
 > Planned features and future development
 > Last updated: December 27, 2024
@@ -21,28 +21,57 @@
 
 ## Near-Term (Next Up)
 
-### CI/CD Integration
-**URL:** `/features/ci`
-**Headline:** "Block PRs with critical drift"
-**Pain:** Drift sneaks in through code review
-**Value:** `buoy ci` exits non-zero on critical drift, fails builds
-**Priority:** High
+### 1. GitHub Action + CI Command
+**URL:** `/integrations/github-action`
+**Headline:** "Catch design drift in every PR"
+**Pain:** Drift sneaks in through code review, no visibility until it's merged
+**Value:** Automatic PR comments, status checks, zero-config setup
+**Priority:** **Critical** — Primary distribution channel
 
-### Figma Scanner
+**Deliverables:**
+- [ ] `buoy ci` command with proper exit codes
+- [ ] Diff-only mode (only report new drift in PR, not existing)
+- [ ] Configurable thresholds (`--fail-on critical|warning|any`)
+- [ ] PR comment formatting (markdown table of drift signals)
+- [ ] GitHub Action wrapper (`buoy-dev/buoy-action`)
+- [ ] Status check integration (pass/fail badge)
+- [ ] JSON output mode for custom integrations
+
+**CLI Usage:**
+```bash
+# Exit 1 if critical drift found
+buoy ci --fail-on critical
+
+# Only check files changed in this branch
+buoy ci --diff origin/main
+
+# Output JSON for custom processing
+buoy ci --json
+```
+
+**GitHub Action:**
+```yaml
+- uses: buoy-dev/buoy-action@v1
+  with:
+    fail-on: critical
+    comment: true
+```
+
+### 2. Figma Scanner
 **URL:** `/integrations/figma`
 **Headline:** "Connect Figma to your codebase"
 **Pain:** Figma and code drift apart silently
 **Value:** Cross-source comparison between Figma components and code
 **Priority:** High
 
-### HTMX + Alpine.js Detection
+### 3. HTMX + Alpine.js Detection
 **URL:** `/integrations/htmx`
 **Headline:** "HTML-first framework support"
 **Pain:** Server-side projects with modern JS need coverage too
 **Value:** Detect HTMX attributes and Alpine directives
-**Priority:** High
+**Priority:** Medium
 
-### Qwik Scanner
+### 4. Qwik Scanner
 **URL:** `/integrations/qwik`
 **Headline:** "Qwik component scanning"
 **Pain:** Emerging framework needs support
@@ -52,13 +81,6 @@
 ---
 
 ## Mid-Term
-
-### GitHub Action
-**URL:** `/integrations/github`
-**Headline:** "Drift reports in every PR"
-**Pain:** No visibility into design system impact of changes
-**Value:** Automatic PR comments with drift summary
-**Priority:** Medium
 
 ### AI-Powered Explanations
 **URL:** `/features/ai-explanations`

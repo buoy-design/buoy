@@ -1,4 +1,4 @@
-# Bouy Documentation
+# Buoy Documentation
 
 | Doc | Description |
 |-----|-------------|

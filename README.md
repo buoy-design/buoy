@@ -1,8 +1,8 @@
-# Bouy
+# Buoy
 
 **Design drift detection for the AI era.**
 
-AI tools like Copilot and Claude generate code fast—but they don't know your design system. Bouy scans your codebase and catches design drift before it ships.
+AI tools like Copilot and Claude generate code fast—but they don't know your design system. Buoy scans your codebase and catches design drift before it ships.
 
 ```
 $ buoy status
@@ -114,9 +114,9 @@ buoy drift check --severity critical
 - [Integrations](./docs/INTEGRATIONS.md) — Framework & tool support
 - [Roadmap](./docs/ROADMAP.md) — Planned features
 
-## Why "Bouy"?
+## Why "Buoy"?
 
-Like a buoy in the water, Bouy signals when something is drifting off course. It helps design systems stay anchored while teams move fast.
+Like a buoy in the water, Buoy signals when something is drifting off course. It helps design systems stay anchored while teams move fast.
 
 ## License
 
