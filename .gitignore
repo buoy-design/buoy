@@ -47,3 +47,6 @@ prototype/
 
 # Internal docs (GTM, marketing strategy)
 docs/internal/
+
+# Test fixtures
+test-fixture/

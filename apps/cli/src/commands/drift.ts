@@ -12,6 +12,7 @@ import {
 } from '../output/reporters.js';
 import {
   formatDriftTable,
+  formatDriftList,
   formatJson,
   formatMarkdown,
 } from '../output/formatters.js';
@@ -29,6 +30,7 @@ export function createDriftCommand(): Command {
     .option('-t, --type <type>', 'Filter by drift type')
     .option('--json', 'Output as JSON')
     .option('--markdown', 'Output as Markdown')
+    .option('--compact', 'Compact table output (less detail)')
     .option('-v, --verbose', 'Verbose output')
     .action(async (options) => {
       const spin = spinner('Loading configuration...');
@@ -117,7 +119,12 @@ export function createDriftCommand(): Command {
         keyValue('Info', String(summary.info));
         newline();
 
-        console.log(formatDriftTable(drifts));
+        // Use compact table or detailed list
+        if (options.compact) {
+          console.log(formatDriftTable(drifts));
+        } else {
+          console.log(formatDriftList(drifts));
+        }
         newline();
 
         if (summary.critical > 0) {
@@ -125,7 +132,7 @@ export function createDriftCommand(): Command {
         } else if (drifts.length === 0) {
           success('No drift detected. Your design system is aligned!');
         } else {
-          info(`Found ${drifts.length} drift signals.`);
+          info(`Found ${drifts.length} drift signals. Run with --compact for summary view.`);
         }
       } catch (err) {
         spin.stop();

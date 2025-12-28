@@ -190,6 +190,220 @@ export function formatJson(data: unknown): string {
   return JSON.stringify(data, null, 2);
 }
 
+// Format drift list with full details and action items
+export function formatDriftList(drifts: DriftSignal[]): string {
+  if (drifts.length === 0) {
+    return chalk.green('No drift detected. Your design system is aligned.');
+  }
+
+  const lines: string[] = [];
+
+  // Sort by severity
+  const sorted = [...drifts].sort((a, b) => {
+    const order: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
+    return order[a.severity] - order[b.severity];
+  });
+
+  // Group by severity for better readability
+  const critical = sorted.filter(d => d.severity === 'critical');
+  const warning = sorted.filter(d => d.severity === 'warning');
+  const info = sorted.filter(d => d.severity === 'info');
+
+  const formatIssue = (drift: DriftSignal, index: number) => {
+    const color = getSeverityColor(drift.severity);
+    const icon = getSeverityIcon(drift.severity);
+
+    lines.push('');
+    lines.push(`${icon} ${color.bold(`#${index + 1} ${formatDriftType(drift.type)}`)}`);
+    lines.push(`  ${chalk.dim('Component:')} ${drift.source.entityName}`);
+
+    if (drift.source.location) {
+      lines.push(`  ${chalk.dim('Location:')}  ${drift.source.location}`);
+    }
+
+    lines.push(`  ${chalk.dim('Issue:')}     ${drift.message}`);
+
+    // Show expected vs actual if available
+    if (drift.details.expected !== undefined && drift.details.actual !== undefined) {
+      lines.push(`  ${chalk.dim('Expected:')}  ${chalk.green(String(drift.details.expected))}`);
+      lines.push(`  ${chalk.dim('Actual:')}    ${chalk.red(String(drift.details.actual))}`);
+    }
+
+    // Show affected files/locations if available
+    if (drift.details.affectedFiles && drift.details.affectedFiles.length > 0) {
+      lines.push(`  ${chalk.dim('Details:')}`);
+      for (const file of drift.details.affectedFiles.slice(0, 5)) {
+        lines.push(`    ${chalk.dim('•')} ${file}`);
+      }
+      if (drift.details.affectedFiles.length > 5) {
+        lines.push(`    ${chalk.dim(`... and ${drift.details.affectedFiles.length - 5} more`)}`);
+      }
+    }
+
+    // Show related components if available
+    if (drift.details.relatedComponents && drift.details.relatedComponents.length > 0) {
+      lines.push(`  ${chalk.dim('Related:')}   ${drift.details.relatedComponents.join(', ')}`);
+    }
+
+    // Show action items
+    const actions = getActionItems(drift);
+    if (actions.length > 0) {
+      lines.push('');
+      lines.push(`  ${chalk.cyan.bold('Actions:')}`);
+      for (let i = 0; i < actions.length; i++) {
+        lines.push(`    ${chalk.cyan(`${i + 1}.`)} ${actions[i]}`);
+      }
+    }
+  };
+
+  let issueNumber = 0;
+
+  if (critical.length > 0) {
+    lines.push('');
+    lines.push(chalk.red.bold(`━━━ CRITICAL (${critical.length}) ━━━`));
+    for (const drift of critical) {
+      formatIssue(drift, issueNumber++);
+    }
+  }
+
+  if (warning.length > 0) {
+    lines.push('');
+    lines.push(chalk.yellow.bold(`━━━ WARNING (${warning.length}) ━━━`));
+    for (const drift of warning) {
+      formatIssue(drift, issueNumber++);
+    }
+  }
+
+  if (info.length > 0) {
+    lines.push('');
+    lines.push(chalk.blue.bold(`━━━ INFO (${info.length}) ━━━`));
+    for (const drift of info) {
+      formatIssue(drift, issueNumber++);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// Get specific action items for a drift signal
+function getActionItems(drift: DriftSignal): string[] {
+  const actions: string[] = [];
+
+  switch (drift.type) {
+    case 'hardcoded-value':
+      if (drift.message.includes('color')) {
+        actions.push('Replace hardcoded colors with design tokens');
+        actions.push('Example: Change #3b82f6 → var(--color-primary) or theme.colors.primary');
+        actions.push('If no token exists, add it to your design system first');
+      } else {
+        actions.push('Replace hardcoded values with spacing/size tokens');
+        actions.push('Example: Change 16px → var(--spacing-4) or theme.spacing.md');
+      }
+      break;
+
+    case 'naming-inconsistency':
+      if (drift.details.relatedComponents) {
+        actions.push(`Consolidate duplicate components: ${drift.details.relatedComponents.join(', ')}`);
+        actions.push('Keep the most complete version and update imports');
+        actions.push('Document the canonical component in your design system');
+      } else {
+        actions.push('Rename component to match project conventions');
+        if (drift.details.suggestions?.[0]) {
+          actions.push(drift.details.suggestions[0]);
+        }
+      }
+      break;
+
+    case 'semantic-mismatch':
+      actions.push('Standardize prop types across components');
+      if (drift.details.expected && drift.details.actual) {
+        actions.push(`Change prop type from "${drift.details.actual}" to "${drift.details.expected}"`);
+      }
+      if (drift.details.usedIn && drift.details.usedIn.length > 0) {
+        actions.push(`Reference: ${drift.details.usedIn.join(', ')} use the expected type`);
+      }
+      break;
+
+    case 'deprecated-pattern':
+      actions.push('Migrate away from deprecated component');
+      if (drift.details.suggestions?.[0]) {
+        actions.push(drift.details.suggestions[0]);
+      }
+      actions.push('Search codebase for usages and update imports');
+      break;
+
+    case 'orphaned-component':
+      if (drift.message.includes('not in design')) {
+        actions.push('Add component to Figma design system');
+        actions.push('Or document as intentional code-only component');
+        actions.push('Or remove if truly unused');
+      } else {
+        actions.push('Implement the designed component in code');
+        actions.push('Or remove from Figma if no longer needed');
+      }
+      break;
+
+    case 'orphaned-token':
+      if (drift.message.includes('not in design')) {
+        actions.push('Add token to design system (Figma/Tokens Studio)');
+        actions.push('Or remove from code if unused');
+      } else {
+        actions.push('Implement token in code (CSS variables or theme)');
+        actions.push('Or remove from design if deprecated');
+      }
+      break;
+
+    case 'value-divergence':
+      actions.push('Align token values between design and code');
+      if (drift.details.expected && drift.details.actual) {
+        actions.push(`Design value: ${JSON.stringify(drift.details.expected)}`);
+        actions.push(`Code value: ${JSON.stringify(drift.details.actual)}`);
+      }
+      actions.push('Update whichever source is outdated');
+      break;
+
+    case 'accessibility-conflict':
+      actions.push('Add missing accessibility attributes');
+      actions.push('For interactive elements: add aria-label or visible text');
+      actions.push('Run accessibility audit: npx axe-core or use browser devtools');
+      break;
+
+    case 'framework-sprawl':
+      actions.push('Document which framework is primary');
+      actions.push('Create migration plan for legacy framework code');
+      if (drift.details.frameworks) {
+        const frameworks = drift.details.frameworks as Array<{name: string}>;
+        actions.push(`Frameworks detected: ${frameworks.map(f => f.name).join(', ')}`);
+      }
+      break;
+
+    default:
+      // Fall back to generic suggestions from the drift signal
+      if (drift.details.suggestions) {
+        actions.push(...drift.details.suggestions);
+      }
+  }
+
+  return actions;
+}
+
+// Format drift type for display
+function formatDriftType(type: string): string {
+  const labels: Record<string, string> = {
+    'hardcoded-value': 'Hardcoded Value',
+    'naming-inconsistency': 'Naming Inconsistency',
+    'semantic-mismatch': 'Prop Type Mismatch',
+    'deprecated-pattern': 'Deprecated Component',
+    'orphaned-component': 'Orphaned Component',
+    'orphaned-token': 'Orphaned Token',
+    'value-divergence': 'Token Value Mismatch',
+    'accessibility-conflict': 'Accessibility Issue',
+    'framework-sprawl': 'Framework Sprawl',
+    'missing-documentation': 'Missing Documentation',
+  };
+  return labels[type] || type;
+}
+
 // Format as markdown
 export function formatMarkdown(drifts: DriftSignal[]): string {
   if (drifts.length === 0) {
@@ -206,14 +420,39 @@ export function formatMarkdown(drifts: DriftSignal[]): string {
   const warning = drifts.filter(d => d.severity === 'warning');
   const info = drifts.filter(d => d.severity === 'info');
 
+  const formatDriftMarkdown = (drift: DriftSignal) => {
+    lines.push(`### ${drift.source.entityName}`);
+    lines.push(`- **Type:** ${formatDriftType(drift.type)}`);
+    if (drift.source.location) {
+      lines.push(`- **Location:** \`${drift.source.location}\``);
+    }
+    lines.push(`- **Issue:** ${drift.message}`);
+
+    if (drift.details.expected !== undefined && drift.details.actual !== undefined) {
+      lines.push(`- **Expected:** ${drift.details.expected}`);
+      lines.push(`- **Actual:** ${drift.details.actual}`);
+    }
+
+    if (drift.details.relatedComponents && drift.details.relatedComponents.length > 0) {
+      lines.push(`- **Related:** ${drift.details.relatedComponents.join(', ')}`);
+    }
+
+    const actions = getActionItems(drift);
+    if (actions.length > 0) {
+      lines.push('');
+      lines.push('**Actions:**');
+      for (let i = 0; i < actions.length; i++) {
+        lines.push(`${i + 1}. ${actions[i]}`);
+      }
+    }
+    lines.push('');
+  };
+
   if (critical.length > 0) {
     lines.push('## Critical');
     lines.push('');
     for (const drift of critical) {
-      lines.push(`### ${drift.source.entityName}`);
-      lines.push(`- **Type:** ${drift.type}`);
-      lines.push(`- **Message:** ${drift.message}`);
-      lines.push('');
+      formatDriftMarkdown(drift);
     }
   }
 
@@ -221,10 +460,7 @@ export function formatMarkdown(drifts: DriftSignal[]): string {
     lines.push('## Warnings');
     lines.push('');
     for (const drift of warning) {
-      lines.push(`### ${drift.source.entityName}`);
-      lines.push(`- **Type:** ${drift.type}`);
-      lines.push(`- **Message:** ${drift.message}`);
-      lines.push('');
+      formatDriftMarkdown(drift);
     }
   }
 
@@ -232,10 +468,7 @@ export function formatMarkdown(drifts: DriftSignal[]): string {
     lines.push('## Info');
     lines.push('');
     for (const drift of info) {
-      lines.push(`### ${drift.source.entityName}`);
-      lines.push(`- **Type:** ${drift.type}`);
-      lines.push(`- **Message:** ${drift.message}`);
-      lines.push('');
+      formatDriftMarkdown(drift);
     }
   }
 
