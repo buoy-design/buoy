@@ -1,0 +1,33 @@
+{
+  "name": "@buoy/plugin-github",
+  "version": "0.0.1",
+  "description": "Buoy plugin for GitHub PR comments",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "keywords": ["buoy", "plugin", "github", "pr", "comments"],
+  "license": "MIT",
+  "peerDependencies": {
+    "@buoy/core": "workspace:*"
+  },
+  "dependencies": {
+    "@octokit/rest": "^20.0.0"
+  },
+  "devDependencies": {
+    "@buoy/core": "workspace:*",
+    "typescript": "^5.0.0"
+  }
+}
