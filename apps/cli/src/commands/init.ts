@@ -6,7 +6,7 @@ import ora from 'ora';
 import { createInterface } from 'readline';
 import { success, error, info, warning } from '../output/reporters.js';
 import { ProjectDetector, type DetectedProject } from '../detect/index.js';
-import { detectFrameworks, getPluginInstallCommand } from '../detect/frameworks.js';
+import { detectFrameworks, getPluginInstallCommand, PLUGIN_INFO } from '../detect/frameworks.js';
 import { discoverPlugins } from '../plugins/index.js';
 
 function generateConfig(project: DetectedProject): string {
@@ -423,12 +423,65 @@ export function createInitCommand(): Command {
       const installedPlugins = await discoverPlugins();
 
       if (detectedFrameworks.length > 0) {
-        console.log(chalk.bold('  Plugin recommendations:'));
+        console.log(chalk.bold('  Suggested Plugins'));
+        console.log('');
+
         for (const fw of detectedFrameworks) {
           const installed = installedPlugins.some((p) => p.includes(fw.plugin));
-          const status = installed ? chalk.green('(installed)') : chalk.yellow('(not installed)');
-          console.log(`    ${chalk.cyan('+')} @buoy/plugin-${fw.plugin} ${status}`);
-          console.log(`      ${chalk.dim(fw.evidence)}`);
+          const pluginInfo = PLUGIN_INFO[fw.plugin];
+          const pluginName = pluginInfo?.name || `@buoy/plugin-${fw.plugin}`;
+
+          // Plugin header with status
+          const statusText = installed
+            ? chalk.green('installed ✓')
+            : chalk.yellow('not installed');
+          console.log(`  ${chalk.dim('┌')} ${chalk.cyan.bold(pluginName)}${' '.repeat(Math.max(1, 50 - pluginName.length))}${statusText}`);
+          console.log(`  ${chalk.dim('│')}`);
+
+          // What was detected
+          const detectsLabel = pluginInfo?.detects || capitalize(fw.name);
+          if (fw.matchedFiles && fw.matchedFiles.length > 0) {
+            console.log(`  ${chalk.dim('│')}  ${chalk.white('Detected:')} ${detectsLabel}`);
+            const filesToShow = fw.matchedFiles.slice(0, 3);
+            for (const file of filesToShow) {
+              console.log(`  ${chalk.dim('│')}    ${chalk.dim('•')} ${chalk.cyan(file)}`);
+            }
+            if (fw.matchedFiles.length > 3) {
+              console.log(`  ${chalk.dim('│')}    ${chalk.dim(`  ...and ${fw.matchedFiles.length - 3} more`)}`);
+            }
+          } else {
+            // Package-based detection
+            console.log(`  ${chalk.dim('│')}  ${chalk.white('Detected:')} ${detectsLabel} ${chalk.dim(`(${fw.evidence.toLowerCase()})`)}`);
+          }
+          console.log(`  ${chalk.dim('│')}`);
+
+          // What the plugin does
+          if (pluginInfo?.description) {
+            console.log(`  ${chalk.dim('│')}  ${chalk.white('What it does:')}`);
+            // Word wrap description at ~60 chars
+            const words = pluginInfo.description.split(' ');
+            let line = '';
+            for (const word of words) {
+              if (line.length + word.length > 55) {
+                console.log(`  ${chalk.dim('│')}    ${chalk.dim(line.trim())}`);
+                line = word + ' ';
+              } else {
+                line += word + ' ';
+              }
+            }
+            if (line.trim()) {
+              console.log(`  ${chalk.dim('│')}    ${chalk.dim(line.trim())}`);
+            }
+          }
+
+          // Footer with install command or ready status
+          console.log(`  ${chalk.dim('│')}`);
+          if (installed) {
+            console.log(`  ${chalk.dim('└─')} ${chalk.green('Ready to use')}`);
+          } else {
+            console.log(`  ${chalk.dim('└─')} ${chalk.dim(getPluginInstallCommand([fw.plugin]))}`);
+          }
+          console.log('');
         }
 
         const missingPlugins = detectedFrameworks
@@ -437,8 +490,9 @@ export function createInitCommand(): Command {
           .filter((plugin) => !installedPlugins.some((p) => p.includes(plugin)));
 
         if (missingPlugins.length > 0) {
+          console.log(chalk.dim('  ' + '─'.repeat(65)));
           console.log('');
-          console.log(chalk.bold('  Install with:'));
+          console.log(chalk.bold('  Install all missing plugins:'));
           console.log(`    ${chalk.cyan(getPluginInstallCommand(missingPlugins))}`);
           console.log('');
 
