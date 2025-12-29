@@ -93,6 +93,19 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  packages/plugin-react:
+    dependencies:
+      '@buoy/scanners':
+        specifier: workspace:*
+        version: link:../scanners
+    devDependencies:
+      '@buoy/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+
   packages/scanners:
     dependencies:
       '@buoy/core':
