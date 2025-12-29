@@ -81,6 +81,18 @@ export function formatTokenTable(tokens: DesignToken[]): string {
       case 'typography':
         value = `${token.value.fontFamily} ${token.value.fontSize}px`;
         break;
+      case 'shadow':
+        value = `${token.value.x}px ${token.value.y}px ${token.value.blur}px ${token.value.color}`;
+        break;
+      case 'border':
+        value = `${token.value.width}px ${token.value.style} ${token.value.color}`;
+        break;
+      case 'raw':
+        // Show the actual value, truncated if needed
+        value = token.value.value.length > 40
+          ? token.value.value.slice(0, 37) + '...'
+          : token.value.value;
+        break;
       default:
         value = JSON.stringify(token.value).slice(0, 30);
     }
