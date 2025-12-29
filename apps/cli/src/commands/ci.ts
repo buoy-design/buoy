@@ -1,7 +1,7 @@
 // apps/cli/src/commands/ci.ts
 import { Command } from 'commander';
 import { loadConfig, getConfigPath } from '../config/loader.js';
-import { loadDiscoveredPlugins } from '../plugins/index.js';
+import { loadDiscoveredPlugins, registry } from '../plugins/index.js';
 import type { DriftSignal, Severity } from '@buoy/core';
 
 export interface CIOutput {
@@ -70,15 +70,46 @@ export function createCICommand(): Command {
         // Scan components
         const components: Awaited<ReturnType<typeof ReactComponentScanner.prototype.scan>>['items'] = [];
 
-        if (config.sources.react?.enabled) {
-          const scanner = new ReactComponentScanner({
-            projectRoot: process.cwd(),
-            include: config.sources.react.include,
-            exclude: config.sources.react.exclude,
-            designSystemPackage: config.sources.react.designSystemPackage,
-          });
-          const result = await scanner.scan();
-          components.push(...result.items);
+        // Determine which sources to scan from config
+        const sourcesToScan: string[] = [];
+        if (config.sources.react?.enabled) sourcesToScan.push('react');
+        if (config.sources.vue?.enabled) sourcesToScan.push('vue');
+        if (config.sources.svelte?.enabled) sourcesToScan.push('svelte');
+        if (config.sources.angular?.enabled) sourcesToScan.push('angular');
+
+        // Scan each source
+        for (const source of sourcesToScan) {
+          const plugin = registry.getByDetection(source);
+
+          if (plugin && plugin.scan) {
+            // Use plugin
+            const sourceConfig = config.sources[source as keyof typeof config.sources];
+            const result = await plugin.scan({
+              projectRoot: process.cwd(),
+              config: (sourceConfig as Record<string, unknown>) || {},
+              include: (sourceConfig as { include?: string[] })?.include,
+              exclude: (sourceConfig as { exclude?: string[] })?.exclude,
+            });
+            components.push(...result.components);
+            if (result.errors && result.errors.length > 0) {
+              for (const err of result.errors) {
+                log(`[${source}] ${err.file || ''}: ${err.message}`);
+              }
+            }
+          } else {
+            // Fall back to bundled scanner
+            if (source === 'react' && config.sources.react) {
+              const scanner = new ReactComponentScanner({
+                projectRoot: process.cwd(),
+                include: config.sources.react.include,
+                exclude: config.sources.react.exclude,
+                designSystemPackage: config.sources.react.designSystemPackage,
+              });
+              const result = await scanner.scan();
+              components.push(...result.items);
+            }
+            // Add other framework fallbacks as needed
+          }
         }
 
         // Run semantic diff
