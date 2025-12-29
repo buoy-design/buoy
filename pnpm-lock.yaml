@@ -125,6 +125,25 @@ importers:
         specifier: ^5.0.0
         version: 5.9.3
 
+  packages/plugin-tailwind:
+    dependencies:
+      '@buoy-design/core':
+        specifier: workspace:*
+        version: link:../core
+      glob:
+        specifier: ^10.3.10
+        version: 10.5.0
+      tailwindcss:
+        specifier: '>=3.0.0'
+        version: 4.1.18
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.19.3)
+
   packages/scanners:
     dependencies:
       '@buoy-design/core':
@@ -1800,6 +1819,9 @@ packages:
     resolution: {integrity: sha512-qpCAvRl9stuOHveKsn7HncJRvv501qIacKzQlO/+Lwxc9+0q2wLyv4Dfvt80/DPn2pqOBsJdDiogXGR9+OvwRw==}
     engines: {node: '>=8'}
 
+  tailwindcss@4.1.18:
+    resolution: {integrity: sha512-4+Z+0yiYyEtUVCScyfHCxOYP06L5Ne+JiHhY2IjR2KWMIWhJOYZKLSGZaP5HkZ8+bY0cxfzwDE5uOmzFXyIwxw==}
+
   tar-fs@2.1.4:
     resolution: {integrity: sha512-mDAjwmZdh7LTT6pNleZ05Yt65HC3E+NiQzl672vQG38jIrehtJk/J3mNwIg+vShQPcLF/LV7CMnDW6vjj6sfYQ==}
 
@@ -3474,6 +3496,8 @@ snapshots:
   supports-color@7.2.0:
     dependencies:
       has-flag: 4.0.0
+
+  tailwindcss@4.1.18: {}
 
   tar-fs@2.1.4:
     dependencies:

@@ -6,5 +6,6 @@ export default defineWorkspace([
   'packages/db',
   'packages/plugin-react',
   'packages/plugin-github',
+  'packages/plugin-tailwind',
   'apps/cli',
 ]);
