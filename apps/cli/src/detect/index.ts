@@ -9,3 +9,5 @@ export {
   type DesignSystemInfo,
   type MonorepoInfo,
 } from './project-detector.js';
+
+export * from './frameworks.js';
