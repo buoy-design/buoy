@@ -57,8 +57,8 @@ describe('SemanticDiffEngine', () => {
       const result = engine.compareComponents(source, target);
 
       expect(result.matches).toHaveLength(1);
-      expect(result.matches[0].matchType).toBe('exact');
-      expect(result.matches[0].confidence).toBe(1);
+      expect(result.matches[0]!.matchType).toBe('exact');
+      expect(result.matches[0]!.confidence).toBe(1);
       expect(result.orphanedSource).toHaveLength(0);
       expect(result.orphanedTarget).toHaveLength(0);
     });
@@ -73,7 +73,7 @@ describe('SemanticDiffEngine', () => {
       const result = engine.compareComponents(source, target);
 
       expect(result.orphanedSource).toHaveLength(1);
-      expect(result.orphanedSource[0].name).toBe('Card');
+      expect(result.orphanedSource[0]!.name).toBe('Card');
     });
 
     it('identifies orphaned target components', () => {
@@ -86,7 +86,7 @@ describe('SemanticDiffEngine', () => {
       const result = engine.compareComponents(source, target);
 
       expect(result.orphanedTarget).toHaveLength(1);
-      expect(result.orphanedTarget[0].name).toBe('Modal');
+      expect(result.orphanedTarget[0]!.name).toBe('Modal');
     });
 
     it('generates drift signals for orphaned components', () => {
@@ -96,7 +96,7 @@ describe('SemanticDiffEngine', () => {
       const result = engine.compareComponents(source, target);
 
       expect(result.drifts).toHaveLength(1);
-      expect(result.drifts[0].type).toBe('orphaned-component');
+      expect(result.drifts[0]!.type).toBe('orphaned-component');
     });
   });
 
@@ -110,8 +110,8 @@ describe('SemanticDiffEngine', () => {
         const result = engine.analyzeComponents(components, { checkDeprecated: true });
 
         expect(result.drifts).toHaveLength(1);
-        expect(result.drifts[0].type).toBe('deprecated-pattern');
-        expect(result.drifts[0].severity).toBe('warning');
+        expect(result.drifts[0]!.type).toBe('deprecated-pattern');
+        expect(result.drifts[0]!.severity).toBe('warning');
       });
 
       it('includes deprecation reason in suggestions', () => {
@@ -124,7 +124,7 @@ describe('SemanticDiffEngine', () => {
 
         const result = engine.analyzeComponents(components, { checkDeprecated: true });
 
-        expect(result.drifts[0].details.suggestions).toContain('Use NewButton instead');
+        expect(result.drifts[0]!.details.suggestions).toContain('Use NewButton instead');
       });
     });
 
@@ -168,7 +168,7 @@ describe('SemanticDiffEngine', () => {
 
       expect(result.matches).toHaveLength(1);
       expect(result.drifts).toHaveLength(1);
-      expect(result.drifts[0].type).toBe('value-divergence');
+      expect(result.drifts[0]!.type).toBe('value-divergence');
     });
 
     it('identifies orphaned tokens', () => {
@@ -181,7 +181,7 @@ describe('SemanticDiffEngine', () => {
       const result = engine.compareTokens(source, target);
 
       expect(result.orphanedSource).toHaveLength(1);
-      expect(result.orphanedSource[0].name).toBe('--secondary-color');
+      expect(result.orphanedSource[0]!.name).toBe('--secondary-color');
     });
   });
 });

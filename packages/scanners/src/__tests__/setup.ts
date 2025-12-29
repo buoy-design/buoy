@@ -42,7 +42,7 @@ vi.mock('glob', async () => {
             regex += '[^/]';
             i++;
           } else {
-            regex += escapeRegex(p[i]);
+            regex += escapeRegex(p[i]!);
             i++;
           }
         }

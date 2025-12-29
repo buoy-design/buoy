@@ -6,12 +6,39 @@ import { registry } from './registry.js';
 
 const PLUGIN_PREFIX = '@buoy/plugin-';
 
+// Security: Only allow safe characters in plugin names to prevent arbitrary package imports
+const VALID_SIMPLE_NAME = /^[a-z0-9-]+$/;
+const VALID_SCOPED_PACKAGE = /^@[a-z0-9-]+\/[a-z0-9-]+$/;
+
+function validatePluginName(nameOrPath: string): void {
+  if (nameOrPath.startsWith('@')) {
+    // Scoped package: must match @org/name pattern with safe characters only
+    if (!VALID_SCOPED_PACKAGE.test(nameOrPath)) {
+      throw new Error(
+        `Invalid plugin name "${nameOrPath}". Scoped packages must match @org/name ` +
+          `with only lowercase letters, numbers, and hyphens.`
+      );
+    }
+  } else {
+    // Simple name: only allow lowercase letters, numbers, and hyphens
+    if (!VALID_SIMPLE_NAME.test(nameOrPath)) {
+      throw new Error(
+        `Invalid plugin name "${nameOrPath}". Plugin names must contain only ` +
+          `lowercase letters, numbers, and hyphens.`
+      );
+    }
+  }
+}
+
 interface LoaderOptions {
   projectRoot?: string;
   autoDiscover?: boolean;
 }
 
 export async function loadPlugin(nameOrPath: string): Promise<BuoyPlugin> {
+  // Security: Validate plugin name before dynamic import
+  validatePluginName(nameOrPath);
+
   // Handle shorthand: "react" -> "@buoy/plugin-react"
   const moduleName = nameOrPath.startsWith('@')
     ? nameOrPath

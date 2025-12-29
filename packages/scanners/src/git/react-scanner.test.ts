@@ -28,8 +28,8 @@ describe('ReactComponentScanner', () => {
       const result = await scanner.scan();
 
       expect(result.items).toHaveLength(1);
-      expect(result.items[0].name).toBe('Button');
-      expect(result.items[0].source.type).toBe('react');
+      expect(result.items[0]!.name).toBe('Button');
+      expect(result.items[0]!.source.type).toBe('react');
     });
 
     it('detects arrow function components', async () => {
@@ -45,7 +45,7 @@ describe('ReactComponentScanner', () => {
       const result = await scanner.scan();
 
       expect(result.items).toHaveLength(1);
-      expect(result.items[0].name).toBe('Card');
+      expect(result.items[0]!.name).toBe('Card');
     });
 
     it('ignores non-component functions', async () => {
@@ -99,7 +99,7 @@ describe('ReactComponentScanner', () => {
       });
 
       const result = await scanner.scan();
-      const hardcoded = result.items[0].metadata.hardcodedValues || [];
+      const hardcoded = result.items[0]!.metadata.hardcodedValues || [];
 
       expect(hardcoded).toContainEqual(
         expect.objectContaining({ type: 'color', value: '#ff0000' })
@@ -117,7 +117,7 @@ describe('ReactComponentScanner', () => {
       });
 
       const result = await scanner.scan();
-      const hardcoded = result.items[0].metadata.hardcodedValues || [];
+      const hardcoded = result.items[0]!.metadata.hardcodedValues || [];
 
       expect(hardcoded).toContainEqual(
         expect.objectContaining({ type: 'spacing', value: '8px' })
@@ -138,7 +138,7 @@ describe('ReactComponentScanner', () => {
 
       const result = await scanner.scan();
 
-      expect(result.items[0].metadata.deprecated).toBe(true);
+      expect(result.items[0]!.metadata.deprecated).toBe(true);
     });
   });
 });

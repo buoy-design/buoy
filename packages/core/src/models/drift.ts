@@ -33,6 +33,33 @@ export const SuggestedActionSchema = z.object({
   codeExample: z.string().optional(),
 });
 
+// Git context for drift forensics (used by `buoy drift explain`)
+export const GitContextSchema = z.object({
+  // Who last modified this code and when
+  blame: z.object({
+    author: z.string(),
+    email: z.string().optional(),
+    date: z.date(),
+    commitHash: z.string(),
+    commitMessage: z.string(),
+  }).optional(),
+  // What the code looked like before the drift was introduced
+  previousValue: z.string().optional(),
+  // PR/MR context if available
+  pullRequest: z.object({
+    number: z.number(),
+    title: z.string(),
+    url: z.string().optional(),
+  }).optional(),
+  // Full history of changes to this line/file (most recent first)
+  history: z.array(z.object({
+    commitHash: z.string(),
+    author: z.string(),
+    date: z.date(),
+    message: z.string(),
+  })).optional(),
+});
+
 // Drift details
 export const DriftDetailsSchema = z.object({
   expected: z.unknown().optional(),
@@ -50,6 +77,9 @@ export const DriftDetailsSchema = z.object({
     name: z.string(),
     version: z.string().optional(),
   })).optional(),
+  // Git context for understanding how/why drift was introduced
+  // Populated by scanner when git info is available, used by `drift explain`
+  gitContext: GitContextSchema.optional(),
 });
 
 // Drift resolution
@@ -81,6 +111,7 @@ export type DriftType = z.infer<typeof DriftTypeSchema>;
 export type Severity = z.infer<typeof SeveritySchema>;
 export type DriftSource = z.infer<typeof DriftSourceSchema>;
 export type SuggestedAction = z.infer<typeof SuggestedActionSchema>;
+export type GitContext = z.infer<typeof GitContextSchema>;
 export type DriftDetails = z.infer<typeof DriftDetailsSchema>;
 export type DriftResolutionType = z.infer<typeof DriftResolutionTypeSchema>;
 export type DriftResolution = z.infer<typeof DriftResolutionSchema>;

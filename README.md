@@ -5,15 +5,21 @@
 AI tools like Copilot and Claude generate code fast—but they don't know your design system. Buoy scans your codebase and catches design drift before it ships.
 
 ```
-$ buoy status
+$ buoy ci
 
-Component Alignment
+Buoy CI Report
+==============
+Scanned: 15 components
+Drift signals: 3 (1 critical, 2 warning)
 
-⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛀ ⛀ ⛀   47/62 components · 76% aligned
-⛀ ⛀ ⛀ ⛀ ⛀ ⛀ ⛶ ⛶ ⛶ ⛶
-⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛁ Aligned: 47 (76%)
-⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛀ Drifting: 10 (16%)
-                          ⛶ Untracked: 5 (8%)
+CRITICAL
+  Button: Hardcoded color #3b82f6 (src/Button.tsx:42)
+
+WARNING
+  Card: Uses deprecated 'size' prop (src/Card.tsx:18)
+  Modal: Naming inconsistency (src/Modal.tsx:1)
+
+Exit code: 1 (critical issues found)
 ```
 
 ## What It Detects
@@ -32,14 +38,14 @@ Component Alignment
 # Install
 npm install -g @buoy/cli
 
-# Initialize in your project
+# Initialize in your project (auto-detects frameworks)
 buoy init
 
-# See coverage at a glance
-buoy status
-
-# Get detailed drift signals
+# Check for drift
 buoy drift check
+
+# Run in CI (exits non-zero on critical issues)
+buoy ci
 ```
 
 ## Supported Frameworks
@@ -71,6 +77,9 @@ Chakra UI, MUI, Ant Design, Radix, shadcn/ui, Mantine, Bootstrap, Tailwind, and 
 | `buoy scan` | Scan components and tokens |
 | `buoy status` | Visual coverage grid |
 | `buoy drift check` | Detailed drift signals |
+| `buoy ci` | CI-optimized output with exit codes |
+| `buoy plugins` | List installed and suggested plugins |
+| `buoy build` | Generate design tokens with AI |
 
 ## Configuration
 
@@ -95,6 +104,64 @@ export default {
 };
 ```
 
+## CI Integration
+
+Run Buoy in your CI pipeline to catch drift before it merges:
+
+```bash
+# Basic CI check (exits 1 on critical issues)
+buoy ci
+
+# JSON output for custom processing
+buoy ci --json
+
+# Strict mode (exits 1 on any warning)
+buoy ci --strict
+
+# GitHub PR comments (coming soon)
+buoy ci --github-token $TOKEN --github-repo owner/repo --github-pr 123
+```
+
+**Exit Codes:**
+- `0` — No critical issues
+- `1` — Critical issues found (or warnings in strict mode)
+
+**GitHub Actions Example:**
+
+```yaml
+# .github/workflows/buoy.yml
+name: Design Drift Check
+on: [pull_request]
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npx buoy ci
+```
+
+## Plugin System
+
+Buoy uses plugins for scanning and reporting. Plugins are auto-discovered based on your project.
+
+```bash
+# See installed and suggested plugins
+buoy plugins
+
+# Install a plugin
+npm install @buoy/plugin-react
+```
+
+**Available Plugins:**
+- `@buoy/plugin-react` — React/JSX component scanning
+- `@buoy/plugin-vue` — Vue SFC scanning (coming soon)
+- `@buoy/plugin-github` — GitHub PR comments (coming soon)
+
 ## Output Formats
 
 ```bash
@@ -103,6 +170,9 @@ buoy drift check
 
 # JSON for CI/scripts
 buoy drift check --json
+
+# Markdown for docs/reports
+buoy drift check --markdown
 
 # Filter by severity
 buoy drift check --severity critical

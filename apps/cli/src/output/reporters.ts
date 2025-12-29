@@ -86,7 +86,8 @@ export function progress(current: number, total: number, label: string): void {
   if (jsonMode) {
     return;
   }
-  const percent = Math.round((current / total) * 100);
+  // Handle division by zero: if total is 0, show 100% (nothing to do = complete)
+  const percent = total > 0 ? Math.round((current / total) * 100) : 100;
   const filled = Math.round(percent / 5);
   const empty = 20 - filled;
   const bar = chalk.green('█'.repeat(filled)) + chalk.dim('░'.repeat(empty));

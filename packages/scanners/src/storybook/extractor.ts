@@ -8,6 +8,10 @@ import { resolve } from 'path';
 export interface StorybookScannerConfig extends ScannerConfig {
   url?: string;
   staticDir?: string;
+  /** Bearer token for authentication */
+  authToken?: string;
+  /** Custom header name for auth (defaults to 'Authorization') */
+  authHeader?: string;
 }
 
 interface StorybookIndex {
@@ -55,6 +59,23 @@ export class StorybookScanner extends Scanner<Component, StorybookScannerConfig>
     return 'storybook';
   }
 
+  private getFetchOptions(): RequestInit {
+    if (!this.config.authToken) {
+      return {};
+    }
+
+    const headerName = this.config.authHeader || 'Authorization';
+    const headerValue = headerName === 'Authorization'
+      ? `Bearer ${this.config.authToken}`
+      : this.config.authToken;
+
+    return {
+      headers: {
+        [headerName]: headerValue,
+      },
+    };
+  }
+
   private async fetchStoriesIndex(): Promise<StorybookIndex> {
     // Try to read from static directory first
     if (this.config.staticDir) {
@@ -76,9 +97,11 @@ export class StorybookScanner extends Scanner<Component, StorybookScannerConfig>
 
     // Fetch from running Storybook server
     if (this.config.url) {
+      const fetchOptions = this.getFetchOptions();
+
       // Try index.json (Storybook 7+)
       try {
-        const response = await fetch(`${this.config.url}/index.json`);
+        const response = await fetch(`${this.config.url}/index.json`, fetchOptions);
         if (response.ok) {
           return response.json() as Promise<StorybookIndex>;
         }
@@ -87,7 +110,7 @@ export class StorybookScanner extends Scanner<Component, StorybookScannerConfig>
       }
 
       // Try stories.json (older versions)
-      const response = await fetch(`${this.config.url}/stories.json`);
+      const response = await fetch(`${this.config.url}/stories.json`, fetchOptions);
       if (!response.ok) {
         throw new Error(`Failed to fetch Storybook index: ${response.status}`);
       }
