@@ -1,6 +1,11 @@
 # @buoy-design/agents
 
-AI agents for code analysis, git history review, and contribution assessment.
+AI agents for code analysis, powered by Claude Code.
+
+## Prerequisites
+
+- Claude Code CLI installed (`npm install -g @anthropic-ai/claude-code`)
+- `ANTHROPIC_API_KEY` environment variable set
 
 ## Installation
 
@@ -8,82 +13,74 @@ AI agents for code analysis, git history review, and contribution assessment.
 pnpm add @buoy-design/agents
 ```
 
+## Usage
+
+### Programmatic (via Buoy CLI)
+
+```typescript
+import { analyzeCodebase, analyzeHistory, predictAcceptance } from '@buoy-design/agents';
+
+// Analyze code patterns and quality
+const result = await analyzeCodebase(['src/Button.tsx', 'src/Input.tsx']);
+console.log(result.output);
+
+// Understand git history
+const history = await analyzeHistory(['src/Button.tsx'], {
+  question: 'Why was this file not updated during the token migration?'
+});
+
+// Predict PR acceptance
+const prediction = await predictAcceptance('/path/to/repo',
+  'Migrate hardcoded colors to design tokens'
+);
+```
+
+### Interactive (via Claude Code)
+
+```
+> Use the codebase-review agent to analyze src/components/
+
+> Use the history-review agent to explain why Button.tsx still has hardcoded colors
+
+> Use the acceptance agent to predict if my token migration PR will be accepted
+```
+
 ## Agents
 
-### CodebaseReviewAgent
+| Agent | Purpose |
+|-------|---------|
+| `codebase-review` | Analyze code patterns, quality, design system adherence |
+| `history-review` | Understand git history, explain why code wasn't updated |
+| `acceptance` | Predict PR acceptance, suggest submission approach |
 
-Analyzes code for patterns, quality, and whether drift signals are intentional divergences.
+Agent definitions live in `.claude/agents/` and work in both modes.
 
-```typescript
-import { CodebaseReviewAgent } from '@buoy-design/agents';
+## API
 
-const agent = new CodebaseReviewAgent();
-const result = await agent.execute({
-  repo: { url: '...', name: 'repo', owner: 'org', defaultBranch: 'main', localPath: '/path' },
-  files: [{ path: 'Button.tsx', content: '...', lineCount: 50 }],
-  signals: driftSignals, // optional
-});
+### analyzeCodebase(files, options?)
 
-console.log(result.patterns);
-console.log(result.codeQuality);
-console.log(result.intentionalDivergences);
-```
-
-### HistoryReviewAgent
-
-Analyzes git history to understand why code evolved and whether files were intentionally left unchanged.
+Analyze files for design system patterns and quality.
 
 ```typescript
-import { HistoryReviewAgent } from '@buoy-design/agents';
+interface AnalysisOptions {
+  workingDirectory?: string;  // Defaults to process.cwd()
+  question?: string;          // Focus the analysis
+}
 
-const agent = new HistoryReviewAgent();
-const result = await agent.execute({
-  repo: { ... },
-  files: [{ ... }],
-  commits: [{ hash: '...', author: '...', date: new Date(), message: '...' }],
-  blame: { 'Button.tsx': [...] }, // optional
-  pullRequests: [...], // optional
-});
-
-console.log(result.narratives);
-console.log(result.whyNotUpdated);
-console.log(result.relatedPRs);
+interface AgentResult {
+  success: boolean;
+  output: string;
+  error?: string;
+}
 ```
 
-### AcceptanceAgent
+### analyzeHistory(files, options?)
 
-Predicts PR acceptance likelihood and suggests optimal submission approach.
+Analyze git history to understand code evolution.
 
-```typescript
-import { AcceptanceAgent } from '@buoy-design/agents';
+### predictAcceptance(repoPath, proposedChanges, options?)
 
-const agent = new AcceptanceAgent();
-const result = await agent.execute({
-  repo: { ... },
-  files: [{ ... }],
-  contributingGuide: '...',
-  recentMergedPRs: [...],
-});
-
-console.log(result.prediction.likelihood); // 'high' | 'medium' | 'low' | 'unlikely'
-console.log(result.prediction.suggestedApproach);
-console.log(result.maintainerPreferences);
-```
-
-## Configuration
-
-All agents accept optional configuration:
-
-```typescript
-const agent = new CodebaseReviewAgent({
-  config: {
-    model: 'claude-sonnet-4-20250514', // or 'claude-opus-4-20250514'
-    maxTokens: 4096,
-    temperature: 0.3,
-    apiKey: 'sk-...', // or set ANTHROPIC_API_KEY env var
-  },
-});
-```
+Predict whether changes would be accepted as a PR.
 
 ## License
 
