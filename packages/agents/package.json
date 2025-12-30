@@ -31,7 +31,6 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "^0.2.57",
     "zod": "^3.24.1"
   },
   "devDependencies": {
