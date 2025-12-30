@@ -1,5 +1,9 @@
 // packages/agents/src/index.ts
+// Types
 export * from './types.js';
-export * from './agents/codebase-review.js';
-export * from './agents/history-review.js';
-export * from './agents/acceptance.js';
+
+// Utilities
+export * from './utils/index.js';
+
+// Agents
+export * from './agents/index.js';

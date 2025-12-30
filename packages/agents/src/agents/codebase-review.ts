@@ -4,7 +4,6 @@ import {
   type AgentContext,
   type CodebaseReviewResult,
   type CodePattern,
-  type Finding,
 } from '../types.js';
 import { promptSection, formatFilesForPrompt, truncateForTokens } from '../utils/claude.js';
 

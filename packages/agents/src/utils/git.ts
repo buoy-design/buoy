@@ -1,6 +1,6 @@
 // packages/agents/src/utils/git.ts
-import simpleGit, { SimpleGit, LogResult } from 'simple-git';
-import type { CommitInfo, BlameLine, PullRequestInfo } from '../types.js';
+import { simpleGit, SimpleGit, LogResult } from 'simple-git';
+import type { CommitInfo, BlameLine } from '../types.js';
 
 export interface GitClient {
   getCommits(filePath?: string, limit?: number): Promise<CommitInfo[]>;

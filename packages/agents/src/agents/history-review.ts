@@ -4,7 +4,6 @@ import {
   type HistoryContext,
   type HistoryReviewResult,
   type EvolutionNarrative,
-  type Finding,
 } from '../types.js';
 import { promptSection, truncateForTokens } from '../utils/claude.js';
 
