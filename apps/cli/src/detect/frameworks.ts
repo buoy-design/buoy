@@ -90,25 +90,56 @@ const FRAMEWORK_PATTERNS: Array<{
   { name: 'storybook', plugin: 'storybook', packages: ['@storybook/react', '@storybook/vue3', '@storybook/svelte'], files: ['.storybook/**'] },
 ];
 
-export async function detectFrameworks(projectRoot: string): Promise<DetectedFramework[]> {
+export interface MonorepoInfoForDetection {
+  type: string;
+  patterns: string[];
+}
+
+export async function detectFrameworks(projectRoot: string, monorepoInfo?: MonorepoInfoForDetection | null): Promise<DetectedFramework[]> {
   const detected: DetectedFramework[] = [];
 
-  // Read package.json
-  const pkgPath = resolve(projectRoot, 'package.json');
-  let pkgJson: PackageJson = {};
+  // Collect all dependency names from root and workspace packages
+  const allDeps: Record<string, string> = {};
 
+  // Read root package.json
+  const pkgPath = resolve(projectRoot, 'package.json');
   if (existsSync(pkgPath)) {
     try {
-      pkgJson = JSON.parse(await readFile(pkgPath, 'utf-8'));
+      const pkgJson: PackageJson = JSON.parse(await readFile(pkgPath, 'utf-8'));
+      Object.assign(allDeps, pkgJson.dependencies, pkgJson.devDependencies);
     } catch {
-      // Invalid JSON, continue with empty dependencies
+      // Invalid JSON, continue
     }
   }
 
-  const allDeps = {
-    ...pkgJson.dependencies,
-    ...pkgJson.devDependencies,
-  };
+  // If monorepo, also check workspace package.json files
+  if (monorepoInfo && monorepoInfo.patterns.length > 0) {
+    for (const wsPattern of monorepoInfo.patterns) {
+      // Convert workspace pattern to package.json glob
+      // e.g., "apps/*" -> "apps/*/package.json"
+      // e.g., "packages/**/*" -> "packages/**/*/package.json"
+      const normalizedPattern = wsPattern.replace(/\/?$/, '');
+      const pkgPattern = normalizedPattern.endsWith('*')
+        ? `${normalizedPattern}/package.json`
+        : `${normalizedPattern}/*/package.json`;
+
+      try {
+        const matches = await glob(pkgPattern, { cwd: projectRoot, nodir: true });
+        for (const match of matches.slice(0, 20)) {  // Limit to 20 packages
+          try {
+            const wsPkgPath = resolve(projectRoot, match);
+            const wsPkgJson: PackageJson = JSON.parse(await readFile(wsPkgPath, 'utf-8'));
+            Object.assign(allDeps, wsPkgJson.dependencies, wsPkgJson.devDependencies);
+          } catch {
+            // Invalid JSON, skip this package
+          }
+        }
+      } catch {
+        // Glob failed, continue
+      }
+    }
+  }
+
   const depNames = Object.keys(allDeps);
 
   for (const pattern of FRAMEWORK_PATTERNS) {

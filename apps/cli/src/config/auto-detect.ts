@@ -26,7 +26,11 @@ async function detectMonorepo(projectRoot: string): Promise<MonorepoInfo | null>
         const patterns = packagesMatch[1]
           .split('\n')
           .map(line => line.replace(/^\s*-\s*/, '').trim())
-          .filter(Boolean);
+          .filter(Boolean)
+          // Strip single and double quotes from YAML strings
+          .map(pattern => pattern.replace(/^["'](.*)["']$/, '$1'))
+          // Filter out negation patterns (they start with !)
+          .filter(pattern => !pattern.startsWith('!'));
         return { type: 'pnpm', patterns };
       }
     } catch {
@@ -151,11 +155,9 @@ export async function buildAutoConfig(projectRoot: string = process.cwd()): Prom
   tokenFiles: string[];
   monorepo: MonorepoInfo | null;
 }> {
-  // Detect frameworks and monorepo
-  const [detected, monorepo] = await Promise.all([
-    detectFrameworks(projectRoot),
-    detectMonorepo(projectRoot),
-  ]);
+  // Detect monorepo first, then frameworks (passing monorepo info for workspace scanning)
+  const monorepo = await detectMonorepo(projectRoot);
+  const detected = await detectFrameworks(projectRoot, monorepo);
 
   // Find token files
   const tokenFiles = await findTokenFiles(projectRoot);
