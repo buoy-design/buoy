@@ -710,8 +710,17 @@ function generateRadiusTokens(values: ExtractedValue[], threshold: number): Cate
   const sortedPx = [...pxCounts.entries()].sort((a, b) => a[0] - b[0]);
 
   for (const [px, data] of sortedPx) {
+    // Never cluster 0 with non-zero values - keep zero separate
+    if (px === 0) {
+      clusters.push({ value: 0, count: data.count, sources: [...data.sources] });
+      continue;
+    }
+
     let foundCluster = false;
     for (const cluster of clusters) {
+      // Don't cluster non-zero values with zero
+      if (cluster.value === 0) continue;
+
       if (Math.abs(px - cluster.value) <= threshold) {
         if (data.count > cluster.count) {
           cluster.value = px;
@@ -730,17 +739,37 @@ function generateRadiusTokens(values: ExtractedValue[], threshold: number): Cate
 
   clusters.sort((a, b) => a.value - b.value);
 
-  const sizeNames = ['none', 'sm', 'md', 'lg', 'xl', '2xl', 'full'];
-  const tokens: GeneratedToken[] = [];
-  const tokenizedClusters = clusters.slice(0, sizeNames.length);
-  const orphanClusters = clusters.slice(sizeNames.length);
+  // Separate zero cluster from non-zero clusters
+  const zeroCluster = clusters.find(c => c.value === 0);
+  const nonZeroClusters = clusters.filter(c => c.value > 0);
 
-  for (let i = 0; i < tokenizedClusters.length; i++) {
-    const cluster = tokenizedClusters[i]!;
+  // Size names for non-zero values only
+  const sizeNames = ['sm', 'md', 'lg', 'xl', '2xl', 'full'];
+
+  const tokens: GeneratedToken[] = [];
+  const tokenizedClusters: typeof clusters = [];
+
+  // Handle zero first - only create radius-none if there's actually a 0 value
+  if (zeroCluster) {
+    tokens.push({
+      name: 'radius-none',
+      value: '0',
+      category: 'radius',
+      context: 'radius',
+      occurrences: zeroCluster.count,
+      sources: [...new Set(zeroCluster.sources)],
+    });
+    tokenizedClusters.push(zeroCluster);
+  }
+
+  // Handle non-zero values with sm, md, lg, etc.
+  const nonZeroTokenized = nonZeroClusters.slice(0, sizeNames.length);
+  const orphanClusters = nonZeroClusters.slice(sizeNames.length);
+
+  for (let i = 0; i < nonZeroTokenized.length; i++) {
+    const cluster = nonZeroTokenized[i]!;
     const sizeName = sizeNames[i]!;
-    const value = cluster.value === 0 ? '0' :
-                  sizeName === 'full' ? '9999px' :
-                  `${cluster.value}px`;
+    const value = sizeName === 'full' ? '9999px' : `${cluster.value}px`;
 
     tokens.push({
       name: `radius-${sizeName}`,
@@ -750,6 +779,7 @@ function generateRadiusTokens(values: ExtractedValue[], threshold: number): Cate
       occurrences: cluster.count,
       sources: [...new Set(cluster.sources)],
     });
+    tokenizedClusters.push(cluster);
   }
 
   // Generate orphan tokens for extra radius values

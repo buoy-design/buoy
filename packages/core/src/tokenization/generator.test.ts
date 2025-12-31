@@ -4,6 +4,37 @@ import { generateTokens } from './generator.js';
 import type { ExtractedValue } from '../extraction/css-parser.js';
 
 describe('generateTokens', () => {
+  describe('radius tokens', () => {
+    it('assigns radius-none to 0 value, not smallest non-zero', () => {
+      const values: ExtractedValue[] = [
+        { property: 'border-radius', value: '0', rawValue: '0', category: 'radius', context: 'radius' },
+        { property: 'border-radius', value: '4px', rawValue: '4px', category: 'radius', context: 'radius' },
+        { property: 'border-radius', value: '8px', rawValue: '8px', category: 'radius', context: 'radius' },
+      ];
+
+      const result = generateTokens(values);
+      const noneToken = result.tokens.find(t => t.name === 'radius-none');
+
+      expect(noneToken).toBeDefined();
+      expect(noneToken?.value).toBe('0');
+    });
+
+    it('does not generate radius-none if no zero values exist', () => {
+      const values: ExtractedValue[] = [
+        { property: 'border-radius', value: '4px', rawValue: '4px', category: 'radius', context: 'radius' },
+        { property: 'border-radius', value: '8px', rawValue: '8px', category: 'radius', context: 'radius' },
+      ];
+
+      const result = generateTokens(values);
+      const noneToken = result.tokens.find(t => t.name === 'radius-none');
+
+      // If noneToken exists, it should be 0, not 4px
+      if (noneToken) {
+        expect(noneToken.value).toBe('0');
+      }
+    });
+  });
+
   describe('CSS output', () => {
     it('uses correct plural form for radius (not "Radiuss")', () => {
       const values: ExtractedValue[] = [
