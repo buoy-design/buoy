@@ -158,9 +158,19 @@ function generateConfig(project: DetectedProject): string {
   ): string => {
     // Return component type directly if it's a known template type
     const knownTypes = [
+      // Server-side templates
       "blade", "erb", "twig", "njk", "razor", "hbs", "mustache",
       "ejs", "pug", "liquid", "slim", "haml", "jinja", "django",
-      "thymeleaf", "freemarker", "go-template", "astro", "markdown", "mdx"
+      "thymeleaf", "freemarker", "go-template", "edge", "eta", "heex",
+      "velocity", "xslt",
+      // JS frameworks
+      "astro", "solid", "qwik", "marko", "lit", "fast",
+      // Static site generators
+      "hugo", "jekyll", "eleventy", "shopify",
+      // Documentation
+      "markdown", "mdx", "asciidoc",
+      // Data templates
+      "yaml-template", "json-template"
     ];
     if (componentType && knownTypes.includes(componentType)) {
       return componentType;
@@ -170,7 +180,7 @@ function generateConfig(project: DetectedProject): string {
     if (frameworkName === "laravel") return "blade";
     if (frameworkName === "rails") return "erb";
     if (frameworkName === "symfony") return "twig";
-    if (frameworkName === "eleventy") return "njk";
+    if (frameworkName === "eleventy") return "eleventy";
     if (frameworkName === "aspnet") return "razor";
     if (frameworkName === "express") return "ejs";
     if (frameworkName === "flask") return "jinja";
@@ -178,6 +188,8 @@ function generateConfig(project: DetectedProject): string {
     if (frameworkName === "spring") return "thymeleaf";
     if (frameworkName === "go") return "go-template";
     if (frameworkName === "astro") return "astro";
+    if (frameworkName === "hugo") return "hugo";
+    if (frameworkName === "jekyll") return "jekyll";
     return "html";
   };
 
@@ -187,10 +199,19 @@ function generateConfig(project: DetectedProject): string {
   );
   if (serverFramework) {
     const templateTypes = [
+      // Server-side templates
       "php", "blade", "erb", "twig", "html", "njk", "razor", "hbs",
       "mustache", "ejs", "pug", "liquid", "slim", "haml", "jinja",
-      "django", "thymeleaf", "freemarker", "go-template", "astro",
-      "markdown", "mdx"
+      "django", "thymeleaf", "freemarker", "go-template", "edge",
+      "eta", "heex", "velocity", "xslt",
+      // JS frameworks
+      "astro", "solid", "qwik", "marko", "lit", "fast",
+      // Static site generators
+      "hugo", "jekyll", "eleventy", "shopify",
+      // Documentation
+      "markdown", "mdx", "asciidoc",
+      // Data templates
+      "yaml-template", "json-template"
     ];
     const templateComponents = project.components.filter(
       (c) => c.type && templateTypes.includes(c.type),
@@ -357,11 +378,18 @@ function printDetectionResults(project: DetectedProject): void {
   if (project.components.length > 0) {
     for (const comp of project.components) {
       const typeLabels: Record<string, string> = {
+        // JS frameworks
         jsx: "component files",
         tsx: "TypeScript components",
         vue: "Vue components",
         svelte: "Svelte components",
         astro: "Astro components",
+        solid: "Solid components",
+        qwik: "Qwik components",
+        marko: "Marko components",
+        lit: "Lit elements",
+        fast: "FAST elements",
+        // Server-side templates
         php: "PHP templates",
         blade: "Blade templates",
         erb: "ERB templates",
@@ -380,9 +408,24 @@ function printDetectionResults(project: DetectedProject): void {
         django: "Django templates",
         thymeleaf: "Thymeleaf templates",
         freemarker: "Freemarker templates",
+        velocity: "Velocity templates",
         "go-template": "Go templates",
+        edge: "Edge.js templates",
+        eta: "Eta templates",
+        heex: "HEEx templates",
+        xslt: "XSLT stylesheets",
+        // Static site generators
+        hugo: "Hugo layouts",
+        jekyll: "Jekyll layouts",
+        eleventy: "Eleventy templates",
+        shopify: "Shopify templates",
+        // Documentation
         markdown: "Markdown files",
         mdx: "MDX files",
+        asciidoc: "AsciiDoc files",
+        // Data templates
+        "yaml-template": "YAML templates",
+        "json-template": "JSON templates",
       };
       const typeLabel = comp.type
         ? typeLabels[comp.type] || "template files"

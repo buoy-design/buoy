@@ -42,7 +42,19 @@ export interface ComponentLocation {
   path: string;
   fileCount: number;
   pattern: string;
-  type?: 'jsx' | 'tsx' | 'vue' | 'svelte' | 'astro' | 'php' | 'erb' | 'blade' | 'twig' | 'html' | 'njk' | 'razor' | 'hbs' | 'mustache' | 'ejs' | 'pug' | 'liquid' | 'slim' | 'haml' | 'jinja' | 'django' | 'thymeleaf' | 'freemarker' | 'go-template' | 'markdown' | 'mdx';
+  type?:
+    // JS frameworks
+    | 'jsx' | 'tsx' | 'vue' | 'svelte' | 'astro' | 'solid' | 'qwik' | 'marko' | 'lit' | 'fast'
+    // Server-side templates
+    | 'php' | 'erb' | 'blade' | 'twig' | 'html' | 'njk' | 'razor' | 'hbs' | 'mustache'
+    | 'ejs' | 'pug' | 'liquid' | 'slim' | 'haml' | 'jinja' | 'django' | 'thymeleaf'
+    | 'freemarker' | 'go-template' | 'edge' | 'eta' | 'heex' | 'velocity' | 'xslt'
+    // Static site generators
+    | 'hugo' | 'jekyll' | 'eleventy' | 'shopify'
+    // Documentation
+    | 'markdown' | 'mdx' | 'asciidoc'
+    // Data templates
+    | 'yaml-template' | 'json-template';
 }
 
 export interface TokenLocation {
@@ -171,6 +183,59 @@ const TEMPLATE_DIRS = [
   { dir: 'content', ext: 'mdx', type: 'mdx' as const },
   { dir: 'src/content', ext: 'mdx', type: 'mdx' as const },
   { dir: 'src/pages', ext: 'mdx', type: 'mdx' as const },
+  // Solid
+  { dir: 'src/components', ext: 'tsx', type: 'solid' as const },
+  { dir: 'src/routes', ext: 'tsx', type: 'solid' as const },
+  // Qwik
+  { dir: 'src/components', ext: 'tsx', type: 'qwik' as const },
+  { dir: 'src/routes', ext: 'tsx', type: 'qwik' as const },
+  // Marko
+  { dir: 'src/components', ext: 'marko', type: 'marko' as const },
+  { dir: 'src/pages', ext: 'marko', type: 'marko' as const },
+  // Lit
+  { dir: 'src/components', ext: 'ts', type: 'lit' as const },
+  { dir: 'src', ext: 'ts', type: 'lit' as const },
+  // FAST
+  { dir: 'src/components', ext: 'ts', type: 'fast' as const },
+  // Edge.js (Adonis)
+  { dir: 'resources/views', ext: 'edge', type: 'edge' as const },
+  // Eta
+  { dir: 'views', ext: 'eta', type: 'eta' as const },
+  { dir: 'templates', ext: 'eta', type: 'eta' as const },
+  // HEEx (Phoenix/Elixir)
+  { dir: 'lib', ext: 'heex', type: 'heex' as const },
+  { dir: 'lib', ext: 'html.heex', type: 'heex' as const },
+  // Velocity (Java)
+  { dir: 'src/main/resources/templates', ext: 'vm', type: 'velocity' as const },
+  { dir: 'templates', ext: 'vm', type: 'velocity' as const },
+  // XSLT
+  { dir: 'xsl', ext: 'xsl', type: 'xslt' as const },
+  { dir: 'xslt', ext: 'xslt', type: 'xslt' as const },
+  { dir: 'templates', ext: 'xsl', type: 'xslt' as const },
+  // Hugo (specific)
+  { dir: 'layouts', ext: 'html', type: 'hugo' as const },
+  { dir: 'layouts/partials', ext: 'html', type: 'hugo' as const },
+  { dir: 'layouts/_default', ext: 'html', type: 'hugo' as const },
+  // Jekyll (specific)
+  { dir: '_layouts', ext: 'html', type: 'jekyll' as const },
+  { dir: '_includes', ext: 'html', type: 'jekyll' as const },
+  // Eleventy (specific)
+  { dir: '_includes', ext: 'njk', type: 'eleventy' as const },
+  { dir: 'src/_includes', ext: 'njk', type: 'eleventy' as const },
+  // Shopify
+  { dir: 'sections', ext: 'liquid', type: 'shopify' as const },
+  { dir: 'snippets', ext: 'liquid', type: 'shopify' as const },
+  { dir: 'templates', ext: 'liquid', type: 'shopify' as const },
+  { dir: 'layout', ext: 'liquid', type: 'shopify' as const },
+  // AsciiDoc
+  { dir: 'docs', ext: 'adoc', type: 'asciidoc' as const },
+  { dir: 'docs', ext: 'asciidoc', type: 'asciidoc' as const },
+  { dir: 'content', ext: 'adoc', type: 'asciidoc' as const },
+  // YAML templates
+  { dir: 'templates', ext: 'yaml', type: 'yaml-template' as const },
+  { dir: 'templates', ext: 'yml', type: 'yaml-template' as const },
+  // JSON templates
+  { dir: 'templates', ext: 'json', type: 'json-template' as const },
 ];
 
 // Token file patterns

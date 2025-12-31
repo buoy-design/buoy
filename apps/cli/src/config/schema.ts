@@ -39,7 +39,20 @@ export const TemplateConfigSchema = z.object({
   enabled: z.boolean().default(true),
   include: z.array(z.string()),
   exclude: z.array(z.string()).default(['**/vendor/**', '**/cache/**']),
-  type: z.enum(['blade', 'erb', 'twig', 'php', 'html', 'njk', 'razor', 'hbs', 'mustache', 'ejs', 'pug', 'liquid', 'slim', 'haml', 'jinja', 'django', 'thymeleaf', 'freemarker', 'go-template', 'astro', 'markdown', 'mdx']),
+  type: z.enum([
+    // Server-side templates
+    'blade', 'erb', 'twig', 'php', 'html', 'njk', 'razor', 'hbs', 'mustache',
+    'ejs', 'pug', 'liquid', 'slim', 'haml', 'jinja', 'django', 'thymeleaf',
+    'freemarker', 'go-template', 'edge', 'eta', 'heex', 'velocity', 'xslt',
+    // JS frameworks
+    'astro', 'solid', 'qwik', 'marko', 'lit', 'fast',
+    // Static site generators
+    'hugo', 'jekyll', 'eleventy', 'shopify',
+    // Documentation
+    'markdown', 'mdx', 'asciidoc',
+    // Data templates
+    'yaml-template', 'json-template'
+  ]),
 });
 
 // Figma source config

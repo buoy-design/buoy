@@ -5,7 +5,19 @@ import { glob } from 'glob';
 import { readFileSync } from 'fs';
 import { relative, basename } from 'path';
 
-export type TemplateType = 'blade' | 'erb' | 'twig' | 'php' | 'html' | 'njk' | 'razor' | 'hbs' | 'mustache' | 'ejs' | 'pug' | 'liquid' | 'slim' | 'haml' | 'jinja' | 'django' | 'thymeleaf' | 'freemarker' | 'go-template' | 'astro' | 'markdown' | 'mdx';
+export type TemplateType =
+  // Server-side templates
+  | 'blade' | 'erb' | 'twig' | 'php' | 'html' | 'njk' | 'razor' | 'hbs' | 'mustache'
+  | 'ejs' | 'pug' | 'liquid' | 'slim' | 'haml' | 'jinja' | 'django' | 'thymeleaf'
+  | 'freemarker' | 'go-template' | 'edge' | 'eta' | 'heex' | 'velocity' | 'xslt'
+  // JS frameworks
+  | 'astro' | 'solid' | 'qwik' | 'marko' | 'lit' | 'fast'
+  // Static site generators
+  | 'hugo' | 'jekyll' | 'eleventy' | 'shopify'
+  // Documentation
+  | 'markdown' | 'mdx' | 'asciidoc'
+  // Data templates
+  | 'yaml-template' | 'json-template';
 
 export interface TemplateScannerConfig extends ScannerConfig {
   templateType: TemplateType;
@@ -203,6 +215,149 @@ const TEMPLATE_CONFIG: Record<string, { ext: string; patterns: RegExp[] }> = {
       /import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g, // import Component from './Component'
       /<([A-Z]\w+)/g,                            // <ComponentName
       /export\s+(const|function|default)/g,     // export const/function/default
+    ],
+  },
+  // Additional JS frameworks
+  solid: {
+    ext: 'tsx',
+    patterns: [
+      /import\s+.*from\s+['"]solid-js['"]/g,     // Solid imports
+      /createSignal|createEffect|createMemo/g,   // Solid primitives
+      /<([A-Z]\w+)/g,                            // JSX components
+    ],
+  },
+  qwik: {
+    ext: 'tsx',
+    patterns: [
+      /import\s+.*from\s+['"]@builder\.io\/qwik['"]/g, // Qwik imports
+      /component\$|useSignal|useStore/g,         // Qwik primitives
+      /<([A-Z]\w+)/g,                            // JSX components
+    ],
+  },
+  marko: {
+    ext: 'marko',
+    patterns: [
+      /<(\w+)\s+\.\.\./g,                        // <component ...>
+      /\$\{.*\}/g,                               // ${expression}
+      /<await>/g,                                // <await>
+    ],
+  },
+  lit: {
+    ext: 'ts',
+    patterns: [
+      /@customElement\(['"]([^'"]+)['"]\)/g,     // @customElement('my-element')
+      /html`/g,                                  // html`` template literal
+      /css`/g,                                   // css`` template literal
+      /LitElement/g,                             // extends LitElement
+    ],
+  },
+  fast: {
+    ext: 'ts',
+    patterns: [
+      /@customElement\(/g,                       // @customElement({...})
+      /FASTElement/g,                            // extends FASTElement
+      /html`/g,                                  // html`` template literal
+    ],
+  },
+  // Additional server-side templates
+  edge: {
+    ext: 'edge',
+    patterns: [
+      /@include\(['"]([^'"]+)['"]\)/g,           // @include('partial')
+      /@layout\(['"]([^'"]+)['"]\)/g,            // @layout('layouts/main')
+      /@component\(['"]([^'"]+)['"]\)/g,         // @component('component')
+      /@section\(['"]([^'"]+)['"]\)/g,           // @section('content')
+    ],
+  },
+  eta: {
+    ext: 'eta',
+    patterns: [
+      /<%~?\s*include\s*\(\s*['"]([^'"]+)['"]/g, // <%~ include('partial') %>
+      /<%~?\s*layout\s*\(\s*['"]([^'"]+)['"]/g,  // <%~ layout('layout') %>
+    ],
+  },
+  heex: {
+    ext: 'heex',
+    patterns: [
+      /<\.(\w+)/g,                               // <.component_name>
+      /<([A-Z]\w+\.\w+)/g,                       // <Module.Component>
+      /<:(\w+)/g,                                // <:slot_name>
+    ],
+  },
+  velocity: {
+    ext: 'vm',
+    patterns: [
+      /#parse\s*\(\s*['"]([^'"]+)['"]\s*\)/g,    // #parse("header.vm")
+      /#include\s*\(\s*['"]([^'"]+)['"]\s*\)/g,  // #include("file.vm")
+      /#macro\s*\(\s*(\w+)/g,                    // #macro(name)
+    ],
+  },
+  xslt: {
+    ext: 'xsl',
+    patterns: [
+      /<xsl:include\s+href=['"]([^'"]+)['"]/g,   // <xsl:include href="file.xsl">
+      /<xsl:import\s+href=['"]([^'"]+)['"]/g,    // <xsl:import href="file.xsl">
+      /<xsl:template\s+name=['"]([^'"]+)['"]/g,  // <xsl:template name="name">
+      /<xsl:call-template\s+name=['"]([^'"]+)['"]/g, // <xsl:call-template name="name">
+    ],
+  },
+  // Static site generators
+  hugo: {
+    ext: 'html',
+    patterns: [
+      /\{\{\s*partial\s+['"]([^'"]+)['"]/g,      // {{ partial "header" }}
+      /\{\{\s*template\s+['"]([^'"]+)['"]/g,     // {{ template "name" }}
+      /\{\{\s*block\s+['"]([^'"]+)['"]/g,        // {{ block "main" }}
+      /\{\{\s*define\s+['"]([^'"]+)['"]/g,       // {{ define "name" }}
+    ],
+  },
+  jekyll: {
+    ext: 'html',
+    patterns: [
+      /\{%\s*include\s+([^\s%]+)/g,              // {% include header.html %}
+      /layout:\s*(\w+)/g,                        // layout: default
+    ],
+  },
+  eleventy: {
+    ext: 'njk',
+    patterns: [
+      /\{%\s*include\s+['"]([^'"]+)['"]/g,       // {% include 'partial.njk' %}
+      /\{%\s*extends\s+['"]([^'"]+)['"]/g,       // {% extends 'base.njk' %}
+      /\{%\s*macro\s+(\w+)/g,                    // {% macro name %}
+    ],
+  },
+  shopify: {
+    ext: 'liquid',
+    patterns: [
+      /\{%\s*render\s+['"]([^'"]+)['"]/g,        // {% render 'snippet' %}
+      /\{%\s*section\s+['"]([^'"]+)['"]/g,       // {% section 'section-name' %}
+      /\{%\s*include\s+['"]([^'"]+)['"]/g,       // {% include 'snippet' %}
+      /\{%\s*layout\s+['"]([^'"]+)['"]/g,        // {% layout 'theme' %}
+    ],
+  },
+  // Documentation
+  asciidoc: {
+    ext: 'adoc',
+    patterns: [
+      /include::([^\[]+)\[/g,                    // include::file.adoc[]
+      /^=+\s+(.+)/gm,                            // = Heading
+      /\[\[(\w+)\]\]/g,                          // [[anchor]]
+    ],
+  },
+  // Data templates
+  'yaml-template': {
+    ext: 'yaml',
+    patterns: [
+      /\$\{\{.*\}\}/g,                           // ${{ expression }}
+      /\{\{\s*\.\w+/g,                           // {{ .Values.x }}
+      /\{\{-?\s*include/g,                       // {{- include "name" }}
+    ],
+  },
+  'json-template': {
+    ext: 'json',
+    patterns: [
+      /\$\{[^}]+\}/g,                            // ${variable}
+      /\{\{[^}]+\}\}/g,                          // {{variable}}
     ],
   },
 };
