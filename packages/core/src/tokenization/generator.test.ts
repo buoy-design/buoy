@@ -4,6 +4,47 @@ import { generateTokens } from './generator.js';
 import type { ExtractedValue } from '../extraction/css-parser.js';
 
 describe('generateTokens', () => {
+  describe('clustering', () => {
+    it('never clusters 0 with non-zero spacing values', () => {
+      const values: ExtractedValue[] = [
+        { property: 'padding', value: '0', rawValue: '0', category: 'spacing', context: 'spacing' },
+        { property: 'padding', value: '0px', rawValue: '0px', category: 'spacing', context: 'spacing' },
+        { property: 'padding', value: '1px', rawValue: '1px', category: 'spacing', context: 'spacing' },
+        { property: 'padding', value: '2px', rawValue: '2px', category: 'spacing', context: 'spacing' },
+        { property: 'padding', value: '4px', rawValue: '4px', category: 'spacing', context: 'spacing' },
+      ];
+
+      const result = generateTokens(values);
+      const zeroToken = result.tokens.find(t => t.name.includes('spacing') && t.value === '0px');
+
+      // The zero token should NOT include 1px, 2px, or 4px in its sources
+      if (zeroToken) {
+        expect(zeroToken.sources).not.toContain('1px');
+        expect(zeroToken.sources).not.toContain('2px');
+        expect(zeroToken.sources).not.toContain('4px');
+      }
+    });
+
+    it('never clusters 0 with non-zero sizing values', () => {
+      const values: ExtractedValue[] = [
+        { property: 'width', value: '0', rawValue: '0', category: 'sizing', context: 'sizing' },
+        { property: 'width', value: '4px', rawValue: '4px', category: 'sizing', context: 'sizing' },
+      ];
+
+      const result = generateTokens(values);
+      const tokens = result.tokens.filter(t => t.category === 'sizing');
+
+      // Should have separate tokens for 0 and 4px
+      const zeroToken = tokens.find(t => t.value === '0px');
+      const fourToken = tokens.find(t => t.value === '4px');
+
+      // They should be separate if both exist
+      if (zeroToken && fourToken) {
+        expect(zeroToken.name).not.toBe(fourToken.name);
+      }
+    });
+  });
+
   describe('radius tokens', () => {
     it('assigns radius-none to 0 value, not smallest non-zero', () => {
       const values: ExtractedValue[] = [

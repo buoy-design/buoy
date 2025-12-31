@@ -398,8 +398,17 @@ function generateSpacingTokens(
   const sortedPx = [...pxCounts.entries()].sort((a, b) => a[0] - b[0]);
 
   for (const [px, data] of sortedPx) {
+    // Never cluster 0 with non-zero values - keep zero separate
+    if (px === 0) {
+      clusters.push({ value: 0, count: data.count, sources: [...data.sources] });
+      continue;
+    }
+
     let foundCluster = false;
     for (const cluster of clusters) {
+      // Don't cluster non-zero values with zero
+      if (cluster.value === 0) continue;
+
       if (Math.abs(px - cluster.value) <= threshold) {
         // Use the more common value as representative
         if (data.count > cluster.count) {
@@ -504,8 +513,17 @@ function generateSizingTokens(values: ExtractedValue[], threshold: number): Cate
   const sortedPx = [...pxCounts.entries()].sort((a, b) => a[0] - b[0]);
 
   for (const [px, data] of sortedPx) {
+    // Never cluster 0 with non-zero values - keep zero separate
+    if (px === 0) {
+      clusters.push({ value: 0, count: data.count, sources: [...data.sources] });
+      continue;
+    }
+
     let foundCluster = false;
     for (const cluster of clusters) {
+      // Don't cluster non-zero values with zero
+      if (cluster.value === 0) continue;
+
       if (Math.abs(px - cluster.value) <= threshold) {
         if (data.count > cluster.count) {
           cluster.value = px;
@@ -607,8 +625,18 @@ function generateFontSizeTokens(values: ExtractedValue[], threshold: number): Ca
   const sortedPx = [...pxCounts.entries()].sort((a, b) => a[0] - b[0]);
 
   for (const [px, data] of sortedPx) {
+    // Never cluster 0 with non-zero values - keep zero separate
+    // (0 values are already filtered above, but guard for safety)
+    if (px === 0) {
+      clusters.push({ value: 0, count: data.count, sources: [...data.sources] });
+      continue;
+    }
+
     let foundCluster = false;
     for (const cluster of clusters) {
+      // Don't cluster non-zero values with zero
+      if (cluster.value === 0) continue;
+
       if (Math.abs(px - cluster.value) <= threshold) {
         if (data.count > cluster.count) {
           cluster.value = px;
