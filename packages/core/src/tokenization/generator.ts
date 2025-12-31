@@ -14,10 +14,23 @@ export interface GeneratedToken {
   sources: string[]; // Original values that map to this token
 }
 
+export interface TokenizationStats {
+  total: number;
+  byCategory: Record<string, {
+    input: number;
+    uniqueValues: number;
+    clustered: number;
+    tokenized: number;
+    dropped: number;
+    droppedValues: string[]; // Values that didn't make the cut
+  }>;
+}
+
 export interface TokenGenerationResult {
   tokens: GeneratedToken[];
   css: string;
   json: Record<string, Record<string, string>>;
+  stats: TokenizationStats;
 }
 
 export interface TokenGenerationOptions {
@@ -27,6 +40,18 @@ export interface TokenGenerationOptions {
   spacingThreshold?: number;
   /** Prefix for CSS custom properties (default empty) */
   prefix?: string;
+}
+
+interface CategoryResult {
+  tokens: GeneratedToken[];
+  stats: {
+    input: number;
+    uniqueValues: number;
+    clustered: number;
+    tokenized: number;
+    dropped: number;
+    droppedValues: string[];
+  };
 }
 
 /**
@@ -43,6 +68,10 @@ export function generateTokens(
   } = options;
 
   const tokens: GeneratedToken[] = [];
+  const stats: TokenizationStats = {
+    total: values.length,
+    byCategory: {},
+  };
 
   // Group values by category
   const byCategory: Record<string, ExtractedValue[]> = {};
@@ -55,26 +84,30 @@ export function generateTokens(
 
   // Generate color tokens
   if (byCategory['color']) {
-    const colorTokens = generateColorTokens(byCategory['color'], colorThreshold);
-    tokens.push(...colorTokens);
+    const result = generateColorTokens(byCategory['color'], colorThreshold);
+    tokens.push(...result.tokens);
+    stats.byCategory['color'] = result.stats;
   }
 
   // Generate spacing tokens
   if (byCategory['spacing']) {
-    const spacingTokens = generateSpacingTokens(byCategory['spacing'], spacingThreshold);
-    tokens.push(...spacingTokens);
+    const result = generateSpacingTokens(byCategory['spacing'], spacingThreshold);
+    tokens.push(...result.tokens);
+    stats.byCategory['spacing'] = result.stats;
   }
 
   // Generate font-size tokens
   if (byCategory['font-size']) {
-    const fontSizeTokens = generateFontSizeTokens(byCategory['font-size'], spacingThreshold);
-    tokens.push(...fontSizeTokens);
+    const result = generateFontSizeTokens(byCategory['font-size'], spacingThreshold);
+    tokens.push(...result.tokens);
+    stats.byCategory['font-size'] = result.stats;
   }
 
   // Generate radius tokens
   if (byCategory['radius']) {
-    const radiusTokens = generateRadiusTokens(byCategory['radius'], spacingThreshold);
-    tokens.push(...radiusTokens);
+    const result = generateRadiusTokens(byCategory['radius'], spacingThreshold);
+    tokens.push(...result.tokens);
+    stats.byCategory['radius'] = result.stats;
   }
 
   // Generate CSS output
@@ -83,19 +116,23 @@ export function generateTokens(
   // Generate JSON output
   const json = generateJson(tokens);
 
-  return { tokens, css, json };
+  return { tokens, css, json, stats };
 }
 
 /**
  * Generate color tokens by clustering similar colors
  */
-function generateColorTokens(values: ExtractedValue[], threshold: number): GeneratedToken[] {
+function generateColorTokens(values: ExtractedValue[], threshold: number): CategoryResult {
+  const inputCount = values.length;
+
   // Count occurrences of each color
   const colorCounts = new Map<string, number>();
   for (const v of values) {
     const normalized = normalizeColor(v.value);
     colorCounts.set(normalized, (colorCounts.get(normalized) || 0) + 1);
   }
+
+  const uniqueCount = colorCounts.size;
 
   // Sort by frequency
   const sortedColors = [...colorCounts.entries()]
@@ -126,6 +163,8 @@ function generateColorTokens(values: ExtractedValue[], threshold: number): Gener
 
   // Assign token names
   const tokens: GeneratedToken[] = [];
+  const tokenizedClusters: typeof clusters = [];
+  const droppedClusters: typeof clusters = [];
 
   // Categorize colors
   const neutrals: typeof clusters = [];
@@ -146,7 +185,7 @@ function generateColorTokens(values: ExtractedValue[], threshold: number): Gener
     }
   }
 
-  // Generate neutral tokens (gray scale)
+  // Generate neutral tokens (gray scale) - limit to 11
   const neutralNames = ['50', '100', '200', '300', '400', '500', '600', '700', '800', '900', '950'];
   neutrals.sort((a, b) => {
     const rgbA = parseColor(a.representative);
@@ -155,15 +194,20 @@ function generateColorTokens(values: ExtractedValue[], threshold: number): Gener
     return getLightness(rgbB) - getLightness(rgbA); // Lighter first
   });
 
-  for (let i = 0; i < neutrals.length && i < neutralNames.length; i++) {
+  for (let i = 0; i < neutrals.length; i++) {
     const cluster = neutrals[i]!;
-    tokens.push({
-      name: `color-neutral-${neutralNames[i]}`,
-      value: cluster.representative,
-      category: 'color',
-      occurrences: cluster.count,
-      sources: cluster.members,
-    });
+    if (i < neutralNames.length) {
+      tokens.push({
+        name: `color-neutral-${neutralNames[i]}`,
+        value: cluster.representative,
+        category: 'color',
+        occurrences: cluster.count,
+        sources: cluster.members,
+      });
+      tokenizedClusters.push(cluster);
+    } else {
+      droppedClusters.push(cluster);
+    }
   }
 
   // Generate primary tokens
@@ -176,6 +220,7 @@ function generateColorTokens(values: ExtractedValue[], threshold: number): Gener
       occurrences: primary.count,
       sources: primary.members,
     });
+    tokenizedClusters.push(primary);
   }
 
   if (primaries.length > 1) {
@@ -187,27 +232,49 @@ function generateColorTokens(values: ExtractedValue[], threshold: number): Gener
       occurrences: secondary.count,
       sources: secondary.members,
     });
+    tokenizedClusters.push(secondary);
   }
 
-  // Generate accent tokens
-  for (let i = 0; i < accents.length && i < 3; i++) {
+  if (primaries.length > 2) {
+    droppedClusters.push(primaries[2]!);
+  }
+
+  // Generate accent tokens - limit to 3
+  for (let i = 0; i < accents.length; i++) {
     const accent = accents[i]!;
-    tokens.push({
-      name: `color-accent-${i + 1}`,
-      value: accent.representative,
-      category: 'color',
-      occurrences: accent.count,
-      sources: accent.members,
-    });
+    if (i < 3) {
+      tokens.push({
+        name: `color-accent-${i + 1}`,
+        value: accent.representative,
+        category: 'color',
+        occurrences: accent.count,
+        sources: accent.members,
+      });
+      tokenizedClusters.push(accent);
+    } else {
+      droppedClusters.push(accent);
+    }
   }
 
-  return tokens;
+  return {
+    tokens,
+    stats: {
+      input: inputCount,
+      uniqueValues: uniqueCount,
+      clustered: clusters.length,
+      tokenized: tokens.length,
+      dropped: droppedClusters.length,
+      droppedValues: droppedClusters.map(c => `${c.representative} (${c.count}x)`),
+    },
+  };
 }
 
 /**
  * Generate spacing tokens using t-shirt sizing
  */
-function generateSpacingTokens(values: ExtractedValue[], threshold: number): GeneratedToken[] {
+function generateSpacingTokens(values: ExtractedValue[], threshold: number): CategoryResult {
+  const inputCount = values.length;
+
   // Convert all values to pixels and count
   const pxCounts = new Map<number, { count: number; sources: string[] }>();
 
@@ -226,6 +293,8 @@ function generateSpacingTokens(values: ExtractedValue[], threshold: number): Gen
       pxCounts.set(rounded, { count: 1, sources: [v.value] });
     }
   }
+
+  const uniqueCount = pxCounts.size;
 
   // Cluster similar values
   const clusters: { value: number; count: number; sources: string[] }[] = [];
@@ -256,10 +325,9 @@ function generateSpacingTokens(values: ExtractedValue[], threshold: number): Gen
 
   // Limit to most common clusters for t-shirt naming
   // Sort by count to find most used values, then take top 10
-  const topClusters = [...clusters]
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10)
-    .sort((a, b) => a.value - b.value); // Re-sort by value
+  const sortedByCount = [...clusters].sort((a, b) => b.count - a.count);
+  const topClusters = sortedByCount.slice(0, 10).sort((a, b) => a.value - b.value);
+  const droppedClusters = sortedByCount.slice(10);
 
   // Assign t-shirt sizes based on position in sorted list
   const sizeNames = ['3xs', '2xs', 'xs', 'sm', 'md', 'lg', 'xl', '2xl', '3xl', '4xl'];
@@ -278,13 +346,25 @@ function generateSpacingTokens(values: ExtractedValue[], threshold: number): Gen
     });
   }
 
-  return tokens;
+  return {
+    tokens,
+    stats: {
+      input: inputCount,
+      uniqueValues: uniqueCount,
+      clustered: clusters.length,
+      tokenized: tokens.length,
+      dropped: droppedClusters.length,
+      droppedValues: droppedClusters.map(c => `${c.value}px (${c.count}x)`),
+    },
+  };
 }
 
 /**
  * Generate font-size tokens
  */
-function generateFontSizeTokens(values: ExtractedValue[], threshold: number): GeneratedToken[] {
+function generateFontSizeTokens(values: ExtractedValue[], threshold: number): CategoryResult {
+  const inputCount = values.length;
+
   // Similar to spacing, but with font-size naming
   const pxCounts = new Map<number, { count: number; sources: string[] }>();
 
@@ -303,6 +383,8 @@ function generateFontSizeTokens(values: ExtractedValue[], threshold: number): Ge
       pxCounts.set(rounded, { count: 1, sources: [v.value] });
     }
   }
+
+  const uniqueCount = pxCounts.size;
 
   // Cluster and sort
   const clusters: { value: number; count: number; sources: string[] }[] = [];
@@ -330,10 +412,9 @@ function generateFontSizeTokens(values: ExtractedValue[], threshold: number): Ge
   clusters.sort((a, b) => a.value - b.value);
 
   // Limit to most common clusters for naming
-  const topClusters = [...clusters]
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10)
-    .sort((a, b) => a.value - b.value);
+  const sortedByCount = [...clusters].sort((a, b) => b.count - a.count);
+  const topClusters = sortedByCount.slice(0, 10).sort((a, b) => a.value - b.value);
+  const droppedClusters = sortedByCount.slice(10);
 
   // Assign font-size names
   const sizeNames = ['2xs', 'xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl'];
@@ -352,13 +433,24 @@ function generateFontSizeTokens(values: ExtractedValue[], threshold: number): Ge
     });
   }
 
-  return tokens;
+  return {
+    tokens,
+    stats: {
+      input: inputCount,
+      uniqueValues: uniqueCount,
+      clustered: clusters.length,
+      tokenized: tokens.length,
+      dropped: droppedClusters.length,
+      droppedValues: droppedClusters.map(c => `${c.value}px (${c.count}x)`),
+    },
+  };
 }
 
 /**
  * Generate radius tokens
  */
-function generateRadiusTokens(values: ExtractedValue[], threshold: number): GeneratedToken[] {
+function generateRadiusTokens(values: ExtractedValue[], threshold: number): CategoryResult {
+  const inputCount = values.length;
   const pxCounts = new Map<number, { count: number; sources: string[] }>();
 
   for (const v of values) {
@@ -376,6 +468,8 @@ function generateRadiusTokens(values: ExtractedValue[], threshold: number): Gene
       pxCounts.set(rounded, { count: 1, sources: [v.value] });
     }
   }
+
+  const uniqueCount = pxCounts.size;
 
   const clusters: { value: number; count: number; sources: string[] }[] = [];
   const sortedPx = [...pxCounts.entries()].sort((a, b) => a[0] - b[0]);
@@ -403,6 +497,7 @@ function generateRadiusTokens(values: ExtractedValue[], threshold: number): Gene
 
   const sizeNames = ['none', 'sm', 'md', 'lg', 'xl', '2xl', 'full'];
   const tokens: GeneratedToken[] = [];
+  const droppedClusters = clusters.slice(sizeNames.length);
 
   for (let i = 0; i < clusters.length && i < sizeNames.length; i++) {
     const cluster = clusters[i]!;
@@ -420,7 +515,17 @@ function generateRadiusTokens(values: ExtractedValue[], threshold: number): Gene
     });
   }
 
-  return tokens;
+  return {
+    tokens,
+    stats: {
+      input: inputCount,
+      uniqueValues: uniqueCount,
+      clustered: clusters.length,
+      tokenized: tokens.length,
+      dropped: droppedClusters.length,
+      droppedValues: droppedClusters.map(c => `${c.value}px (${c.count}x)`),
+    },
+  };
 }
 
 /**

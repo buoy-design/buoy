@@ -160,12 +160,35 @@ export function createTokenizeCommand(): Command {
         }
 
         // Show summary
-        header('Token Generation');
+        header('Token Generation Summary');
         newline();
 
-        keyValue('Values analyzed', String(allValues.length));
+        keyValue('Total values analyzed', String(result.stats.total));
         keyValue('Tokens generated', String(result.tokens.length));
         newline();
+
+        // Show detailed stats per category
+        for (const [category, stats] of Object.entries(result.stats.byCategory)) {
+          const categoryTitle = category.charAt(0).toUpperCase() + category.slice(1);
+          header(`${categoryTitle} Breakdown`);
+
+          console.log(`  ${chalk.gray('Input values:')}     ${stats.input}`);
+          console.log(`  ${chalk.gray('Unique values:')}    ${stats.uniqueValues}`);
+          console.log(`  ${chalk.gray('After clustering:')} ${stats.clustered}`);
+          console.log(`  ${chalk.green('→ Tokenized:')}      ${stats.tokenized}`);
+
+          if (stats.dropped > 0) {
+            console.log(`  ${chalk.yellow('→ Dropped:')}        ${stats.dropped} (kept top ${stats.tokenized} by frequency)`);
+            if (stats.droppedValues.length > 0) {
+              const preview = stats.droppedValues.slice(0, 5);
+              console.log(`    ${chalk.gray(preview.join(', '))}${stats.droppedValues.length > 5 ? ` +${stats.droppedValues.length - 5} more` : ''}`);
+            }
+          }
+          newline();
+        }
+
+        // Show generated tokens
+        header('Generated Tokens');
 
         // Group tokens by category
         const byCategory: Record<string, GeneratedToken[]> = {};
@@ -177,12 +200,12 @@ export function createTokenizeCommand(): Command {
         }
 
         for (const [category, tokens] of Object.entries(byCategory)) {
-          header(category.charAt(0).toUpperCase() + category.slice(1) + ' Tokens');
+          console.log(chalk.bold(`  ${category}:`));
           for (const token of tokens) {
-            console.log(`  ${chalk.cyan(`--${token.name}`)}: ${token.value} ${chalk.gray(`(${token.occurrences}x)`)}`);
+            console.log(`    ${chalk.cyan(`--${token.name}`)}: ${token.value} ${chalk.gray(`(${token.occurrences}x)`)}`);
           }
-          newline();
         }
+        newline()
 
         // Write output
         if (!options.dryRun) {
