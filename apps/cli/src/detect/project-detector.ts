@@ -45,6 +45,7 @@ export interface ComponentLocation {
   type?:
     // JS frameworks
     | 'jsx' | 'tsx' | 'vue' | 'svelte' | 'astro' | 'solid' | 'qwik' | 'marko' | 'lit' | 'fast'
+    | 'angular' | 'stencil' | 'alpine' | 'htmx'
     // Server-side templates
     | 'php' | 'erb' | 'blade' | 'twig' | 'html' | 'njk' | 'razor' | 'hbs' | 'mustache'
     | 'ejs' | 'pug' | 'liquid' | 'slim' | 'haml' | 'jinja' | 'django' | 'thymeleaf'
@@ -53,6 +54,8 @@ export interface ComponentLocation {
     | 'hugo' | 'jekyll' | 'eleventy' | 'shopify'
     // Documentation
     | 'markdown' | 'mdx' | 'asciidoc'
+    // Graphics
+    | 'svg'
     // Data templates
     | 'yaml-template' | 'json-template';
 }
@@ -236,6 +239,22 @@ const TEMPLATE_DIRS = [
   { dir: 'templates', ext: 'yml', type: 'yaml-template' as const },
   // JSON templates
   { dir: 'templates', ext: 'json', type: 'json-template' as const },
+  // Angular
+  { dir: 'src/app', ext: 'component.ts', type: 'angular' as const },
+  { dir: 'src/app', ext: 'component.html', type: 'angular' as const },
+  // Stencil
+  { dir: 'src/components', ext: 'tsx', type: 'stencil' as const },
+  // Alpine.js (HTML with x- attributes)
+  { dir: 'src', ext: 'html', type: 'alpine' as const },
+  { dir: 'templates', ext: 'html', type: 'alpine' as const },
+  // HTMX (HTML with hx- attributes)
+  { dir: 'templates', ext: 'html', type: 'htmx' as const },
+  { dir: 'views', ext: 'html', type: 'htmx' as const },
+  // SVG components
+  { dir: 'src/icons', ext: 'svg', type: 'svg' as const },
+  { dir: 'src/assets', ext: 'svg', type: 'svg' as const },
+  { dir: 'public', ext: 'svg', type: 'svg' as const },
+  { dir: 'assets', ext: 'svg', type: 'svg' as const },
 ];
 
 // Token file patterns

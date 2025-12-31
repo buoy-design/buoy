@@ -164,11 +164,14 @@ function generateConfig(project: DetectedProject): string {
       "thymeleaf", "freemarker", "go-template", "edge", "eta", "heex",
       "velocity", "xslt",
       // JS frameworks
-      "astro", "solid", "qwik", "marko", "lit", "fast",
+      "astro", "solid", "qwik", "marko", "lit", "fast", "angular",
+      "stencil", "alpine", "htmx",
       // Static site generators
       "hugo", "jekyll", "eleventy", "shopify",
       // Documentation
       "markdown", "mdx", "asciidoc",
+      // Graphics
+      "svg",
       // Data templates
       "yaml-template", "json-template"
     ];
@@ -205,11 +208,14 @@ function generateConfig(project: DetectedProject): string {
       "django", "thymeleaf", "freemarker", "go-template", "edge",
       "eta", "heex", "velocity", "xslt",
       // JS frameworks
-      "astro", "solid", "qwik", "marko", "lit", "fast",
+      "astro", "solid", "qwik", "marko", "lit", "fast", "angular",
+      "stencil", "alpine", "htmx",
       // Static site generators
       "hugo", "jekyll", "eleventy", "shopify",
       // Documentation
       "markdown", "mdx", "asciidoc",
+      // Graphics
+      "svg",
       // Data templates
       "yaml-template", "json-template"
     ];
@@ -426,6 +432,13 @@ function printDetectionResults(project: DetectedProject): void {
         // Data templates
         "yaml-template": "YAML templates",
         "json-template": "JSON templates",
+        // Additional JS frameworks
+        angular: "Angular components",
+        stencil: "Stencil components",
+        alpine: "Alpine.js templates",
+        htmx: "HTMX templates",
+        // Graphics
+        svg: "SVG components",
       };
       const typeLabel = comp.type
         ? typeLabels[comp.type] || "template files"

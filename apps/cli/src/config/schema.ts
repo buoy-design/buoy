@@ -45,11 +45,14 @@ export const TemplateConfigSchema = z.object({
     'ejs', 'pug', 'liquid', 'slim', 'haml', 'jinja', 'django', 'thymeleaf',
     'freemarker', 'go-template', 'edge', 'eta', 'heex', 'velocity', 'xslt',
     // JS frameworks
-    'astro', 'solid', 'qwik', 'marko', 'lit', 'fast',
+    'astro', 'solid', 'qwik', 'marko', 'lit', 'fast', 'angular', 'stencil',
+    'alpine', 'htmx',
     // Static site generators
     'hugo', 'jekyll', 'eleventy', 'shopify',
     // Documentation
     'markdown', 'mdx', 'asciidoc',
+    // Graphics
+    'svg',
     // Data templates
     'yaml-template', 'json-template'
   ]),

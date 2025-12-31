@@ -11,11 +11,14 @@ export type TemplateType =
   | 'ejs' | 'pug' | 'liquid' | 'slim' | 'haml' | 'jinja' | 'django' | 'thymeleaf'
   | 'freemarker' | 'go-template' | 'edge' | 'eta' | 'heex' | 'velocity' | 'xslt'
   // JS frameworks
-  | 'astro' | 'solid' | 'qwik' | 'marko' | 'lit' | 'fast'
+  | 'astro' | 'solid' | 'qwik' | 'marko' | 'lit' | 'fast' | 'angular' | 'stencil'
+  | 'alpine' | 'htmx'
   // Static site generators
   | 'hugo' | 'jekyll' | 'eleventy' | 'shopify'
   // Documentation
   | 'markdown' | 'mdx' | 'asciidoc'
+  // Graphics
+  | 'svg'
   // Data templates
   | 'yaml-template' | 'json-template';
 
@@ -358,6 +361,57 @@ const TEMPLATE_CONFIG: Record<string, { ext: string; patterns: RegExp[] }> = {
     patterns: [
       /\$\{[^}]+\}/g,                            // ${variable}
       /\{\{[^}]+\}\}/g,                          // {{variable}}
+    ],
+  },
+  // Additional JS frameworks
+  angular: {
+    ext: 'component.ts',
+    patterns: [
+      /@Component\(\{/g,                         // @Component({
+      /templateUrl:\s*['"]([^'"]+)['"]/g,        // templateUrl: 'template.html'
+      /selector:\s*['"]([^'"]+)['"]/g,           // selector: 'app-name'
+      /<([a-z]+-[a-z-]+)/g,                      // <app-component>
+    ],
+  },
+  stencil: {
+    ext: 'tsx',
+    patterns: [
+      /@Component\(\{/g,                         // @Component({
+      /tag:\s*['"]([^'"]+)['"]/g,                // tag: 'my-component'
+      /@Prop\(\)/g,                              // @Prop()
+      /@State\(\)/g,                             // @State()
+    ],
+  },
+  alpine: {
+    ext: 'html',
+    patterns: [
+      /x-data\s*=\s*["'][^"']*["']/g,            // x-data="..."
+      /x-bind:/g,                                // x-bind:
+      /x-on:/g,                                  // x-on:
+      /@click/g,                                 // @click
+      /x-show/g,                                 // x-show
+      /x-if/g,                                   // x-if
+      /x-for/g,                                  // x-for
+    ],
+  },
+  htmx: {
+    ext: 'html',
+    patterns: [
+      /hx-get\s*=\s*["'][^"']*["']/g,            // hx-get="..."
+      /hx-post\s*=\s*["'][^"']*["']/g,           // hx-post="..."
+      /hx-trigger/g,                             // hx-trigger
+      /hx-target/g,                              // hx-target
+      /hx-swap/g,                                // hx-swap
+      /hx-push-url/g,                            // hx-push-url
+    ],
+  },
+  svg: {
+    ext: 'svg',
+    patterns: [
+      /<svg[^>]*>/g,                             // <svg ...>
+      /<use\s+[^>]*href\s*=\s*["']([^"']+)["']/g, // <use href="...">
+      /<symbol\s+id\s*=\s*["']([^"']+)["']/g,    // <symbol id="...">
+      /<defs>/g,                                 // <defs>
     ],
   },
 };
