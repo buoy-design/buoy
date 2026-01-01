@@ -174,6 +174,11 @@ export class ScanOrchestrator {
       TokenScanner,
     } = await import("@buoy-design/scanners/git");
 
+    const {
+      FigmaComponentScanner,
+      FigmaVariableScanner,
+    } = await import("@buoy-design/scanners");
+
     return {
       ReactComponentScanner,
       VueComponentScanner,
@@ -182,6 +187,8 @@ export class ScanOrchestrator {
       WebComponentScanner,
       TemplateScanner,
       TokenScanner,
+      FigmaComponentScanner,
+      FigmaVariableScanner,
     };
   }
 
@@ -314,9 +321,68 @@ export class ScanOrchestrator {
         break;
       }
 
-      case "figma":
+      case "figma": {
+        const cfg = this.config.sources.figma;
+        if (!cfg) break;
+
+        // Validate Figma configuration
+        const accessToken = cfg.accessToken || process.env.FIGMA_ACCESS_TOKEN;
+        if (!accessToken) {
+          result.errors.push({
+            source: "figma",
+            message:
+              "Figma access token not configured. Set sources.figma.accessToken in config or FIGMA_ACCESS_TOKEN environment variable.",
+          });
+          break;
+        }
+
+        if (!cfg.fileKeys || cfg.fileKeys.length === 0) {
+          result.errors.push({
+            source: "figma",
+            message:
+              "No Figma file keys configured. Add file keys to sources.figma.fileKeys in your config.",
+          });
+          break;
+        }
+
+        // Scan components from Figma
+        try {
+          const componentScanner = new scanners.FigmaComponentScanner({
+            projectRoot: this.projectRoot,
+            accessToken,
+            fileKeys: cfg.fileKeys,
+            componentPageName: cfg.componentPageName,
+          });
+
+          const componentResult = await componentScanner.scan();
+          result.components.push(...componentResult.items);
+          this.collectErrors(result.errors, source, componentResult.errors);
+        } catch (err) {
+          const message = this.formatFigmaError(err);
+          result.errors.push({ source: "figma", message });
+        }
+
+        // Scan variables/tokens from Figma
+        try {
+          const variableScanner = new scanners.FigmaVariableScanner({
+            projectRoot: this.projectRoot,
+            accessToken,
+            fileKeys: cfg.fileKeys,
+          });
+
+          const variableResult = await variableScanner.scan();
+          result.tokens.push(...variableResult.items);
+          this.collectErrors(result.errors, source, variableResult.errors);
+        } catch (err) {
+          const message = this.formatFigmaError(err);
+          result.errors.push({ source: "figma-variables", message });
+        }
+
+        break;
+      }
+
       case "storybook":
-        // TODO: Implement figma and storybook scanners
+        // TODO: Implement storybook scanner
         break;
     }
 
@@ -338,5 +404,32 @@ export class ScanOrchestrator {
         file: err.file,
       });
     }
+  }
+
+  /**
+   * Format Figma API errors with user-friendly messages
+   */
+  private formatFigmaError(err: unknown): string {
+    if (err instanceof Error) {
+      const message = err.message;
+
+      // Check for common Figma API errors and provide helpful messages
+      if (message.includes("403")) {
+        return "Access denied. Check that your Figma token has the required scopes (file:read for components, file_dev_resources:read for variables).";
+      }
+      if (message.includes("404")) {
+        return "Figma file not found. Verify the file key is correct and the file is accessible with your token.";
+      }
+      if (message.includes("429")) {
+        return "Figma API rate limit exceeded. Wait a moment and try again.";
+      }
+      if (message.includes("timed out")) {
+        return "Figma API request timed out. The file may be too large or the network is slow.";
+      }
+
+      return message;
+    }
+
+    return String(err);
   }
 }
