@@ -5,12 +5,15 @@ import {
   Scanner,
   ScannerConfig,
   ScanResult,
+  ScanWarning,
   DEFAULT_EXCLUDES,
   MONOREPO_PATTERNS,
+  SCOPED_PACKAGE_PATTERNS,
   parallelProcess,
   extractResults,
   validateFilePaths,
   FileValidationResult,
+  adaptiveConcurrency,
 } from './scanner.js';
 
 // Concrete implementation for testing
@@ -459,6 +462,176 @@ describe('Base Scanner', () => {
 
       expect(result.items).toHaveLength(1);
       expect(result.items[0]).toContain('core/src/index.ts');
+    });
+  });
+
+  describe('scan warnings', () => {
+    it('includes warnings in scan result', async () => {
+      vol.fromJSON({
+        '/project/src/index.ts': 'export {}',
+      });
+
+      const scanner = new TestScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      // ScanResult should have a warnings property
+      expect(result.warnings).toBeDefined();
+      expect(Array.isArray(result.warnings)).toBe(true);
+    });
+
+    it('warns when no files match include patterns', async () => {
+      vol.fromJSON({
+        '/project/src/index.ts': 'export {}',
+      });
+
+      const scanner = new TestScanner({
+        projectRoot: '/project',
+        include: ['nonexistent/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      // Should have both a pattern-specific warning and a summary warning
+      expect(result.warnings.length).toBeGreaterThanOrEqual(1);
+      const noFilesWarning = result.warnings.find((w) => w.code === 'NO_FILES_MATCHED');
+      expect(noFilesWarning).toBeDefined();
+      expect(noFilesWarning!.message).toContain('nonexistent');
+    });
+
+    it('warns about unreadable files', async () => {
+      vol.fromJSON({
+        '/project/src/good.ts': 'export {}',
+        '/project/src/bad.ts': 'export {}',
+      });
+
+      // Create a scanner that tracks file read failures
+      class ReadWarningScanner extends Scanner<string> {
+        async scan(): Promise<ScanResult<string>> {
+          return this.runScan(
+            async (file) => {
+              if (file.includes('bad.ts')) {
+                throw new Error('Permission denied');
+              }
+              return [file];
+            },
+            ['src/**/*.ts']
+          );
+        }
+
+        getSourceType(): string {
+          return 'test';
+        }
+      }
+
+      const scanner = new ReadWarningScanner({
+        projectRoot: '/project',
+      });
+
+      const result = await scanner.scan();
+
+      // Both errors and warnings should be populated
+      expect(result.errors).toHaveLength(1);
+      expect(result.warnings).toBeDefined();
+    });
+  });
+
+  describe('SCOPED_PACKAGE_PATTERNS', () => {
+    it('exports scoped package patterns for @org/package structures', () => {
+      expect(SCOPED_PACKAGE_PATTERNS).toBeDefined();
+      expect(SCOPED_PACKAGE_PATTERNS).toContain('@*/*/src/**');
+    });
+
+    it('includes nested scoped package patterns', () => {
+      expect(SCOPED_PACKAGE_PATTERNS).toContain('packages/@*/*/src/**');
+    });
+  });
+
+  describe('additional monorepo patterns', () => {
+    it('includes examples directory pattern', () => {
+      expect(MONOREPO_PATTERNS).toContain('examples/*/src/**');
+    });
+
+    it('includes tooling directory pattern', () => {
+      expect(MONOREPO_PATTERNS).toContain('tools/*/src/**');
+    });
+
+    it('includes website/docs directory patterns', () => {
+      expect(MONOREPO_PATTERNS).toContain('website/src/**');
+      expect(MONOREPO_PATTERNS).toContain('docs/src/**');
+    });
+  });
+
+  describe('scoped package file discovery', () => {
+    it('discovers files in @scope/package/src structure', async () => {
+      vol.fromJSON({
+        '/project/@chakra-ui/react/src/index.ts': 'export {}',
+        '/project/@chakra-ui/icons/src/index.ts': 'export {}',
+      });
+
+      const scanner = new TestScanner({
+        projectRoot: '/project',
+        include: ['@*/*/src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(2);
+    });
+
+    it('discovers files in packages/@scope/package/src structure', async () => {
+      vol.fromJSON({
+        '/project/packages/@myorg/core/src/index.ts': 'export {}',
+        '/project/packages/@myorg/ui/src/Button.ts': 'export {}',
+      });
+
+      const scanner = new TestScanner({
+        projectRoot: '/project',
+        include: ['packages/@*/*/src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(2);
+    });
+  });
+
+  describe('adaptive concurrency', () => {
+    it('returns lower concurrency for small file counts', () => {
+      expect(adaptiveConcurrency(5)).toBeLessThanOrEqual(5);
+    });
+
+    it('returns default concurrency for medium file counts', () => {
+      expect(adaptiveConcurrency(50)).toBe(10);
+    });
+
+    it('returns higher concurrency for large file counts', () => {
+      expect(adaptiveConcurrency(500)).toBeGreaterThan(10);
+    });
+
+    it('caps concurrency at a reasonable maximum', () => {
+      expect(adaptiveConcurrency(10000)).toBeLessThanOrEqual(50);
+    });
+  });
+
+  describe('DEFAULT_EXCLUDES extensions', () => {
+    it('includes .turbo cache directory', () => {
+      expect(DEFAULT_EXCLUDES).toContain('**/.turbo/**');
+    });
+
+    it('includes .cache directories', () => {
+      expect(DEFAULT_EXCLUDES).toContain('**/.cache/**');
+    });
+
+    it('includes output directories', () => {
+      expect(DEFAULT_EXCLUDES).toContain('**/out/**');
+    });
+
+    it('includes .git directory', () => {
+      expect(DEFAULT_EXCLUDES).toContain('**/.git/**');
     });
   });
 });

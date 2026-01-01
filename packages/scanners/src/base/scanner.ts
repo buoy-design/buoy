@@ -17,6 +17,25 @@ export interface ScanError {
   code: string;
 }
 
+/**
+ * Warning codes for scan operations
+ */
+export type ScanWarningCode =
+  | "NO_FILES_MATCHED"
+  | "PATTERN_NO_MATCH"
+  | "FILE_READ_FAILED"
+  | "LARGE_FILE_COUNT";
+
+/**
+ * Non-fatal warning from scan operations
+ */
+export interface ScanWarning {
+  code: ScanWarningCode;
+  message: string;
+  pattern?: string;
+  file?: string;
+}
+
 export interface ScanStats {
   filesScanned: number;
   itemsFound: number;
@@ -26,6 +45,8 @@ export interface ScanStats {
 export interface ScanResult<T> {
   items: T[];
   errors: ScanError[];
+  /** Non-fatal warnings from the scan operation. Added in v0.1.2. */
+  warnings?: ScanWarning[];
   stats: ScanStats;
 }
 
@@ -40,7 +61,8 @@ export interface FileValidationResult {
 }
 
 /**
- * Default exclusion patterns for file discovery
+ * Default exclusion patterns for file discovery.
+ * Includes common build output, cache, and tooling directories.
  */
 export const DEFAULT_EXCLUDES = [
   "**/node_modules/**",
@@ -51,6 +73,10 @@ export const DEFAULT_EXCLUDES = [
   "**/build/**",
   "**/.next/**",
   "**/coverage/**",
+  "**/.turbo/**",
+  "**/.cache/**",
+  "**/out/**",
+  "**/.git/**",
 ];
 
 /**
@@ -64,7 +90,42 @@ export const MONOREPO_PATTERNS = [
   "sandbox/*/src/**",
   "libs/*/src/**",
   "modules/*/src/**",
+  "examples/*/src/**",
+  "tools/*/src/**",
+  "website/src/**",
+  "docs/src/**",
 ];
+
+/**
+ * Patterns for scoped npm packages (e.g., @org/package).
+ * These are common in organization-owned monorepos.
+ */
+export const SCOPED_PACKAGE_PATTERNS = [
+  "@*/*/src/**",
+  "packages/@*/*/src/**",
+];
+
+/**
+ * Calculate optimal concurrency based on file count.
+ * For small file counts, use lower concurrency to avoid overhead.
+ * For large file counts, increase concurrency up to a cap.
+ *
+ * @param fileCount Number of files to process
+ * @returns Recommended concurrency level
+ */
+export function adaptiveConcurrency(fileCount: number): number {
+  if (fileCount <= 10) {
+    return Math.min(fileCount, 5);
+  }
+  if (fileCount <= 100) {
+    return 10;
+  }
+  if (fileCount <= 500) {
+    return 20;
+  }
+  // Cap at 50 for very large repos
+  return Math.min(Math.ceil(fileCount / 20), 50);
+}
 
 /**
  * Process items in parallel with limited concurrency
@@ -164,6 +225,14 @@ export async function validateFilePaths(
   return { valid, missing };
 }
 
+/**
+ * Internal result from file discovery, including patterns that matched nothing
+ */
+interface FileDiscoveryResult {
+  files: string[];
+  unmatchedPatterns: string[];
+}
+
 export abstract class Scanner<T, C extends ScannerConfig = ScannerConfig> {
   protected config: C;
 
@@ -179,9 +248,11 @@ export abstract class Scanner<T, C extends ScannerConfig = ScannerConfig> {
   /**
    * Find files matching the configured patterns.
    * @param defaultPatterns Default include patterns if none configured
-   * @returns Array of absolute file paths
+   * @returns Object with matched files and patterns that matched nothing
    */
-  protected async findFiles(defaultPatterns: string[]): Promise<string[]> {
+  protected async findFilesWithDetails(
+    defaultPatterns: string[],
+  ): Promise<FileDiscoveryResult> {
     const patterns = this.config.include?.length
       ? this.config.include
       : defaultPatterns;
@@ -190,6 +261,7 @@ export abstract class Scanner<T, C extends ScannerConfig = ScannerConfig> {
       : DEFAULT_EXCLUDES;
 
     const allFiles: string[] = [];
+    const unmatchedPatterns: string[] = [];
 
     for (const pattern of patterns) {
       const matches = await glob(pattern, {
@@ -197,11 +269,29 @@ export abstract class Scanner<T, C extends ScannerConfig = ScannerConfig> {
         ignore,
         absolute: true,
       });
-      allFiles.push(...matches);
+      if (matches.length > 0) {
+        allFiles.push(...matches);
+      } else {
+        unmatchedPatterns.push(pattern);
+      }
     }
 
     // Deduplicate
-    return [...new Set(allFiles)];
+    return {
+      files: [...new Set(allFiles)],
+      unmatchedPatterns,
+    };
+  }
+
+  /**
+   * Find files matching the configured patterns.
+   * @param defaultPatterns Default include patterns if none configured
+   * @returns Array of absolute file paths
+   * @deprecated Use findFilesWithDetails for pattern match warnings
+   */
+  protected async findFiles(defaultPatterns: string[]): Promise<string[]> {
+    const result = await this.findFilesWithDetails(defaultPatterns);
+    return result.files;
   }
 
   /**
@@ -214,9 +304,28 @@ export abstract class Scanner<T, C extends ScannerConfig = ScannerConfig> {
     defaultPatterns: string[],
   ): Promise<ScanResult<T>> {
     const startTime = Date.now();
-    const files = await this.findFiles(defaultPatterns);
+    const { files, unmatchedPatterns } =
+      await this.findFilesWithDetails(defaultPatterns);
     const items: T[] = [];
     const errors: ScanError[] = [];
+    const warnings: ScanWarning[] = [];
+
+    // Warn about unmatched patterns
+    for (const pattern of unmatchedPatterns) {
+      warnings.push({
+        code: "PATTERN_NO_MATCH",
+        message: `Pattern "${pattern}" matched no files`,
+        pattern,
+      });
+    }
+
+    // If no files matched at all, add a summary warning
+    if (files.length === 0 && unmatchedPatterns.length > 0) {
+      warnings.push({
+        code: "NO_FILES_MATCHED",
+        message: `No files found matching patterns: ${unmatchedPatterns.join(", ")}`,
+      });
+    }
 
     // Process files in parallel with configurable concurrency
     const results = await parallelProcess(
@@ -254,7 +363,7 @@ export abstract class Scanner<T, C extends ScannerConfig = ScannerConfig> {
       duration: Date.now() - startTime,
     };
 
-    return { items, errors, stats };
+    return { items, errors, warnings, stats };
   }
 
   abstract scan(): Promise<ScanResult<T>>;
