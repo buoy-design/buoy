@@ -454,3 +454,481 @@ export function analyzePatternForTokens(match: ClassPatternMatch): {
 
   return { potentialTokenType: 'unknown', confidence: 'low' };
 }
+
+// ============================================================================
+// CVA (class-variance-authority) Pattern Extraction
+// ============================================================================
+
+/**
+ * Represents a parsed CVA (class-variance-authority) pattern
+ */
+export interface CvaPattern {
+  /** Variable name assigned to the cva result (e.g., "buttonVariants") */
+  name: string;
+  /** Base classes applied to all variants */
+  baseClasses: string[];
+  /** Variant definitions with their option names */
+  variants?: Record<string, string[]>;
+  /** Default variant selections */
+  defaultVariants?: Record<string, string>;
+  /** All semantic design tokens found in the CVA definition */
+  semanticTokens: string[];
+  /** Line number where pattern was found */
+  line: number;
+}
+
+/**
+ * Extract CVA patterns from TypeScript/JSX content
+ * Handles patterns like:
+ *   const buttonVariants = cva("base-classes", { variants: {...} })
+ */
+export function extractCvaPatterns(content: string): CvaPattern[] {
+  const patterns: CvaPattern[] = [];
+
+  // Match: const/let/var <name> = cva(...)
+  const cvaRegex = /(?:const|let|var)\s+(\w+)\s*=\s*cva\s*\(/g;
+  let match;
+
+  while ((match = cvaRegex.exec(content)) !== null) {
+    const name = match[1]!;
+    const startIndex = match.index + match[0].length - 1; // Position at opening paren
+
+    // Extract the full cva() call content with balanced parentheses
+    const cvaContent = extractBalancedParensContent(content, startIndex);
+    if (!cvaContent) continue;
+
+    // Calculate line number
+    const beforeMatch = content.slice(0, match.index);
+    const lineNum = beforeMatch.split('\n').length;
+
+    // Parse the CVA content
+    const parsed = parseCvaContent(cvaContent);
+
+    patterns.push({
+      name,
+      baseClasses: parsed.baseClasses,
+      variants: parsed.variants,
+      defaultVariants: parsed.defaultVariants,
+      semanticTokens: parsed.semanticTokens,
+      line: lineNum,
+    });
+  }
+
+  return patterns;
+}
+
+/**
+ * Extract content within balanced parentheses starting at given position
+ */
+function extractBalancedParensContent(content: string, startIdx: number): string | null {
+  if (content[startIdx] !== '(') return null;
+
+  let depth = 0;
+  let i = startIdx;
+
+  while (i < content.length) {
+    const char = content[i];
+
+    // Handle string literals
+    if (char === '"' || char === "'" || char === '`') {
+      const quote = char;
+      i++;
+      while (i < content.length) {
+        if (content[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (content[i] === quote) break;
+        // Handle template literal expressions
+        if (quote === '`' && content[i] === '$' && content[i + 1] === '{') {
+          let templateDepth = 1;
+          i += 2;
+          while (i < content.length && templateDepth > 0) {
+            if (content[i] === '{') templateDepth++;
+            else if (content[i] === '}') templateDepth--;
+            i++;
+          }
+          continue;
+        }
+        i++;
+      }
+      i++;
+      continue;
+    }
+
+    if (char === '(') depth++;
+    else if (char === ')') depth--;
+
+    if (depth === 0) {
+      return content.slice(startIdx + 1, i);
+    }
+    i++;
+  }
+
+  return null;
+}
+
+/**
+ * Parse the content of a cva() call
+ */
+function parseCvaContent(content: string): {
+  baseClasses: string[];
+  variants?: Record<string, string[]>;
+  defaultVariants?: Record<string, string>;
+  semanticTokens: string[];
+} {
+  const allClasses: string[] = [];
+  const semanticTokens = new Set<string>();
+
+  // Extract base classes (first string argument)
+  const baseMatch = content.match(/^\s*["'`]([^"'`]*)["'`]/);
+  const baseClasses = baseMatch ? baseMatch[1]!.split(/\s+/).filter(Boolean) : [];
+  allClasses.push(...baseClasses);
+
+  // Extract variant definitions
+  const variants: Record<string, string[]> = {};
+  const defaultVariants: Record<string, string> = {};
+
+  // Find the variants object in the content
+  const variantsStartIdx = content.indexOf('variants');
+  if (variantsStartIdx !== -1) {
+    // Find the opening brace after 'variants:'
+    let braceIdx = content.indexOf('{', variantsStartIdx + 8);
+    if (braceIdx !== -1) {
+      // Extract balanced braces content for the variants object
+      const variantsContent = extractBalancedBracesContentForVariants(content, braceIdx);
+
+      if (variantsContent) {
+        // Parse each variant category (e.g., variant: {...}, size: {...})
+        parseVariantCategories(variantsContent, variants, allClasses);
+      }
+    }
+  }
+
+  // Extract defaultVariants
+  const defaultsMatch = content.match(/defaultVariants\s*:\s*\{([^}]*)\}/);
+  if (defaultsMatch) {
+    const defaultsContent = defaultsMatch[1]!;
+    const defaultRegex = /(\w+)\s*:\s*["'](\w+)["']/g;
+    let defaultMatch;
+
+    while ((defaultMatch = defaultRegex.exec(defaultsContent)) !== null) {
+      defaultVariants[defaultMatch[1]!] = defaultMatch[2]!;
+    }
+  }
+
+  // Extract semantic tokens from all classes
+  for (const cls of allClasses) {
+    const tokens = extractSemanticTokens(cls);
+    tokens.forEach(t => semanticTokens.add(t));
+  }
+
+  return {
+    baseClasses,
+    variants: Object.keys(variants).length > 0 ? variants : undefined,
+    defaultVariants: Object.keys(defaultVariants).length > 0 ? defaultVariants : undefined,
+    semanticTokens: Array.from(semanticTokens),
+  };
+}
+
+/**
+ * Extract balanced braces content, handling nested braces
+ */
+function extractBalancedBracesContentForVariants(content: string, startIdx: number): string | null {
+  if (content[startIdx] !== '{') return null;
+
+  let depth = 0;
+  let i = startIdx;
+
+  while (i < content.length) {
+    const char = content[i];
+
+    // Handle string literals
+    if (char === '"' || char === "'" || char === '`') {
+      const quote = char;
+      i++;
+      while (i < content.length && content[i] !== quote) {
+        if (content[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        i++;
+      }
+      i++;
+      continue;
+    }
+
+    if (char === '{') depth++;
+    else if (char === '}') depth--;
+
+    if (depth === 0) {
+      return content.slice(startIdx + 1, i);
+    }
+    i++;
+  }
+
+  return null;
+}
+
+/**
+ * Parse variant categories from variants object content
+ */
+function parseVariantCategories(
+  content: string,
+  variants: Record<string, string[]>,
+  allClasses: string[]
+): void {
+  // Find each category: name: { ... }
+  let i = 0;
+  while (i < content.length) {
+    // Skip whitespace and commas
+    while (i < content.length && /[\s,]/.test(content[i]!)) i++;
+
+    // Try to match category name
+    const nameMatch = content.slice(i).match(/^(\w+)\s*:/);
+    if (!nameMatch) break;
+
+    const categoryName = nameMatch[1]!;
+    i += nameMatch[0].length;
+
+    // Skip whitespace
+    while (i < content.length && /\s/.test(content[i]!)) i++;
+
+    // Find opening brace
+    if (content[i] !== '{') {
+      // Not an object, skip
+      i++;
+      continue;
+    }
+
+    // Extract category content
+    const categoryContent = extractBalancedBracesContentForVariants(content, i);
+    if (!categoryContent) break;
+
+    // Parse options within this category
+    const optionNames: string[] = [];
+    parseVariantOptions(categoryContent, optionNames, allClasses);
+
+    if (optionNames.length > 0) {
+      variants[categoryName] = optionNames;
+    }
+
+    // Move past the closing brace
+    i += categoryContent.length + 2;
+  }
+}
+
+/**
+ * Parse variant options from category content
+ */
+function parseVariantOptions(
+  content: string,
+  optionNames: string[],
+  allClasses: string[]
+): void {
+  // Match patterns like: optionName: "classes" or "option-name": "classes"
+  const optionRegex = /["']?(\w+(?:-\w+)*)["']?\s*:\s*(?:\n\s*)?["'`]([^"'`]*)["'`]/g;
+  let match;
+
+  while ((match = optionRegex.exec(content)) !== null) {
+    const optionName = match[1]!;
+    const classes = match[2]!;
+
+    if (!optionNames.includes(optionName)) {
+      optionNames.push(optionName);
+    }
+    allClasses.push(...classes.split(/\s+/).filter(Boolean));
+  }
+}
+
+// ============================================================================
+// Semantic Tailwind Token Extraction
+// ============================================================================
+
+/**
+ * Known semantic token names in Tailwind/shadcn design systems
+ * These are custom colors that reference CSS variables, not color scales
+ */
+const SEMANTIC_TOKEN_NAMES = new Set([
+  'background',
+  'foreground',
+  'card',
+  'card-foreground',
+  'popover',
+  'popover-foreground',
+  'primary',
+  'primary-foreground',
+  'secondary',
+  'secondary-foreground',
+  'muted',
+  'muted-foreground',
+  'accent',
+  'accent-foreground',
+  'destructive',
+  'destructive-foreground',
+  'border',
+  'input',
+  'ring',
+  'sidebar',
+  'sidebar-foreground',
+  'sidebar-primary',
+  'sidebar-primary-foreground',
+  'sidebar-accent',
+  'sidebar-accent-foreground',
+  'sidebar-border',
+  'sidebar-ring',
+  'chart-1',
+  'chart-2',
+  'chart-3',
+  'chart-4',
+  'chart-5',
+]);
+
+/**
+ * Extract semantic design tokens from a Tailwind class string
+ * Recognizes patterns like bg-primary, text-muted-foreground, border-input, etc.
+ */
+export function extractSemanticTokens(classString: string): string[] {
+  const tokens = new Set<string>();
+
+  // Split by whitespace to get individual classes
+  const classes = classString.split(/\s+/).filter(Boolean);
+
+  for (const cls of classes) {
+    // Remove variants like hover:, focus:, dark:, etc.
+    const baseClass = cls.replace(/^(?:[\w-]+:)+/, '');
+
+    // Extract token from color utilities: bg-{token}, text-{token}, border-{token}, etc.
+    const colorUtilityMatch = baseClass.match(
+      /^(?:bg|text|border|ring|outline|shadow|accent|fill|stroke|caret|decoration|divide|placeholder)-(.+?)(?:\/[\d.]+)?$/
+    );
+
+    if (colorUtilityMatch) {
+      const potentialToken = colorUtilityMatch[1]!;
+
+      // Check if this is a known semantic token or follows semantic naming
+      if (isSemanticToken(potentialToken)) {
+        tokens.add(potentialToken);
+      }
+    }
+
+    // Handle focus-visible:ring-{token}
+    const focusRingMatch = baseClass.match(/^ring-(.+?)(?:\/[\d.]+)?$/);
+    if (focusRingMatch && isSemanticToken(focusRingMatch[1]!)) {
+      tokens.add(focusRingMatch[1]!);
+    }
+  }
+
+  return Array.from(tokens);
+}
+
+/**
+ * Check if a token name is a semantic design token
+ */
+function isSemanticToken(name: string): boolean {
+  // Direct match
+  if (SEMANTIC_TOKEN_NAMES.has(name)) {
+    return true;
+  }
+
+  // Check for -foreground suffix pattern
+  if (name.endsWith('-foreground')) {
+    const base = name.replace(/-foreground$/, '');
+    if (SEMANTIC_TOKEN_NAMES.has(base) || SEMANTIC_TOKEN_NAMES.has(name)) {
+      return true;
+    }
+  }
+
+  // Reject color scales like gray-300, blue-500, etc.
+  if (/^(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d+$/.test(name)) {
+    return false;
+  }
+
+  // Reject pure color names
+  if (/^(?:white|black|transparent|current|inherit)$/.test(name)) {
+    return false;
+  }
+
+  // Accept custom tokens that look semantic (simple names without numbers)
+  if (/^[a-z]+(?:-[a-z]+)*$/.test(name) && !name.match(/\d/)) {
+    // If it ends with foreground or is a known UI element name, it's likely semantic
+    if (name.endsWith('-foreground') || ['background', 'foreground', 'border', 'ring', 'input'].includes(name)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// ============================================================================
+// Static Class String Extraction
+// ============================================================================
+
+/**
+ * Represents extracted static class strings from utility function calls
+ */
+export interface StaticClassStrings {
+  /** The utility function used (cn, clsx, classNames, etc.) */
+  utility: string;
+  /** All static class names extracted */
+  classes: string[];
+  /** Semantic tokens found in the classes */
+  semanticTokens: string[];
+  /** Line number where pattern was found */
+  line: number;
+}
+
+/**
+ * Extract static class strings from className utility function calls
+ * Handles: cn("static-classes"), classNames("...", variable), clsx("...", ...)
+ */
+export function extractStaticClassStrings(content: string): StaticClassStrings[] {
+  const results: StaticClassStrings[] = [];
+  const utilities = ['cn', 'clsx', 'classnames', 'classNames', 'cx', 'twMerge'];
+
+  for (const utility of utilities) {
+    // Find className={utility(...)} patterns
+    const classNameRegex = new RegExp(`className\\s*=\\s*\\{\\s*${utility}\\s*\\(`, 'g');
+    let match;
+
+    while ((match = classNameRegex.exec(content)) !== null) {
+      const startIndex = match.index + match[0].length - 1; // Position at opening paren
+
+      // Extract balanced parentheses content
+      const parenContent = extractBalancedParensContent(content, startIndex);
+      if (!parenContent) continue;
+
+      // Calculate line number
+      const beforeMatch = content.slice(0, match.index);
+      const lineNum = beforeMatch.split('\n').length;
+
+      // Extract all string literals from the content
+      const allClasses: string[] = [];
+      const stringRegex = /["'`]([^"'`]+)["'`]/g;
+      let stringMatch;
+
+      while ((stringMatch = stringRegex.exec(parenContent)) !== null) {
+        const classes = stringMatch[1]!.split(/\s+/).filter(Boolean);
+        allClasses.push(...classes);
+      }
+
+      if (allClasses.length > 0) {
+        // Extract semantic tokens
+        const semanticTokens = new Set<string>();
+        for (const cls of allClasses) {
+          const tokens = extractSemanticTokens(cls);
+          tokens.forEach(t => semanticTokens.add(t));
+        }
+
+        results.push({
+          utility,
+          classes: allClasses,
+          semanticTokens: Array.from(semanticTokens),
+          line: lineNum,
+        });
+      }
+    }
+  }
+
+  return results;
+}
