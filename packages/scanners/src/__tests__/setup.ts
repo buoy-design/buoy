@@ -6,6 +6,12 @@ vi.mock('fs/promises', async () => {
   return memfs.fs.promises;
 });
 
+// Mock fs (sync) for scanner tests
+vi.mock('fs', async () => {
+  const memfs = await import('memfs');
+  return memfs.fs;
+});
+
 // Mock glob to work with memfs
 vi.mock('glob', async () => {
   return {

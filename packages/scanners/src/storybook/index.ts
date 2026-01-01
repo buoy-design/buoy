@@ -1,1 +1,6 @@
-export { StorybookScanner, type StorybookScannerConfig } from './extractor.js';
+export {
+  StorybookScanner,
+  StoryFileScanner,
+  type StorybookScannerConfig,
+  type StoryFileScannerConfig,
+} from './extractor.js';
