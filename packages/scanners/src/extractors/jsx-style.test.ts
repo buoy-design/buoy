@@ -304,6 +304,132 @@ line2
     });
   });
 
+  describe('CSS color functions with commas', () => {
+    it('extracts rgba color correctly', () => {
+      const content = `<div style={{ color: "rgba(14, 200, 172, 1)" }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('color: rgba(14, 200, 172, 1)');
+    });
+
+    it('extracts rgb color correctly', () => {
+      const content = `<div style={{ backgroundColor: "rgb(255, 128, 0)" }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('background-color: rgb(255, 128, 0)');
+    });
+
+    it('extracts hsla color correctly', () => {
+      const content = `<div style={{ color: "hsla(120, 100%, 50%, 0.5)" }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('color: hsla(120, 100%, 50%, 0.5)');
+    });
+
+    it('extracts hsl color correctly', () => {
+      const content = `<div style={{ color: "hsl(120, 100%, 50%)" }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('color: hsl(120, 100%, 50%)');
+    });
+  });
+
+  describe('CSS transform functions', () => {
+    it('extracts rotate transform', () => {
+      const content = `<div style={{ transform: "rotate(180deg)" }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('transform: rotate(180deg)');
+    });
+
+    it('extracts translate transform', () => {
+      const content = `<div style={{ transform: "translateX(50px)" }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('transform: translateX(50px)');
+    });
+
+    it('extracts combined transforms', () => {
+      const content = `<div style={{ transform: "rotate(45deg) scale(1.5)" }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('transform: rotate(45deg) scale(1.5)');
+    });
+
+    it('extracts scale transform', () => {
+      const content = `<div style={{ transform: "scale(1.2)" }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('transform: scale(1.2)');
+    });
+
+    it('extracts translate3d transform', () => {
+      const content = `<div style={{ transform: "translate3d(10px, 20px, 30px)" }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('transform: translate3d(10px, 20px, 30px)');
+    });
+  });
+
+  describe('scale property (unitless)', () => {
+    it('does not add px to scale property', () => {
+      const content = `<div style={{ scale: "1.2" }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('scale: 1.2');
+    });
+
+    it('does not add px to numeric scale', () => {
+      const content = `<div style={{ scale: 1.5 }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('scale: 1.5');
+    });
+  });
+
+  describe('background-image with template literals', () => {
+    it('extracts backgroundImage with template literal url', () => {
+      const content = '<div style={{ backgroundImage: `url(${lightImg.src})` }}></div>';
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('background-image:');
+    });
+
+    it('extracts linear-gradient background', () => {
+      const content = `<div style={{ background: "linear-gradient(to right, red, blue)" }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('background: linear-gradient(to right, red, blue)');
+    });
+  });
+
+  describe('animation delay with template literal', () => {
+    it('extracts animation delay with template expression', () => {
+      const content = '<div style={{ animationDelay: `${index * 30}ms` }}></div>';
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      // Should preserve the template expression or mark as dynamic
+      expect(result[0]!.css).toContain('animation-delay:');
+    });
+  });
+
+  describe('rem() helper function from mantine', () => {
+    it('extracts rem() function as value', () => {
+      const content = `<div style={{ width: rem(18) }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('width: rem(18)');
+    });
+
+    it('extracts multiple rem() values', () => {
+      const content = `<div style={{ padding: rem(40), maxWidth: rem(400) }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('padding: rem(40)');
+      expect(result[0]!.css).toContain('max-width: rem(400)');
+    });
+  });
+
   describe('unitless properties', () => {
     it('does not add px to flex', () => {
       const content = `<div style={{ flex: 1 }}></div>`;

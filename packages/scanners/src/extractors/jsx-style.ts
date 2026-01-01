@@ -223,14 +223,12 @@ function jsObjectToCss(objectContent: string): string {
   const cssVarProps = extractCssVarProperties(objectContent);
   cssProps.push(...cssVarProps);
 
-  // Match regular property: value pairs
-  // Handles: color: 'red', padding: 16, backgroundColor: '#fff'
-  const propRegex = /(?:^|,|\n)\s*(\w+)\s*:\s*(['"`]?)([^,}\n]+?)\2\s*(?=,|\}|$|\n)/g;
-  let match;
+  // Parse properties using a proper tokenizer approach
+  const properties = parseObjectProperties(objectContent);
 
-  while ((match = propRegex.exec(objectContent)) !== null) {
-    let prop = match[1];
-    let value = match[3]?.trim();
+  for (const { prop: rawProp, value: rawValue } of properties) {
+    let prop = rawProp;
+    let value = rawValue;
 
     if (!prop || !value) continue;
 
@@ -264,16 +262,197 @@ function jsObjectToCss(objectContent: string): string {
 }
 
 /**
+ * Parse object properties handling function calls with commas, template literals, etc.
+ */
+function parseObjectProperties(content: string): Array<{ prop: string; value: string }> {
+  const properties: Array<{ prop: string; value: string }> = [];
+  let i = 0;
+
+  while (i < content.length) {
+    // Skip whitespace
+    while (i < content.length && /\s/.test(content[i]!)) i++;
+
+    if (i >= content.length) break;
+
+    // Skip spread operators
+    if (content.slice(i, i + 3) === '...') {
+      // Skip until comma or end
+      while (i < content.length && content[i] !== ',' && content[i] !== '}') i++;
+      if (content[i] === ',') i++;
+      continue;
+    }
+
+    // Skip computed properties (handled separately for CSS vars)
+    if (content[i] === '[') {
+      // Skip the entire computed property
+      let depth = 1;
+      i++;
+      while (i < content.length && depth > 0) {
+        if (content[i] === '[') depth++;
+        else if (content[i] === ']') depth--;
+        i++;
+      }
+      // Skip until comma or end
+      while (i < content.length && content[i] !== ',' && content[i] !== '}') i++;
+      if (content[i] === ',') i++;
+      continue;
+    }
+
+    // Read property name (identifier)
+    const propStart = i;
+    while (i < content.length && /[a-zA-Z0-9_$]/.test(content[i]!)) i++;
+    const prop = content.slice(propStart, i);
+
+    if (!prop) {
+      i++;
+      continue;
+    }
+
+    // Skip whitespace
+    while (i < content.length && /\s/.test(content[i]!)) i++;
+
+    // Expect colon
+    if (content[i] !== ':') {
+      // Shorthand property (like { fontSize }) - skip
+      while (i < content.length && content[i] !== ',' && content[i] !== '}') i++;
+      if (content[i] === ',') i++;
+      continue;
+    }
+    i++; // Skip colon
+
+    // Skip whitespace
+    while (i < content.length && /\s/.test(content[i]!)) i++;
+
+    // Read value (handling function calls, strings, template literals)
+    const value = extractPropertyValue(content, i);
+    if (value !== null) {
+      properties.push({ prop, value: value.value });
+      i = value.endIndex;
+    }
+
+    // Skip to comma or end
+    while (i < content.length && content[i] !== ',' && content[i] !== '}') i++;
+    if (content[i] === ',') i++;
+  }
+
+  return properties;
+}
+
+/**
+ * Extract a property value starting at the given index
+ * Handles function calls (with nested parens), strings, template literals, etc.
+ */
+function extractPropertyValue(content: string, startIndex: number): { value: string; endIndex: number } | null {
+  let i = startIndex;
+
+  // Skip whitespace
+  while (i < content.length && /\s/.test(content[i]!)) i++;
+
+  if (i >= content.length) return null;
+
+  const firstChar = content[i]!;
+
+  // Template literal
+  if (firstChar === '`') {
+    i++;
+    let depth = 0;
+    const valueStart = i;
+    while (i < content.length) {
+      if (content[i] === '\\' && i + 1 < content.length) {
+        i += 2;
+        continue;
+      }
+      if (content[i] === '$' && content[i + 1] === '{') {
+        depth++;
+        i += 2;
+        continue;
+      }
+      if (depth > 0) {
+        if (content[i] === '{') depth++;
+        else if (content[i] === '}') depth--;
+        i++;
+        continue;
+      }
+      if (content[i] === '`') {
+        const value = content.slice(valueStart, i);
+        return { value: `\`${value}\``, endIndex: i + 1 };
+      }
+      i++;
+    }
+    return null;
+  }
+
+  // Quoted string
+  if (firstChar === '"' || firstChar === "'") {
+    i++;
+    const valueStart = i;
+    while (i < content.length) {
+      if (content[i] === '\\' && i + 1 < content.length) {
+        i += 2;
+        continue;
+      }
+      if (content[i] === firstChar) {
+        const value = content.slice(valueStart, i);
+        return { value, endIndex: i + 1 };
+      }
+      i++;
+    }
+    return null;
+  }
+
+  // Unquoted value (number, identifier, function call)
+  const valueStart = i;
+  let parenDepth = 0;
+
+  while (i < content.length) {
+    const char = content[i]!;
+
+    if (char === '(') {
+      parenDepth++;
+      i++;
+      continue;
+    }
+
+    if (char === ')') {
+      parenDepth--;
+      i++;
+      continue;
+    }
+
+    // Stop at comma or closing brace (but only if not in parens)
+    if (parenDepth === 0 && (char === ',' || char === '}' || char === '\n')) {
+      break;
+    }
+
+    i++;
+  }
+
+  const value = content.slice(valueStart, i).trim();
+  return value ? { value, endIndex: i } : null;
+}
+
+/**
  * Clean a value by removing quotes and template literal markers
  */
 function cleanValue(value: string): string {
-  // Remove surrounding quotes
-  value = value.replace(/^['"`]|['"`]$/g, '');
+  // Handle template literals (may include ${} expressions)
+  if (value.startsWith('`') && value.endsWith('`')) {
+    const inner = value.slice(1, -1);
+    // If it contains ${}, replace dynamic parts with a placeholder indicator
+    if (inner.includes('${')) {
+      // Replace ${...} with (dynamic) for static analysis
+      return inner.replace(/\$\{[^}]+\}/g, '(dynamic)');
+    }
+    return inner;
+  }
 
-  // Handle template literals with expressions
+  // Remove surrounding quotes
+  value = value.replace(/^['"]|['"]$/g, '');
+
+  // Handle template literals with expressions that weren't wrapped
   if (value.includes('${')) {
     // Keep the structure but indicate it's dynamic
-    return value;
+    return value.replace(/\$\{[^}]+\}/g, '(dynamic)');
   }
 
   // Remove template literal backticks from inside
@@ -286,11 +465,38 @@ function cleanValue(value: string): string {
  * Check if a value should be skipped as a dynamic expression
  */
 function shouldSkipDynamicValue(value: string): boolean {
-  // Function calls (except common CSS functions)
+  // Allow values containing (dynamic) placeholder - these represent template expressions
+  // that have been processed and should be kept for analysis
+  if (value.includes('(dynamic)')) {
+    return false;
+  }
+
+  // Function calls (except common CSS functions and UI library helpers)
   if (/\([^)]*\)/.test(value)) {
     // Allow CSS functions
-    const cssFunction = /^(calc|var|rgb|rgba|hsl|hsla|url|linear-gradient|radial-gradient|min|max|clamp)\s*\(/i;
-    if (!cssFunction.test(value)) {
+    const cssFunction = /^(calc|var|rgb|rgba|hsl|hsla|url|linear-gradient|radial-gradient|conic-gradient|min|max|clamp)\s*\(/i;
+    // Allow transform functions
+    const transformFunction = /^(rotate|rotateX|rotateY|rotateZ|rotate3d|scale|scaleX|scaleY|scaleZ|scale3d|translate|translateX|translateY|translateZ|translate3d|skew|skewX|skewY|matrix|matrix3d|perspective)\s*\(/i;
+    // Allow UI library helpers like rem(), em(), px() from Mantine, Chakra, etc.
+    const uiHelperFunction = /^(rem|em|px)\s*\(/i;
+
+    // Check if value starts with an allowed function
+    const valueWithoutSpaces = value.replace(/\s+/g, ' ');
+
+    // Handle values that are entirely a function call
+    if (cssFunction.test(valueWithoutSpaces) || transformFunction.test(valueWithoutSpaces) || uiHelperFunction.test(valueWithoutSpaces)) {
+      return false;
+    }
+
+    // Handle values that contain multiple transform functions like "rotate(45deg) scale(1.5)"
+    // Split on space and check each part
+    const parts = valueWithoutSpaces.split(' ').filter(Boolean);
+    const allPartsAreAllowed = parts.every(part => {
+      if (!/\([^)]*\)/.test(part)) return true; // No function call in this part
+      return cssFunction.test(part) || transformFunction.test(part) || uiHelperFunction.test(part);
+    });
+
+    if (!allPartsAreAllowed) {
       return true;
     }
   }
@@ -407,6 +613,9 @@ function shouldAddPxUnit(prop: string): boolean {
     'box-flex', 'box-flex-group', 'box-ordinal-group',
     'fill-opacity', 'flood-opacity', 'stop-opacity', 'stroke-dashoffset',
     'stroke-miterlimit', 'stroke-opacity', 'stroke-width',
+    // CSS transform individual properties (unitless)
+    'scale', 'rotate', // rotate can be unitless for turns, but typically uses deg
+    'aspect-ratio', 'aspectRatio',
   ];
 
   // Check both kebab and camelCase versions
