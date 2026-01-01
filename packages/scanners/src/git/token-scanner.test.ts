@@ -1001,4 +1001,172 @@ type SizeType = 'sm' | 'lg';
       );
     });
   });
+
+  describe("Style props theme object parsing", () => {
+    it("extracts tokens from Mantine DEFAULT_THEME pattern with rem() calls", async () => {
+      vol.fromJSON({
+        "/project/theme/default-theme.ts": `
+          const rem = (value: number) => \`\${value / 16}rem\`;
+
+          export const DEFAULT_THEME = {
+            fontSizes: {
+              xs: rem(12),
+              sm: rem(14),
+              md: rem(16),
+              lg: rem(18),
+              xl: rem(20),
+            },
+
+            spacing: {
+              xs: rem(10),
+              sm: rem(12),
+              md: rem(16),
+              lg: rem(20),
+              xl: rem(32),
+            },
+
+            radius: {
+              xs: rem(2),
+              sm: rem(4),
+              md: rem(8),
+              lg: rem(16),
+              xl: rem(32),
+            },
+          };
+        `,
+      });
+
+      const scanner = new TokenScanner({
+        projectRoot: "/project",
+        files: ["theme/**/*.ts"],
+      });
+
+      const result = await scanner.scan();
+
+      // Should detect tokens from fontSizes, spacing, and radius (5 each = 15)
+      expect(result.items.length).toBeGreaterThanOrEqual(15);
+
+      // Check fontSizes tokens
+      expect(result.items).toContainEqual(
+        expect.objectContaining({
+          name: expect.stringMatching(/fontSizes\.xs|xs/),
+          category: "typography",
+        }),
+      );
+
+      // Check spacing tokens
+      expect(result.items).toContainEqual(
+        expect.objectContaining({
+          name: expect.stringMatching(/spacing\.md|md/),
+          category: "spacing",
+        }),
+      );
+
+      // Check radius tokens
+      expect(result.items).toContainEqual(
+        expect.objectContaining({
+          name: expect.stringMatching(/radius\.sm|sm/),
+          category: "border",
+        }),
+      );
+    });
+
+    it("extracts tokens from theme objects with string literal values", async () => {
+      vol.fromJSON({
+        "/project/theme/theme.ts": `
+          export const theme = {
+            lineHeights: {
+              xs: '1.4',
+              sm: '1.45',
+              md: '1.55',
+              lg: '1.6',
+              xl: '1.65',
+            },
+
+            breakpoints: {
+              xs: '36em',
+              sm: '48em',
+              md: '62em',
+              lg: '75em',
+              xl: '88em',
+            },
+          };
+        `,
+      });
+
+      const scanner = new TokenScanner({
+        projectRoot: "/project",
+        files: ["theme/**/*.ts"],
+      });
+
+      const result = await scanner.scan();
+
+      // Should detect tokens from lineHeights and breakpoints (5 each = 10)
+      expect(result.items.length).toBeGreaterThanOrEqual(10);
+    });
+
+    it("extracts tokens from theme with color values", async () => {
+      vol.fromJSON({
+        "/project/theme/colors.ts": `
+          export const theme = {
+            white: '#fff',
+            black: '#000',
+            colors: {
+              blue: {
+                50: '#eff6ff',
+                100: '#dbeafe',
+                500: '#3b82f6',
+                900: '#1e3a8a',
+              },
+            },
+          };
+        `,
+      });
+
+      const scanner = new TokenScanner({
+        projectRoot: "/project",
+        files: ["theme/**/*.ts"],
+      });
+
+      const result = await scanner.scan();
+
+      // Should detect: white, black, blue.50, blue.100, blue.500, blue.900 = 6
+      expect(result.items.length).toBeGreaterThanOrEqual(6);
+
+      expect(result.items).toContainEqual(
+        expect.objectContaining({
+          name: "white",
+          category: "color",
+        }),
+      );
+    });
+
+    it("extracts tokens from shadows with complex values", async () => {
+      vol.fromJSON({
+        "/project/theme/shadows.ts": `
+          const rem = (value: number) => \`\${value / 16}rem\`;
+
+          export const shadows = {
+            xs: \`0 \${rem(1)} \${rem(3)} rgba(0, 0, 0, 0.05)\`,
+            sm: \`0 \${rem(1)} \${rem(3)} rgba(0, 0, 0, 0.1)\`,
+            md: \`0 \${rem(4)} \${rem(6)} rgba(0, 0, 0, 0.1)\`,
+          };
+        `,
+      });
+
+      const scanner = new TokenScanner({
+        projectRoot: "/project",
+        files: ["theme/**/*.ts"],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items.length).toBeGreaterThanOrEqual(3);
+      expect(result.items).toContainEqual(
+        expect.objectContaining({
+          category: "shadow",
+        }),
+      );
+    });
+  });
 });

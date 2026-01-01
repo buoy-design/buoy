@@ -831,11 +831,26 @@ export class TokenScanner extends Scanner<DesignToken, TokenScannerConfig> {
     const entries = this.parseObjectEntries(inner);
 
     for (const { key, content } of entries) {
-      // Skip if key is 'value' - it's a property not a token key
-      if (key === "value") continue;
+      // Skip certain keys that are not token values
+      if (key === "value" || key === "description" || key === "type" || key === "$value" || key === "$type") continue;
+
+      // Skip keys that are clearly config, not tokens
+      if (this.isConfigKey(key)) continue;
 
       const tokenName = prefix ? `${prefix}.${key}` : key;
       const trimmedContent = content.trim();
+
+      // Determine category for this token
+      // If a category was passed in (e.g., from defineTokens.colors), use it
+      // Otherwise, try to infer from the token path (e.g., fontSizes.xs -> typography)
+      // Finally, fall back to inferring from the current key
+      let effectiveCategory = category;
+      if (category === "other" || !category) {
+        effectiveCategory =
+          this.inferCategoryFromTokenPath(tokenName) ||
+          this.inferCategoryFromVarName(key) ||
+          category;
+      }
 
       // Check if this is a terminal token with { value: "..." }
       const valueMatch = trimmedContent.match(
@@ -845,7 +860,7 @@ export class TokenScanner extends Scanner<DesignToken, TokenScannerConfig> {
         results.push({
           name: tokenName,
           value: valueMatch[1],
-          tokenCategory: category,
+          tokenCategory: effectiveCategory,
         });
         continue;
       }
@@ -856,18 +871,47 @@ export class TokenScanner extends Scanner<DesignToken, TokenScannerConfig> {
         results.push({
           name: tokenName,
           value: directValueMatch[1],
-          tokenCategory: category,
+          tokenCategory: effectiveCategory,
+        });
+        continue;
+      }
+
+      // Check if this is a template literal value
+      const templateMatch = trimmedContent.match(/^`([^`]*)`$/);
+      if (templateMatch && templateMatch[1] !== undefined) {
+        results.push({
+          name: tokenName,
+          value: templateMatch[1],
+          tokenCategory: effectiveCategory,
+        });
+        continue;
+      }
+
+      // Check if this is a function call value (e.g., rem(12), px(16))
+      const functionCallMatch = trimmedContent.match(/^(\w+)\s*\(\s*(\d+(?:\.\d+)?)\s*\)$/);
+      if (functionCallMatch && functionCallMatch[2]) {
+        // Extract the numeric value from function calls like rem(12), px(16)
+        results.push({
+          name: tokenName,
+          value: `${functionCallMatch[1]}(${functionCallMatch[2]})`,
+          tokenCategory: effectiveCategory,
         });
         continue;
       }
 
       // Check if this is a nested object
       if (trimmedContent.startsWith("{") && trimmedContent.endsWith("}")) {
-        // Recursively extract from nested object
+        // For nested objects, determine the category:
+        // 1. If current effectiveCategory is specific (not "other"), propagate it
+        // 2. Otherwise, try to infer from the current key (e.g., "colors" -> color)
+        let nestedCategory = effectiveCategory;
+        if (effectiveCategory === "other" || !effectiveCategory) {
+          nestedCategory = this.inferCategoryFromVarName(key) || "other";
+        }
         const nestedResults = this.extractTokensFromObjectLiteral(
           trimmedContent,
           tokenName,
-          category,
+          nestedCategory,
         );
         results.push(...nestedResults);
       }
@@ -877,7 +921,57 @@ export class TokenScanner extends Scanner<DesignToken, TokenScannerConfig> {
   }
 
   /**
+   * Check if a key is a configuration key rather than a token key.
+   */
+  private isConfigKey(key: string): boolean {
+    const configKeys = [
+      "scale",
+      "fontSmoothing",
+      "focusRing",
+      "primaryShade",
+      "primaryColor",
+      "variantColorResolver",
+      "autoContrast",
+      "luminanceThreshold",
+      "fontFamily",
+      "fontFamilyMonospace",
+      "respectReducedMotion",
+      "cursorType",
+      "defaultGradient",
+      "defaultRadius",
+      "activeClassName",
+      "focusClassName",
+      "headings",
+      "from",
+      "to",
+      "deg",
+      "light",
+      "dark",
+      "fontWeight",
+      "textWrap",
+      "sizes",
+    ];
+    return configKeys.includes(key);
+  }
+
+  /**
+   * Infer category from the full token path (e.g., "fontSizes.xs" -> "typography")
+   */
+  private inferCategoryFromTokenPath(tokenPath: string): string | null {
+    const parts = tokenPath.split(".");
+    // Check each part from left to right
+    for (const part of parts) {
+      const category = this.inferCategoryFromVarName(part);
+      if (category !== "other") {
+        return category;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Find const varName = { ... } assignments using brace matching.
+   * Also handles typed assignments like: export const DEFAULT_THEME: MantineTheme = {...}
    */
   private findConstObjectAssignments(
     content: string,
@@ -888,8 +982,9 @@ export class TokenScanner extends Scanner<DesignToken, TokenScannerConfig> {
       lineNumber: number;
     }> = [];
 
-    // Find all (export)? const varName = { patterns
-    const startRegex = /(?:export\s+)?const\s+(\w+)\s*=\s*\{/g;
+    // Find all (export)? const varName (: Type)? = { patterns
+    // Handles: const x = {}, const x: Type = {}, export const X: Type = {}
+    const startRegex = /(?:export\s+)?const\s+(\w+)(?:\s*:\s*[\w<>\[\]|&]+)?\s*=\s*\{/g;
     let match;
 
     while ((match = startRegex.exec(content)) !== null) {
@@ -1006,7 +1101,7 @@ export class TokenScanner extends Scanner<DesignToken, TokenScannerConfig> {
       }
       if (i >= content.length) break;
 
-      // Parse value (string or object)
+      // Parse value (string, template literal, object, or other expression)
       let valueContent = "";
       if (content[i] === '"' || content[i] === "'") {
         // String value
@@ -1019,6 +1114,18 @@ export class TokenScanner extends Scanner<DesignToken, TokenScannerConfig> {
         }
         if (i < content.length) {
           valueContent += content[i]; // Include closing quote
+          i++;
+        }
+      } else if (content[i] === "`") {
+        // Template literal value
+        valueContent += content[i];
+        i++;
+        while (i < content.length && content[i] !== "`") {
+          valueContent += content[i];
+          i++;
+        }
+        if (i < content.length) {
+          valueContent += content[i]; // Include closing backtick
           i++;
         }
       } else if (content[i] === "{") {
@@ -1037,10 +1144,25 @@ export class TokenScanner extends Scanner<DesignToken, TokenScannerConfig> {
           valueContent += content[i];
           i++;
         }
+      } else {
+        // Other expression (function call, identifier, number, etc.)
+        // Parse until comma or closing brace, handling nested parens
+        let parenDepth = 0;
+        while (i < content.length) {
+          const char = content[i]!;
+          if (char === "(") parenDepth++;
+          if (char === ")") parenDepth--;
+          // End at comma or closing brace only if not in parens
+          if ((char === "," || char === "}") && parenDepth === 0) {
+            break;
+          }
+          valueContent += char;
+          i++;
+        }
       }
 
-      if (key && valueContent) {
-        entries.push({ key, content: valueContent });
+      if (key && valueContent.trim()) {
+        entries.push({ key, content: valueContent.trim() });
       }
     }
 
@@ -1073,6 +1195,11 @@ export class TokenScanner extends Scanner<DesignToken, TokenScannerConfig> {
       /^lineHeights?$/i,
       /^fontSizes?$/i,
       /^fontWeights?$/i,
+      // Theme variable patterns (Mantine, Chakra, etc.)
+      /DEFAULT_THEME/i,
+      /^default.*theme$/i,
+      /^mantine.*theme$/i,
+      /^chakra.*theme$/i,
     ];
 
     return tokenPatterns.some((pattern) => pattern.test(varName));
@@ -1084,18 +1211,24 @@ export class TokenScanner extends Scanner<DesignToken, TokenScannerConfig> {
   private inferCategoryFromVarName(varName: string): string {
     const nameLower = varName.toLowerCase();
 
-    if (nameLower.includes("color") || nameLower === "palette") return "color";
+    // Color patterns - check these first (most specific)
+    if (
+      nameLower.includes("color") ||
+      nameLower === "palette" ||
+      nameLower === "white" ||
+      nameLower === "black"
+    )
+      return "color";
+
+    // Spacing patterns
     if (nameLower.includes("spacing") || nameLower.includes("gap"))
       return "spacing";
-    if (
-      nameLower.includes("size") &&
-      !nameLower.includes("font") &&
-      !nameLower.includes("text")
-    )
-      return "sizing";
+
+    // Typography patterns (including lineHeights which is typography)
     if (
       nameLower.includes("font") ||
       nameLower.includes("text") ||
+      nameLower.includes("lineheight") ||
       nameLower === "typography"
     )
       return "typography";
