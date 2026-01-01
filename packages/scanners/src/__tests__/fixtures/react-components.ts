@@ -574,3 +574,172 @@ function Footer({ copyright }: { copyright: string }) {
 
 export { Container, Footer };
 `;
+
+// Chakra v3 withContext/withProvider with string element as first argument
+// This creates styled components that wrap a basic HTML element
+export const CHAKRA_V3_WITH_CONTEXT_STRING_ELEMENT = `
+"use client"
+
+import {
+  type HTMLChakraProps,
+  type RecipeProps,
+  type UnstyledProp,
+  createRecipeContext,
+} from "../../styled-system"
+
+const { withContext, PropsProvider } = createRecipeContext({
+  key: "kbd",
+})
+
+export interface KbdBaseProps extends RecipeProps<"kbd">, UnstyledProp {}
+
+export interface KbdProps extends HTMLChakraProps<"kbd", KbdBaseProps> {}
+
+export const Kbd = withContext<HTMLElement, KbdProps>("kbd")
+
+Kbd.displayName = "Kbd"
+`;
+
+// Radix-style named alias exports pattern
+// Components are assigned to alias names for convenient API (e.g., Tooltip.Root)
+export const RADIX_NAMED_ALIAS_EXPORTS = `
+import * as React from 'react';
+
+const TooltipProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  return <div data-provider>{children}</div>;
+};
+
+TooltipProvider.displayName = 'TooltipProvider';
+
+const Tooltip: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  return <div data-tooltip>{children}</div>;
+};
+
+Tooltip.displayName = 'Tooltip';
+
+const TooltipTrigger = React.forwardRef<HTMLButtonElement>((props, ref) => {
+  return <button ref={ref} {...props} />;
+});
+
+TooltipTrigger.displayName = 'TooltipTrigger';
+
+const TooltipContent = React.forwardRef<HTMLDivElement>((props, ref) => {
+  return <div ref={ref} {...props} />;
+});
+
+TooltipContent.displayName = 'TooltipContent';
+
+// Named aliases for compound component pattern
+const Provider = TooltipProvider;
+const Root = Tooltip;
+const Trigger = TooltipTrigger;
+const Content = TooltipContent;
+
+export {
+  TooltipProvider,
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  Provider,
+  Root,
+  Trigger,
+  Content,
+};
+`;
+
+// Ark UI pattern - components wrapping external library components with withProvider/withContext
+export const ARK_UI_WRAPPED_COMPONENT_PATTERN = `
+"use client"
+
+import type { Assign } from "@ark-ui/react"
+import { Accordion as ArkAccordion } from "@ark-ui/react/accordion"
+import {
+  type HTMLChakraProps,
+  type SlotRecipeProps,
+  type UnstyledProp,
+  createSlotRecipeContext,
+} from "../../styled-system"
+
+const {
+  withProvider,
+  withContext,
+  useStyles: useAccordionStyles,
+} = createSlotRecipeContext({ key: "accordion" })
+
+export interface AccordionRootProps
+  extends HTMLChakraProps<"div", AccordionRootBaseProps> {}
+
+export const AccordionRoot = withProvider<HTMLDivElement, AccordionRootProps>(
+  ArkAccordion.Root,
+  "root",
+  { forwardAsChild: true },
+)
+
+export interface AccordionItemProps
+  extends HTMLChakraProps<"div", ArkAccordion.ItemBaseProps>,
+    UnstyledProp {}
+
+export const AccordionItem = withContext<HTMLDivElement, AccordionItemProps>(
+  ArkAccordion.Item,
+  "item",
+  { forwardAsChild: true },
+)
+
+export interface AccordionItemBodyProps
+  extends HTMLChakraProps<"div">,
+    UnstyledProp {}
+
+export const AccordionItemBody = withContext<
+  HTMLDivElement,
+  AccordionItemBodyProps
+>("div", "itemBody")
+`;
+
+// Chakra chakra.element style - using property access on the chakra factory
+export const CHAKRA_ELEMENT_STYLE = `
+"use client"
+
+import { forwardRef, useMemo } from "react"
+import { chakra } from "../../styled-system"
+
+export const Button = forwardRef<HTMLButtonElement>((props, ref) => {
+  return (
+    <chakra.button ref={ref} type="button" {...props}>
+      {props.children}
+    </chakra.button>
+  )
+})
+
+Button.displayName = "Button"
+`;
+
+// Complex nested HOC patterns - stacking multiple wrappers
+export const NESTED_HOC_PATTERN = `
+import React, { memo, forwardRef } from 'react';
+
+// memo wrapping forwardRef with type assertion
+export const ComplexButton = memo(
+  forwardRef<HTMLButtonElement, { label: string }>(
+    ({ label, ...props }, ref) => (
+      <button ref={ref} {...props}>{label}</button>
+    )
+  )
+) as React.MemoExoticComponent<React.ForwardRefExoticComponent<{ label: string } & React.RefAttributes<HTMLButtonElement>>>;
+
+ComplexButton.displayName = 'ComplexButton';
+
+// React.lazy would be loaded component - but the definition itself is what we detect
+const LazyComponent = React.lazy(() => import('./SomeComponent'));
+
+// Higher-order function returning component factory
+const withTracking = (Component: React.ComponentType<any>) =>
+  forwardRef<HTMLDivElement>((props, ref) => (
+    <Component ref={ref} data-tracking {...props} />
+  ));
+
+export const TrackedCard = withTracking(
+  forwardRef<HTMLDivElement>((props, ref) => (
+    <div ref={ref} className="card">{props.children}</div>
+  ))
+);
+`;

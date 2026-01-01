@@ -28,6 +28,11 @@ import {
   FORWARD_REF_NAMED_FUNCTION,
   FUNCTION_DECLARATION_WITH_JSX,
   MULTI_PATTERN_FILE,
+  CHAKRA_V3_WITH_CONTEXT_STRING_ELEMENT,
+  RADIX_NAMED_ALIAS_EXPORTS,
+  ARK_UI_WRAPPED_COMPONENT_PATTERN,
+  CHAKRA_ELEMENT_STYLE,
+  NESTED_HOC_PATTERN,
 } from '../__tests__/fixtures/react-components.js';
 import { ReactComponentScanner } from './react-scanner.js';
 
@@ -574,6 +579,111 @@ describe('ReactComponentScanner', () => {
       expect(componentNames).toContain('Wrapper');   // Arrow function
       expect(componentNames).toContain('Card');      // memo(forwardRef)
       expect(componentNames).toContain('Footer');    // Function declaration
+    });
+  });
+
+  describe('Chakra v3 withContext/withProvider with string element', () => {
+    it('detects withContext<Type>("element") pattern', async () => {
+      vol.fromJSON({
+        '/project/src/Kbd.tsx': CHAKRA_V3_WITH_CONTEXT_STRING_ELEMENT,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]!.name).toBe('Kbd');
+      expect(result.items[0]!.source.type).toBe('react');
+    });
+  });
+
+  describe('Ark UI wrapped component patterns', () => {
+    it('detects withProvider/withContext wrapping external components', async () => {
+      vol.fromJSON({
+        '/project/src/Accordion.tsx': ARK_UI_WRAPPED_COMPONENT_PATTERN,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+      const componentNames = result.items.map(c => c.name);
+
+      // Should detect all components
+      expect(componentNames).toContain('AccordionRoot');
+      expect(componentNames).toContain('AccordionItem');
+      expect(componentNames).toContain('AccordionItemBody');
+    });
+  });
+
+  describe('Radix named alias exports', () => {
+    it('detects components and their named aliases', async () => {
+      vol.fromJSON({
+        '/project/src/Tooltip.tsx': RADIX_NAMED_ALIAS_EXPORTS,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+      const componentNames = result.items.map(c => c.name);
+
+      // Should detect original components
+      expect(componentNames).toContain('TooltipProvider');
+      expect(componentNames).toContain('Tooltip');
+      expect(componentNames).toContain('TooltipTrigger');
+      expect(componentNames).toContain('TooltipContent');
+
+      // Aliases should NOT be detected as separate components (they're references to existing ones)
+      // We only want the 4 original components, not the 4 aliases
+      expect(result.items).toHaveLength(4);
+    });
+  });
+
+  describe('chakra.element JSX style', () => {
+    it('detects components using chakra.button style JSX', async () => {
+      vol.fromJSON({
+        '/project/src/Button.tsx': CHAKRA_ELEMENT_STYLE,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]!.name).toBe('Button');
+      expect(result.items[0]!.source.type).toBe('react');
+    });
+  });
+
+  describe('complex nested HOC patterns', () => {
+    it('detects memo(forwardRef(...)) as type assertion pattern', async () => {
+      vol.fromJSON({
+        '/project/src/Button.tsx': NESTED_HOC_PATTERN,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+      const componentNames = result.items.map(c => c.name);
+
+      // Should detect ComplexButton (memo + forwardRef + as assertion)
+      expect(componentNames).toContain('ComplexButton');
+      // TrackedCard uses a custom HOC which may or may not be detected depending on analysis depth
     });
   });
 });
