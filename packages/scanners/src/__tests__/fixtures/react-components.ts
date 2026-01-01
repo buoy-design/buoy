@@ -305,3 +305,101 @@ Link.displayName = 'Link';
 
 export { Link };
 `;
+
+// Chakra UI chakra() styled component factory pattern
+// This creates styled components using a factory function
+export const CHAKRA_STYLED_FACTORY = `
+"use client"
+
+import { type HTMLChakraProps, chakra } from "../../styled-system";
+
+export interface CenterProps extends HTMLChakraProps<"div"> {}
+
+export const Center = chakra("div", {
+  base: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
+`;
+
+// Chakra UI chakra() with complex config and variants
+export const CHAKRA_STYLED_FACTORY_WITH_VARIANTS = `
+"use client"
+
+import { type HTMLChakraProps, chakra } from "../../styled-system";
+
+export interface InputElementProps extends HTMLChakraProps<"div"> {}
+
+export const InputElement = chakra("div", {
+  base: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "absolute",
+    zIndex: 2,
+    color: "fg.muted",
+    height: "full",
+    fontSize: "sm",
+    px: "3",
+  },
+  variants: {
+    placement: {
+      start: {
+        insetInlineStart: "0",
+      },
+      end: {
+        insetInlineEnd: "0",
+      },
+    },
+  },
+});
+`;
+
+// Mantine factory<Type>() pattern
+export const MANTINE_FACTORY = `
+import { factory } from '@mantine/core';
+
+interface MonthFactory {
+  props: MonthProps;
+  ref: HTMLDivElement;
+}
+
+interface MonthProps {
+  value: Date;
+  onChange: (date: Date) => void;
+}
+
+export const Month = factory<MonthFactory>((_props, ref) => {
+  const props = useProps('Month', null, _props);
+  return (
+    <div ref={ref}>
+      {props.value.toDateString()}
+    </div>
+  );
+});
+`;
+
+// Mantine factory with compound components
+export const MANTINE_FACTORY_WITH_STATICS = `
+import { factory } from '@mantine/core';
+
+interface DatePickerFactory {
+  props: DatePickerProps;
+  ref: HTMLDivElement;
+  staticComponents: {
+    Input: typeof DatePickerInput;
+  };
+}
+
+const DatePickerInput = () => {
+  return <input type="date" />;
+};
+
+export const DatePicker = factory<DatePickerFactory>((_props, ref) => {
+  return <div ref={ref}>Date Picker</div>;
+});
+
+DatePicker.Input = DatePickerInput;
+`;

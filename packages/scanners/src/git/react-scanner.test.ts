@@ -18,6 +18,10 @@ import {
   FORWARD_REF_WITH_DISPLAYNAME,
   FORWARD_REF_WITH_DISPLAYNAME_NO_ASSERTION,
   FORWARD_REF_TYPED_WITH_DISPLAYNAME,
+  CHAKRA_STYLED_FACTORY,
+  CHAKRA_STYLED_FACTORY_WITH_VARIANTS,
+  MANTINE_FACTORY,
+  MANTINE_FACTORY_WITH_STATICS,
 } from '../__tests__/fixtures/react-components.js';
 import { ReactComponentScanner } from './react-scanner.js';
 
@@ -373,6 +377,78 @@ describe('ReactComponentScanner', () => {
       expect(result.items).toHaveLength(1);
       expect(result.items[0]!.name).toBe('Link');
       expect(result.items[0]!.source.type).toBe('react');
+    });
+  });
+
+  describe('styled component factory detection', () => {
+    it('detects Chakra UI chakra() styled factory pattern', async () => {
+      vol.fromJSON({
+        '/project/src/Center.tsx': CHAKRA_STYLED_FACTORY,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]!.name).toBe('Center');
+      expect(result.items[0]!.source.type).toBe('react');
+    });
+
+    it('detects Chakra UI chakra() with variants', async () => {
+      vol.fromJSON({
+        '/project/src/InputElement.tsx': CHAKRA_STYLED_FACTORY_WITH_VARIANTS,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]!.name).toBe('InputElement');
+      expect(result.items[0]!.source.type).toBe('react');
+    });
+
+    it('detects Mantine factory<Type>() pattern', async () => {
+      vol.fromJSON({
+        '/project/src/Month.tsx': MANTINE_FACTORY,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]!.name).toBe('Month');
+      expect(result.items[0]!.source.type).toBe('react');
+    });
+
+    it('detects Mantine factory with static components', async () => {
+      vol.fromJSON({
+        '/project/src/DatePicker.tsx': MANTINE_FACTORY_WITH_STATICS,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+      const componentNames = result.items.map(c => c.name);
+
+      // Should detect both DatePicker and DatePickerInput, plus compound DatePicker.Input
+      expect(componentNames).toContain('DatePicker');
+      expect(componentNames).toContain('DatePickerInput');
+      expect(componentNames).toContain('DatePicker.Input');
     });
   });
 });

@@ -341,8 +341,8 @@ export class ReactComponentScanner extends Scanner<
         return true;
       }
 
-      // Mantine: polymorphicFactory<T>() pattern
-      if (callText.includes("polymorphicFactory")) {
+      // Mantine: polymorphicFactory<T>() pattern and factory<T>() pattern
+      if (callText.includes("polymorphicFactory") || callText === "factory") {
         return true;
       }
 
@@ -354,6 +354,12 @@ export class ReactComponentScanner extends Scanner<
         callText.includes("withContext") ||
         callText.includes("withProvider")
       ) {
+        return true;
+      }
+
+      // Chakra UI: chakra() styled component factory pattern
+      // e.g., export const Center = chakra("div", { ... })
+      if (callText === "chakra") {
         return true;
       }
 
