@@ -219,3 +219,172 @@ line2
     expect(result[0]!.line).toBe(3);
   });
 });
+
+// =====================================
+// NEW TESTS FOR REAL-WORLD PATTERNS
+// =====================================
+
+describe('Angular advanced patterns from angular/components', () => {
+  describe('hyphenated property names with units', () => {
+    it('extracts [style.margin-left.px] with value', () => {
+      const content = `<div [style.margin-left.px]="10"></div>`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('margin-left: 10px');
+    });
+
+    it('extracts [style.margin-right.px] with variable', () => {
+      const content = `<div [style.margin-right.px]="_container._contentMargins.right"></div>`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('margin-right:');
+    });
+
+    it('extracts [style.background-color] with CSS variable', () => {
+      const content = `<div [style.background-color]="'var(--mat-sys-primary)'"></div>`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('background-color: var(--mat-sys-primary)');
+    });
+
+    it('extracts [style.margin-bottom.px] with item.margin', () => {
+      const content = `<div [style.margin-bottom.px]="item.margin"></div>`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('margin-bottom:');
+    });
+  });
+
+  describe('CSS custom properties (--var)', () => {
+    it('extracts [style.--mat-tab-animation-duration]', () => {
+      const content = `<div [style.--mat-tab-animation-duration]="animationDuration"></div>`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('--mat-tab-animation-duration:');
+    });
+
+    it('extracts [style.--custom-prop] with string value', () => {
+      const content = `<div [style.--custom-prop]="'300ms'"></div>`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('--custom-prop: 300ms');
+    });
+  });
+
+  describe('single-quoted attribute values', () => {
+    it('extracts [style.color] with single-quoted attribute', () => {
+      const content = `<div [style.color]='red'></div>`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: red');
+    });
+
+    it('extracts [style.width.px] with single-quoted attribute', () => {
+      const content = `<div [style.width.px]='100'></div>`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('width: 100px');
+    });
+  });
+
+  describe('Angular host binding syntax', () => {
+    it('extracts host binding style.filter', () => {
+      const content = `'[style.filter]': 'filter',`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('filter:');
+    });
+
+    it('extracts host binding style.outline with string', () => {
+      const content = `'[style.outline]': '"none"',`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('outline: none');
+    });
+
+    it('extracts host binding style.width.px', () => {
+      const content = `'[style.width.px]': 'width',`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('width:');
+    });
+
+    it('extracts host binding style.background-image with function call', () => {
+      const content = `'[style.background-image]': '_getBackgroundImage()',`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('background-image:');
+    });
+  });
+
+  describe('complex visibility expressions', () => {
+    it('extracts [style.visibility] with complex ternary', () => {
+      const content = `<div [style.visibility]="node.expandable ? 'visible' : 'hidden'"></div>`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('visibility:');
+    });
+
+    it('extracts [style.display] with ternary and flex', () => {
+      const content = `<div [style.display]="shouldRender(node) ? 'flex' : 'none'"></div>`;
+      const result = extractAngularStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('display:');
+    });
+  });
+});
+
+describe('Vue advanced patterns from vuetifyjs/vuetify', () => {
+  describe('opacity expressions', () => {
+    it('extracts :style with opacity ternary', () => {
+      const content = `<div :style="{ opacity: isHovering || isCopying ? 1 : 0 }"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      // Should at least detect the style object, even if value is dynamic
+    });
+  });
+
+  describe('CSS functions with expressions', () => {
+    it('extracts :style with rgb() function containing variables', () => {
+      const content = `<div :style="{ background: \`rgb(\${red}, \${green}, \${blue})\` }"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      // Should detect the style object
+    });
+
+    it('extracts :style with linear-gradient containing interpolation', () => {
+      const content = `<div :style="{ background: \`linear-gradient(0deg, \${gradient})\` }"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      // Should detect the style object
+    });
+  });
+
+  describe('grid and display styles', () => {
+    it('extracts :style with display grid', () => {
+      const content = `<div :style="{ width: '100%', display: 'grid' }"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('width: 100%');
+      expect(result[0]!.css).toContain('display: grid');
+    });
+  });
+
+  describe('function call values in :style', () => {
+    it('extracts :style with dynamic top value', () => {
+      const content = `<div :style="{ top: nowY() }"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      // Should detect the style object with function call
+    });
+  });
+
+  describe('animationDuration style', () => {
+    it('extracts :style with animationDuration variable', () => {
+      const content = `<div :style="{ animationDuration: animationDuration }"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      // Should detect the style object
+    });
+  });
+});

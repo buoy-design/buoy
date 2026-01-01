@@ -38,6 +38,8 @@ const CSS_UNITS = new Set([
  * Extract Angular-style property bindings
  * [style.color]="'red'" or [style.background-color]="bgColor"
  * [style.height.px]="100" (with unit suffix)
+ * [style.--custom-prop]="value" (CSS custom properties)
+ * '[style.x]': 'value' (host binding syntax in decorators)
  */
 export function extractAngularStyleBindings(content: string): StyleMatch[] {
   const matches: StyleMatch[] = [];
@@ -45,35 +47,64 @@ export function extractAngularStyleBindings(content: string): StyleMatch[] {
 
   for (let lineNum = 0; lineNum < lines.length; lineNum++) {
     const line = lines[lineNum]!;
-
-    // Match [style.property]="value" or [style.property.unit]="value"
-    // Pattern: [style.prop]="..." or [style.prop.unit]="..."
-    const bindingRegex =
-      /\[style\.([a-zA-Z-]+)(?:\.([a-zA-Z%]+))?\]\s*=\s*"([^"]*)"/g;
     let match;
 
-    while ((match = bindingRegex.exec(line)) !== null) {
+    // Match [style.property]="value" with double quotes
+    // Handles: regular props, hyphenated props, CSS custom properties (--var)
+    const doubleQuoteRegex =
+      /\[style\.((?:--)?[a-zA-Z][a-zA-Z0-9-]*)(?:\.([a-zA-Z%]+))?\]\s*=\s*"([^"]*)"/g;
+
+    while ((match = doubleQuoteRegex.exec(line)) !== null) {
       const prop = match[1];
       const unit = match[2];
       let value = match[3];
 
       if (!prop || value === undefined) continue;
 
-      // Handle value extraction
-      value = value.trim();
+      matches.push(
+        processAngularMatch(prop, unit, value, lineNum, match.index)
+      );
+    }
 
-      // Remove surrounding single quotes from string literals like "'red'" -> "red"
-      if (value.startsWith("'") && value.endsWith("'")) {
+    // Match [style.property]='value' with single quotes (less common)
+    const singleQuoteRegex =
+      /\[style\.((?:--)?[a-zA-Z][a-zA-Z0-9-]*)(?:\.([a-zA-Z%]+))?\]\s*=\s*'([^']*)'/g;
+
+    while ((match = singleQuoteRegex.exec(line)) !== null) {
+      const prop = match[1];
+      const unit = match[2];
+      let value = match[3];
+
+      if (!prop || value === undefined) continue;
+
+      matches.push(
+        processAngularMatch(prop, unit, value, lineNum, match.index)
+      );
+    }
+
+    // Match Angular host binding syntax: '[style.x]': 'value'
+    // Used in @Component({ host: { '[style.x]': 'expr' } })
+    const hostBindingRegex =
+      /'\[style\.((?:--)?[a-zA-Z][a-zA-Z0-9-]*)(?:\.([a-zA-Z%]+))?\]'\s*:\s*'([^']*)'/g;
+
+    while ((match = hostBindingRegex.exec(line)) !== null) {
+      const prop = match[1];
+      const unit = match[2];
+      let value = match[3];
+
+      if (!prop || value === undefined) continue;
+
+      // Handle value extraction - host bindings may have double quotes around string values
+      value = value.trim();
+      if (value.startsWith('"') && value.endsWith('"')) {
         value = value.slice(1, -1);
       }
 
       // If there's a unit suffix (like px, em, rem, %)
       if (unit && CSS_UNITS.has(unit)) {
-        // Check if value is a number - append unit directly
         if (/^-?\d+\.?\d*$/.test(value)) {
           value = `${value}${unit}`;
         } else {
-          // It's an expression - append unit with space for readability
           value = `${value} ${unit}`;
         }
       }
@@ -88,6 +119,46 @@ export function extractAngularStyleBindings(content: string): StyleMatch[] {
   }
 
   return matches;
+}
+
+/**
+ * Process an Angular style match and return a StyleMatch
+ */
+function processAngularMatch(
+  prop: string,
+  unit: string | undefined,
+  rawValue: string,
+  lineNum: number,
+  column: number
+): StyleMatch {
+  let value = rawValue.trim();
+
+  // Remove surrounding single quotes from string literals like "'red'" -> "red"
+  if (value.startsWith("'") && value.endsWith("'")) {
+    value = value.slice(1, -1);
+  }
+  // Also handle nested double quotes like '"none"' -> "none"
+  if (value.startsWith('"') && value.endsWith('"')) {
+    value = value.slice(1, -1);
+  }
+
+  // If there's a unit suffix (like px, em, rem, %)
+  if (unit && CSS_UNITS.has(unit)) {
+    // Check if value is a number - append unit directly
+    if (/^-?\d+\.?\d*$/.test(value)) {
+      value = `${value}${unit}`;
+    } else {
+      // It's an expression - append unit with space for readability
+      value = `${value} ${unit}`;
+    }
+  }
+
+  return {
+    css: `${prop}: ${value}`,
+    line: lineNum + 1,
+    column: column + 1,
+    context: 'inline',
+  };
 }
 
 /**
@@ -126,6 +197,7 @@ export function extractNgStyleBindings(content: string): StyleMatch[] {
  * Extract Vue :style bindings
  * :style="{ color: 'red' }" or v-bind:style="{ ... }"
  * :style="`color: red`" (template literals)
+ * :style="{ opacity: isHovering ? 1 : 0 }" (dynamic values)
  * Multi-line support
  */
 export function extractVueStyleBindings(content: string): StyleMatch[] {
@@ -140,7 +212,7 @@ export function extractVueStyleBindings(content: string): StyleMatch[] {
     const objectContent = match[1];
     if (!objectContent) continue;
 
-    const css = parseStyleObject(objectContent);
+    const css = parseStyleObjectExtended(objectContent);
     if (css) {
       const beforeMatch = content.slice(0, match.index);
       const lineNum = beforeMatch.split('\n').length;
@@ -242,6 +314,98 @@ function parseStyleObject(objectContent: string): string {
   }
 
   return cssProps.join('; ');
+}
+
+/**
+ * Extended style object parser that handles Vue's dynamic values
+ * Supports: quoted values, template literals, ternary expressions, function calls
+ * { opacity: isHovering ? 1 : 0 } → "opacity: [dynamic]"
+ * { background: `rgb(${r}, ${g}, ${b})` } → "background: rgb(${r}, ${g}, ${b})"
+ */
+function parseStyleObjectExtended(objectContent: string): string {
+  const cssProps: string[] = [];
+
+  // First, try to match quoted string values (standard case)
+  // 'property': 'value' or property: 'value' or "property": "value"
+  const quotedPropRegex = /['"]?([a-zA-Z-]+)['"]?\s*:\s*['"]([^'"]+)['"]/g;
+  let match;
+  const processedProps = new Set<string>();
+
+  while ((match = quotedPropRegex.exec(objectContent)) !== null) {
+    const prop = match[1];
+    const value = match[2];
+
+    if (!prop || !value) continue;
+
+    // Skip dynamic expressions (but allow color names and CSS keywords)
+    if (
+      /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(value) &&
+      !isColorName(value) &&
+      !isCssKeyword(value)
+    ) {
+      continue;
+    }
+
+    cssProps.push(`${prop}: ${value}`);
+    processedProps.add(prop);
+  }
+
+  // Match template literal values: property: `...`
+  const templateLiteralRegex = /['"]?([a-zA-Z-]+)['"]?\s*:\s*`([^`]*)`/g;
+  while ((match = templateLiteralRegex.exec(objectContent)) !== null) {
+    const prop = match[1];
+    const value = match[2];
+
+    if (!prop || processedProps.has(prop)) continue;
+
+    cssProps.push(`${prop}: ${value}`);
+    processedProps.add(prop);
+  }
+
+  // Match dynamic values: property: expression (no quotes)
+  // This catches ternary expressions, function calls, variables, etc.
+  // Pattern: property: (anything until comma or end of object)
+  const dynamicPropRegex =
+    /['"]?([a-zA-Z-]+)['"]?\s*:\s*([^,'"}`][^,}]*?)(?:,|\s*$)/g;
+  while ((match = dynamicPropRegex.exec(objectContent)) !== null) {
+    const prop = match[1];
+    const value = match[2]?.trim();
+
+    if (!prop || !value || processedProps.has(prop)) continue;
+
+    // Skip if this is a quoted value we should have caught earlier
+    if (value.startsWith("'") || value.startsWith('"')) continue;
+
+    cssProps.push(`${prop}: [dynamic]`);
+    processedProps.add(prop);
+  }
+
+  return cssProps.join('; ');
+}
+
+/**
+ * Check if a value is a CSS keyword (not a variable)
+ */
+function isCssKeyword(value: string): boolean {
+  const keywords = new Set([
+    'block',
+    'inline',
+    'flex',
+    'grid',
+    'none',
+    'hidden',
+    'visible',
+    'auto',
+    'inherit',
+    'initial',
+    'unset',
+    'absolute',
+    'relative',
+    'fixed',
+    'sticky',
+    'static',
+  ]);
+  return keywords.has(value.toLowerCase());
 }
 
 /**
