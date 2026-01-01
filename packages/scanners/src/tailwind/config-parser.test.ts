@@ -368,5 +368,192 @@ describe('TailwindConfigParser', () => {
       // Should auto-discover and parse v4 CSS config
       expect(result).not.toBeNull();
     });
+
+    it('extracts @plugin declarations', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/app/globals.css';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+@import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
+@plugin '@headlessui/tailwindcss';
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot, {
+        cssConfigPaths: ['/test/project/app/globals.css'],
+      });
+      const result = await parser.parse();
+
+      expect(result).not.toBeNull();
+      expect(result?.theme.plugins).toContain('@tailwindcss/forms');
+      expect(result?.theme.plugins).toContain('@tailwindcss/typography');
+      expect(result?.theme.plugins).toContain('@headlessui/tailwindcss');
+    });
+
+    it('parses oklch with alpha values', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/app/globals.css';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+@import "tailwindcss";
+
+.dark {
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --overlay: oklch(0 0 0 / 50%);
+}
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot, {
+        cssConfigPaths: ['/test/project/app/globals.css'],
+      });
+      const result = await parser.parse();
+
+      expect(result).not.toBeNull();
+
+      const borderToken = result?.tokens.find(t => t.name.includes('border'));
+      expect(borderToken).toBeDefined();
+      expect(borderToken?.value).toEqual({
+        type: 'raw',
+        value: 'oklch(1 0 0 / 10%)',
+      });
+      expect(borderToken?.metadata?.tags).toContain('oklch');
+      expect(borderToken?.metadata?.tags).toContain('alpha');
+    });
+
+    it('handles var() with fallback values', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/app/globals.css';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+@import "tailwindcss";
+
+@theme inline {
+  --color-border: var(--color-gray-200, currentcolor);
+  --color-fallback: var(--undefined-var, #ff0000);
+}
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot, {
+        cssConfigPaths: ['/test/project/app/globals.css'],
+      });
+      const result = await parser.parse();
+
+      expect(result).not.toBeNull();
+
+      const borderToken = result?.tokens.find(t => t.name.includes('border'));
+      expect(borderToken).toBeDefined();
+      expect(borderToken?.aliases).toContain('color-gray-200');
+
+      const fallbackToken = result?.tokens.find(t => t.name.includes('fallback'));
+      expect(fallbackToken).toBeDefined();
+      expect(fallbackToken?.metadata?.tags).toContain('fallback');
+    });
+
+    it('tracks CSS imports for dependency graph', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/app/globals.css';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "../registry/styles/style-vega.css" layer(base);
+@import "../registry/styles/style-nova.css" layer(base);
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot, {
+        cssConfigPaths: ['/test/project/app/globals.css'],
+      });
+      const result = await parser.parse();
+
+      expect(result).not.toBeNull();
+      expect(result?.theme.imports).toBeDefined();
+      expect(result?.theme.imports).toContain('tw-animate-css');
+      expect(result?.theme.imports).toContain('shadcn/tailwind.css');
+      expect(result?.theme.imports).toContain('../registry/styles/style-vega.css');
+    });
+
+    it('extracts breakpoints from @theme block', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/app/globals.css';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+@import "tailwindcss";
+
+@theme inline {
+  --breakpoint-3xl: 1600px;
+  --breakpoint-4xl: 2000px;
+}
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot, {
+        cssConfigPaths: ['/test/project/app/globals.css'],
+      });
+      const result = await parser.parse();
+
+      expect(result).not.toBeNull();
+      expect(result?.theme.breakpoints).toBeDefined();
+      expect(result?.theme.breakpoints?.['3xl']).toBe('1600px');
+      expect(result?.theme.breakpoints?.['4xl']).toBe('2000px');
+    });
+
+    it('extracts font families from @theme block', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/app/globals.css';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-heading: "Cal Sans", sans-serif;
+}
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot, {
+        cssConfigPaths: ['/test/project/app/globals.css'],
+      });
+      const result = await parser.parse();
+
+      expect(result).not.toBeNull();
+      // Font families should be extracted properly
+      const headingToken = result?.tokens.find(t => t.name.includes('font-heading'));
+      expect(headingToken).toBeDefined();
+      expect(headingToken?.category).toBe('typography');
+    });
+
+    it('parses calc() expressions in radius values', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/app/globals.css';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+@import "tailwindcss";
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot, {
+        cssConfigPaths: ['/test/project/app/globals.css'],
+      });
+      const result = await parser.parse();
+
+      expect(result).not.toBeNull();
+
+      const smToken = result?.tokens.find(t => t.name.includes('radius-sm'));
+      expect(smToken).toBeDefined();
+      expect(smToken?.value).toEqual({
+        type: 'raw',
+        value: 'calc(var(--radius) - 4px)',
+      });
+      expect(smToken?.metadata?.tags).toContain('calc');
+    });
   });
 });

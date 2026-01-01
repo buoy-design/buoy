@@ -13,6 +13,9 @@ export interface TailwindTheme {
   boxShadow: Record<string, string>;
   customVariants?: string[];
   utilities?: string[];
+  plugins?: string[];
+  imports?: string[];
+  breakpoints?: Record<string, string>;
 }
 
 export interface ParsedTailwindConfig {
@@ -206,14 +209,25 @@ export class TailwindConfigParser {
       boxShadow: {},
       customVariants: [],
       utilities: [],
+      plugins: [],
+      imports: [],
+      breakpoints: {},
     };
 
     const tokens: DesignToken[] = [];
 
+    // Extract @plugin declarations
+    const plugins = this.extractPlugins(content);
+    theme.plugins = plugins;
+
+    // Extract @import declarations (excluding tailwindcss itself)
+    const imports = this.extractImports(content);
+    theme.imports = imports;
+
     // Extract @theme inline blocks
     const themeBlocks = this.extractThemeBlocks(content);
     for (const block of themeBlocks) {
-      const blockTokens = this.parseThemeBlock(block, source);
+      const blockTokens = this.parseThemeBlock(block, source, theme);
       tokens.push(...blockTokens);
 
       // Also populate theme object
@@ -264,7 +278,11 @@ export class TailwindConfigParser {
     return blocks;
   }
 
-  private parseThemeBlock(block: string, source: TokenSource): DesignToken[] {
+  private parseThemeBlock(
+    block: string,
+    source: TokenSource,
+    theme: Partial<TailwindTheme>
+  ): DesignToken[] {
     const tokens: DesignToken[] = [];
 
     // Match CSS custom property declarations
@@ -274,6 +292,12 @@ export class TailwindConfigParser {
     while ((match = propRegex.exec(block)) !== null) {
       const name = match[1]!;
       const value = match[2]!.trim();
+
+      // Extract breakpoints to theme.breakpoints
+      if (name.startsWith('breakpoint-')) {
+        const bpName = name.replace('breakpoint-', '');
+        theme.breakpoints![bpName] = value;
+      }
 
       const token = this.themeVarToToken(name, value, source);
       if (token) {
@@ -294,17 +318,33 @@ export class TailwindConfigParser {
 
     // Handle var() references - store as raw with reference info in tags
     if (value.startsWith('var(')) {
-      const refMatch = value.match(/var\(--([^)]+)\)/);
-      const refName = refMatch?.[1] || value;
+      // Parse var() with optional fallback: var(--name, fallback)
+      const refMatch = value.match(/var\(--([^,)]+)(?:,\s*([^)]+))?\)/);
+      const refName = refMatch?.[1] || '';
+      const fallback = refMatch?.[2]?.trim();
+      const hasFallback = !!fallback;
+
+      const aliases = [name];
+      if (refName) aliases.push(refName);
+
+      const tags = ['tailwind', 'v4', 'reference'];
+      if (hasFallback) tags.push('fallback');
+
+      // Determine the appropriate category for the token
+      let tokenCategory: 'color' | 'spacing' | 'border' | 'typography' | 'other' = category;
+      if (category === 'other') {
+        tokenCategory = 'color'; // Default to color for unknown categories
+      }
+
       return {
         id: createTokenId(source, `tw-${name}`),
         name: `tw-${name}`,
-        category: category === 'other' || category === 'typography' ? 'color' : category,
+        category: tokenCategory === 'other' ? 'color' : tokenCategory,
         value: { type: 'raw', value },
         source,
-        aliases: [name, refName],
+        aliases,
         usedBy: [],
-        metadata: { tags: ['tailwind', 'v4', 'reference'] },
+        metadata: { tags },
         scannedAt: new Date(),
       };
     }
@@ -317,6 +357,21 @@ export class TailwindConfigParser {
     // Parse spacing/sizing values
     if (category === 'spacing' || category === 'border') {
       return this.createV4SpacingToken(name, value, source, category);
+    }
+
+    // Handle typography tokens (font-*, text-*, etc.)
+    if (category === 'typography') {
+      return {
+        id: createTokenId(source, `tw-${name}`),
+        name: `tw-${name}`,
+        category: 'typography',
+        value: { type: 'raw', value },
+        source,
+        aliases: [name],
+        usedBy: [],
+        metadata: { tags: ['tailwind', 'v4'] },
+        scannedAt: new Date(),
+      };
     }
 
     // Default raw token
@@ -580,6 +635,36 @@ export class TailwindConfigParser {
     return utilities;
   }
 
+  private extractPlugins(content: string): string[] {
+    const plugins: string[] = [];
+    // Match @plugin 'package-name' or @plugin "package-name"
+    const regex = /@plugin\s+['"]([^'"]+)['"]/g;
+
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      plugins.push(match[1]!);
+    }
+
+    return plugins;
+  }
+
+  private extractImports(content: string): string[] {
+    const imports: string[] = [];
+    // Match @import 'path' or @import "path" with optional layer()
+    const regex = /@import\s+['"]([^'"]+)['"](?:\s+layer\([^)]+\))?/g;
+
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      const importPath = match[1]!;
+      // Exclude tailwindcss itself
+      if (importPath !== 'tailwindcss') {
+        imports.push(importPath);
+      }
+    }
+
+    return imports;
+  }
+
   private addToTheme(theme: Partial<TailwindTheme>, token: DesignToken): void {
     if (token.category === 'color') {
       const name = token.name.replace('tw-', '').replace('-dark', '');
@@ -761,6 +846,11 @@ export class TailwindConfigParser {
 
     // Check for oklch colors (v4) - store as raw since schema doesn't support oklch
     if (value.startsWith('oklch(')) {
+      const colorTags = [...tags, 'oklch'];
+      // Check for alpha values (oklch with / for alpha)
+      if (value.includes('/')) {
+        colorTags.push('alpha');
+      }
       return {
         id: createTokenId(source, tokenName),
         name: tokenName,
@@ -769,7 +859,7 @@ export class TailwindConfigParser {
         source,
         aliases: mode === 'dark' ? [`${name}-dark`] : [name],
         usedBy: [],
-        metadata: { tags: [...tags, 'oklch'] },
+        metadata: { tags: colorTags },
         scannedAt: new Date(),
       };
     }
