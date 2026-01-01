@@ -27,6 +27,7 @@ interface StorybookEntry {
   importPath: string;
   tags?: string[];
   type: 'story' | 'docs';
+  componentPath?: string; // v5+ includes path to component source
 }
 
 export interface StoryFileScannerConfig extends ScannerConfig {
@@ -43,6 +44,10 @@ interface StoryMeta {
   argTypes?: Record<string, ArgTypeInfo>;
   hasDecorators?: boolean;
   hasParameters?: boolean;
+  subcomponents?: string[];
+  hasLoaders?: boolean;
+  hasBeforeEach?: boolean;
+  docsDescription?: string;
 }
 
 interface ArgTypeInfo {
@@ -55,8 +60,10 @@ interface StoryVariant {
   name: string;
   hasPlayFunction?: boolean;
   hasRenderFunction?: boolean;
+  hasBeforeEach?: boolean;
   tags?: string[];
   args?: Record<string, unknown>;
+  description?: string;
 }
 
 /** Default exclusions for story file scanning - does NOT exclude *.stories.* files */
@@ -182,7 +189,7 @@ export class StoryFileScanner extends Scanner<Component, StoryFileScannerConfig>
     const relativePath = relative(this.config.projectRoot, filePath);
 
     // Extract meta from default export
-    const meta = this.extractMeta(sourceFile);
+    const meta = this.extractMeta(sourceFile, relativePath);
     if (!meta) {
       return []; // Not a valid story file
     }
@@ -217,15 +224,36 @@ export class StoryFileScanner extends Scanner<Component, StoryFileScannerConfig>
     if (meta.hasParameters) {
       tags.push('has-parameters');
     }
+    if (meta.hasLoaders) {
+      tags.push('has-loaders');
+    }
+    if (meta.hasBeforeEach) {
+      tags.push('has-beforeEach');
+    }
     // Add hierarchy as tags for searchability
     tags.push(`storybook-title:${meta.title}`);
     if (meta.component) {
       tags.push(`storybook-component:${meta.component}`);
     }
+    // Add subcomponents as tags
+    if (meta.subcomponents) {
+      for (const subcomp of meta.subcomponents) {
+        tags.push(`storybook-subcomponent:${subcomp}`);
+      }
+    }
     // Add hierarchy levels as tags
     hierarchy.forEach((level, index) => {
       tags.push(`storybook-level-${index}:${level}`);
     });
+
+    // Build documentation from docs description if available
+    let documentation = `Storybook: ${meta.title}${meta.component ? ` (component: ${meta.component})` : ''}`;
+    if (meta.docsDescription) {
+      documentation = meta.docsDescription;
+    }
+
+    // Build dependencies from subcomponents
+    const dependencies: string[] = meta.subcomponents ? [...meta.subcomponents] : [];
 
     const component: Component = {
       id: createComponentId(source, componentName),
@@ -238,13 +266,15 @@ export class StoryFileScanner extends Scanner<Component, StoryFileScannerConfig>
           ...(v.args || {}),
           hasPlayFunction: v.hasPlayFunction,
           hasRenderFunction: v.hasRenderFunction,
+          hasBeforeEach: v.hasBeforeEach,
+          description: v.description,
         },
       })),
       tokens: [],
-      dependencies: [],
+      dependencies,
       metadata: {
         tags,
-        documentation: `Storybook: ${meta.title}${meta.component ? ` (component: ${meta.component})` : ''}`,
+        documentation,
       },
       scannedAt: new Date(),
     };
@@ -252,7 +282,7 @@ export class StoryFileScanner extends Scanner<Component, StoryFileScannerConfig>
     return [component];
   }
 
-  private extractMeta(sourceFile: ts.SourceFile): StoryMeta | null {
+  private extractMeta(sourceFile: ts.SourceFile, relativePath: string): StoryMeta | null {
     let meta: StoryMeta | null = null;
 
     const visit = (node: ts.Node) => {
@@ -285,7 +315,37 @@ export class StoryFileScanner extends Scanner<Component, StoryFileScannerConfig>
     };
 
     ts.forEachChild(sourceFile, visit);
-    return meta;
+
+    // If we have meta but no title (or empty title), try to infer from file path (CSF3 auto-title)
+    const result = meta as StoryMeta | null;
+    if (result && result.title === '') {
+      result.title = this.inferTitleFromPath(relativePath, result.component);
+    }
+
+    return result;
+  }
+
+  /**
+   * Infers a Storybook title from the file path (CSF3 auto-title feature)
+   * e.g., src/components/Button.stories.tsx -> components/Button
+   */
+  private inferTitleFromPath(relativePath: string, componentName?: string): string {
+    // Remove common prefixes like src/, lib/, app/
+    let path = relativePath
+      .replace(/^(src|lib|app)\//, '')
+      // Remove .stories.{ts,tsx,js,jsx} suffix
+      .replace(/\.stories\.(tsx?|jsx?|mjs)$/, '');
+
+    // Get the directory path and filename
+    const parts = path.split('/');
+    const fileName = parts.pop() || '';
+    const dirPath = parts.join('/');
+
+    // Use component name if available, otherwise use filename
+    const componentTitle = componentName || fileName;
+
+    // Build the title: directory/ComponentName
+    return dirPath ? `${dirPath}/${componentTitle}` : componentTitle;
   }
 
   private parseMetaObject(node: ts.Expression, sourceFile: ts.SourceFile): StoryMeta | null {
@@ -346,11 +406,110 @@ export class StoryFileScanner extends Scanner<Component, StoryFileScannerConfig>
 
         case 'parameters':
           meta.hasParameters = true;
+          // Extract docs.description.component if present
+          if (ts.isObjectLiteralExpression(prop.initializer)) {
+            const docsDesc = this.extractDocsDescription(prop.initializer, sourceFile);
+            if (docsDesc) {
+              meta.docsDescription = docsDesc;
+            }
+          }
+          break;
+
+        case 'subcomponents':
+          if (ts.isObjectLiteralExpression(prop.initializer)) {
+            meta.subcomponents = [];
+            for (const subProp of prop.initializer.properties) {
+              if (ts.isPropertyAssignment(subProp) || ts.isShorthandPropertyAssignment(subProp)) {
+                if (subProp.name) {
+                  meta.subcomponents.push(subProp.name.getText(sourceFile));
+                }
+              }
+            }
+          }
+          break;
+
+        case 'loaders':
+          meta.hasLoaders = true;
+          break;
+
+        case 'beforeEach':
+          meta.hasBeforeEach = true;
           break;
       }
     }
 
-    return meta.title ? meta : null;
+    // Allow meta without title (for auto-title)
+    return meta.title || meta.component ? meta : null;
+  }
+
+  /**
+   * Extract docs.description.component from parameters
+   */
+  private extractDocsDescription(parametersNode: ts.ObjectLiteralExpression, sourceFile: ts.SourceFile): string | undefined {
+    for (const prop of parametersNode.properties) {
+      if (!ts.isPropertyAssignment(prop) || !prop.name) continue;
+
+      const propName = prop.name.getText(sourceFile);
+      if (propName === 'docs' && ts.isObjectLiteralExpression(prop.initializer)) {
+        for (const docsProp of prop.initializer.properties) {
+          if (!ts.isPropertyAssignment(docsProp) || !docsProp.name) continue;
+
+          const docsName = docsProp.name.getText(sourceFile);
+          if (docsName === 'description' && ts.isObjectLiteralExpression(docsProp.initializer)) {
+            for (const descProp of docsProp.initializer.properties) {
+              if (!ts.isPropertyAssignment(descProp) || !descProp.name) continue;
+
+              const descName = descProp.name.getText(sourceFile);
+              if (descName === 'component' && ts.isStringLiteral(descProp.initializer)) {
+                return descProp.initializer.text;
+              }
+            }
+          }
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Extract docs.description.story from story-level parameters
+   */
+  private extractStoryDescription(parametersNode: ts.ObjectLiteralExpression, sourceFile: ts.SourceFile): string | undefined {
+    for (const prop of parametersNode.properties) {
+      if (!ts.isPropertyAssignment(prop) || !prop.name) continue;
+
+      const propName = prop.name.getText(sourceFile);
+      if (propName === 'docs' && ts.isObjectLiteralExpression(prop.initializer)) {
+        for (const docsProp of prop.initializer.properties) {
+          if (!ts.isPropertyAssignment(docsProp) || !docsProp.name) continue;
+
+          const docsName = docsProp.name.getText(sourceFile);
+          if (docsName === 'description' && ts.isObjectLiteralExpression(docsProp.initializer)) {
+            for (const descProp of docsProp.initializer.properties) {
+              if (!ts.isPropertyAssignment(descProp) || !descProp.name) continue;
+
+              const descName = descProp.name.getText(sourceFile);
+              if (descName === 'story') {
+                // Handle string literal
+                if (ts.isStringLiteral(descProp.initializer)) {
+                  return descProp.initializer.text;
+                }
+                // Handle template literal
+                if (ts.isNoSubstitutionTemplateLiteral(descProp.initializer)) {
+                  return descProp.initializer.text;
+                }
+                // Handle template string with backticks
+                if (ts.isTemplateExpression(descProp.initializer)) {
+                  // For complex template strings, get the raw text
+                  return descProp.initializer.getText(sourceFile).slice(1, -1);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return undefined;
   }
 
   private parseArgTypes(node: ts.ObjectLiteralExpression, sourceFile: ts.SourceFile): Record<string, ArgTypeInfo> {
@@ -513,6 +672,18 @@ export class StoryFileScanner extends Scanner<Component, StoryFileScannerConfig>
             if (ts.isStringLiteral(elem)) {
               variant.tags.push(elem.text);
             }
+          }
+        }
+
+        if (propName === 'beforeEach') {
+          variant.hasBeforeEach = true;
+        }
+
+        // Extract story-level description from parameters.docs.description.story
+        if (propName === 'parameters' && ts.isPropertyAssignment(prop) && ts.isObjectLiteralExpression(prop.initializer)) {
+          const storyDesc = this.extractStoryDescription(prop.initializer, sourceFile);
+          if (storyDesc) {
+            variant.description = storyDesc;
           }
         }
       }
@@ -742,6 +913,12 @@ export class StorybookScanner extends Scanner<Component, StorybookScannerConfig>
         const titleParts = entry.title.split('/');
         const name = titleParts[titleParts.length - 1] ?? entry.title;
 
+        // Build tags from entry tags, and add componentPath if available (v5+)
+        const tags = [...(entry.tags || [])];
+        if (entry.componentPath) {
+          tags.push(`storybook-componentPath:${entry.componentPath}`);
+        }
+
         componentMap.set(componentId, {
           id: createComponentId(source, name),
           name: name,
@@ -751,7 +928,7 @@ export class StorybookScanner extends Scanner<Component, StorybookScannerConfig>
           tokens: [],
           dependencies: [],
           metadata: {
-            tags: entry.tags || [],
+            tags,
           },
           scannedAt: new Date(),
         });

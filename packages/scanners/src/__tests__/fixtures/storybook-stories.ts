@@ -354,3 +354,187 @@ export const STORYBOOK_STORIES_JSON = `{
     }
   }
 }`;
+
+// CSF3 Auto-title story (no title property, uses file path)
+export const CSF3_AUTO_TITLE_STORY = `
+import type { Meta, StoryObj } from '@storybook/react';
+import { Button } from './Button';
+
+// No title property - Storybook infers from file path
+const meta = {
+  component: Button,
+  tags: ['autodocs'],
+  argTypes: {
+    variant: {
+      control: 'select',
+      options: ['primary', 'secondary'],
+    },
+  },
+} satisfies Meta<typeof Button>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const Primary: Story = {
+  args: {
+    variant: 'primary',
+  },
+};
+
+export const Secondary: Story = {
+  args: {
+    variant: 'secondary',
+  },
+};
+`;
+
+// Story with subcomponents
+export const STORY_WITH_SUBCOMPONENTS = `
+import type { Meta, StoryObj } from '@storybook/react';
+import { List } from './List';
+import { ListItem } from './ListItem';
+import { ListHeader } from './ListHeader';
+
+const meta: Meta<typeof List> = {
+  title: 'Components/List',
+  component: List,
+  subcomponents: { ListItem, ListHeader },
+  tags: ['autodocs'],
+};
+
+export default meta;
+type Story = StoryObj<typeof List>;
+
+export const Default: Story = {
+  args: {
+    children: [
+      <ListHeader key="h">Header</ListHeader>,
+      <ListItem key="1">Item 1</ListItem>,
+      <ListItem key="2">Item 2</ListItem>,
+    ],
+  },
+};
+`;
+
+// Story with docs parameters (description)
+export const STORY_WITH_DOCS_PARAMS = `
+import type { Meta, StoryObj } from '@storybook/react';
+import { Button } from './Button';
+
+const meta: Meta<typeof Button> = {
+  title: 'Components/Button',
+  component: Button,
+  parameters: {
+    docs: {
+      description: {
+        component: 'A versatile button component for user interactions.',
+      },
+    },
+  },
+};
+
+export default meta;
+type Story = StoryObj<typeof Button>;
+
+export const Primary: Story = {
+  args: { variant: 'primary', label: 'Click me' },
+  parameters: {
+    docs: {
+      description: {
+        story: 'The primary variant is used for main actions.',
+      },
+    },
+  },
+};
+
+export const Secondary: Story = {
+  args: { variant: 'secondary', label: 'Click me' },
+};
+`;
+
+// Story using loaders (async data fetching)
+export const STORY_WITH_LOADERS = `
+import type { Meta, StoryObj } from '@storybook/react';
+import { UserProfile } from './UserProfile';
+
+const meta: Meta<typeof UserProfile> = {
+  title: 'Data/UserProfile',
+  component: UserProfile,
+  loaders: [
+    async () => ({
+      user: await fetch('/api/user/1').then(r => r.json()),
+    }),
+  ],
+};
+
+export default meta;
+type Story = StoryObj<typeof UserProfile>;
+
+export const Default: Story = {
+  render: (args, { loaded: { user } }) => <UserProfile {...args} user={user} />,
+};
+`;
+
+// Story with beforeEach
+export const STORY_WITH_BEFORE_EACH = `
+import type { Meta, StoryObj } from '@storybook/react';
+import { userEvent, within } from '@storybook/test';
+import { Form } from './Form';
+
+const meta: Meta<typeof Form> = {
+  title: 'Forms/Form',
+  component: Form,
+  beforeEach: async () => {
+    // Reset form state before each story
+    localStorage.clear();
+  },
+};
+
+export default meta;
+type Story = StoryObj<typeof Form>;
+
+export const Empty: Story = {};
+
+export const Prefilled: Story = {
+  beforeEach: async () => {
+    localStorage.setItem('formData', JSON.stringify({ name: 'Test' }));
+  },
+  args: {
+    loadFromStorage: true,
+  },
+};
+`;
+
+// Storybook index.json v5 format with more metadata
+export const STORYBOOK_INDEX_JSON_V5 = `{
+  "v": 5,
+  "entries": {
+    "components-button--primary": {
+      "id": "components-button--primary",
+      "title": "Components/Button",
+      "name": "Primary",
+      "importPath": "./src/components/Button.stories.tsx",
+      "type": "story",
+      "tags": ["autodocs", "story"],
+      "componentPath": "./src/components/Button.tsx"
+    },
+    "components-button--secondary": {
+      "id": "components-button--secondary",
+      "title": "Components/Button",
+      "name": "Secondary",
+      "importPath": "./src/components/Button.stories.tsx",
+      "type": "story",
+      "tags": ["autodocs", "story"],
+      "componentPath": "./src/components/Button.tsx"
+    },
+    "components-list--default": {
+      "id": "components-list--default",
+      "title": "Components/List",
+      "name": "Default",
+      "importPath": "./src/components/List.stories.tsx",
+      "type": "story",
+      "tags": ["autodocs", "story"],
+      "componentPath": "./src/components/List.tsx"
+    }
+  }
+}`;

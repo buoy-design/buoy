@@ -13,6 +13,12 @@ import {
   STORYBOOK_INDEX_JSON,
   STORYBOOK_STORIES_JSON,
   STORYBOOK_MAIN_CONFIG,
+  CSF3_AUTO_TITLE_STORY,
+  STORY_WITH_SUBCOMPONENTS,
+  STORY_WITH_DOCS_PARAMS,
+  STORY_WITH_LOADERS,
+  STORY_WITH_BEFORE_EACH,
+  STORYBOOK_INDEX_JSON_V5,
 } from '../__tests__/fixtures/storybook-stories.js';
 import { StorybookScanner, StoryFileScanner } from './extractor.js';
 
@@ -380,6 +386,204 @@ describe('StoryFileScanner', () => {
 
       const buttonStories = result.items.find(c => c.name === 'Button');
       expect(buttonStories?.metadata?.tags).toContain('storybook-component:Button');
+    });
+  });
+
+  describe('auto-title detection', () => {
+    it('infers title from file path when no title is specified', async () => {
+      vol.fromJSON({
+        '/project/src/components/Button.stories.tsx': CSF3_AUTO_TITLE_STORY,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.errors).toHaveLength(0);
+      expect(result.items.length).toBeGreaterThan(0);
+
+      const buttonStories = result.items.find(c => c.name === 'Button');
+      expect(buttonStories).toBeDefined();
+      // Should infer title from file path: src/components/Button.stories.tsx -> components/Button
+      expect(buttonStories?.metadata?.tags).toContain('storybook-title:components/Button');
+    });
+
+    it('uses component name as title when component is specified but no title', async () => {
+      vol.fromJSON({
+        '/project/src/ui/MyButton.stories.tsx': CSF3_AUTO_TITLE_STORY,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      const buttonStories = result.items.find(c => c.name === 'Button');
+      expect(buttonStories).toBeDefined();
+      // When component is specified but no title, should use component name with path
+      expect(buttonStories?.metadata?.tags).toContain('storybook-title:ui/Button');
+    });
+  });
+
+  describe('subcomponents extraction', () => {
+    it('extracts subcomponents from meta', async () => {
+      vol.fromJSON({
+        '/project/src/List.stories.tsx': STORY_WITH_SUBCOMPONENTS,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      const listStories = result.items.find(c => c.name === 'List');
+      expect(listStories).toBeDefined();
+      // Should have subcomponents as tags or in metadata
+      expect(listStories?.metadata?.tags).toContain('storybook-subcomponent:ListItem');
+      expect(listStories?.metadata?.tags).toContain('storybook-subcomponent:ListHeader');
+    });
+
+    it('includes subcomponents count in dependencies', async () => {
+      vol.fromJSON({
+        '/project/src/List.stories.tsx': STORY_WITH_SUBCOMPONENTS,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      const listStories = result.items.find(c => c.name === 'List');
+      // Subcomponents should be tracked as dependencies
+      expect(listStories?.dependencies).toContain('ListItem');
+      expect(listStories?.dependencies).toContain('ListHeader');
+    });
+  });
+
+  describe('docs parameters extraction', () => {
+    it('extracts component description from docs parameters', async () => {
+      vol.fromJSON({
+        '/project/src/Button.stories.tsx': STORY_WITH_DOCS_PARAMS,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      const buttonStories = result.items.find(c => c.name === 'Button');
+      expect(buttonStories).toBeDefined();
+      expect(buttonStories?.metadata?.documentation).toContain(
+        'A versatile button component for user interactions.'
+      );
+    });
+
+    it('extracts story-level description from docs parameters', async () => {
+      vol.fromJSON({
+        '/project/src/Button.stories.tsx': STORY_WITH_DOCS_PARAMS,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      const buttonStories = result.items.find(c => c.name === 'Button');
+      const primaryVariant = buttonStories?.variants.find(v => v.name === 'Primary');
+      // Story description should be available in variant props
+      expect(primaryVariant?.props?.description).toBe(
+        'The primary variant is used for main actions.'
+      );
+    });
+  });
+
+  describe('loaders detection', () => {
+    it('detects stories with loaders as tag', async () => {
+      vol.fromJSON({
+        '/project/src/UserProfile.stories.tsx': STORY_WITH_LOADERS,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      const userProfileStories = result.items.find(c => c.name === 'UserProfile');
+      expect(userProfileStories).toBeDefined();
+      expect(userProfileStories?.metadata?.tags).toContain('has-loaders');
+    });
+  });
+
+  describe('beforeEach detection', () => {
+    it('detects stories with beforeEach as tag', async () => {
+      vol.fromJSON({
+        '/project/src/Form.stories.tsx': STORY_WITH_BEFORE_EACH,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      const formStories = result.items.find(c => c.name === 'Form');
+      expect(formStories).toBeDefined();
+      expect(formStories?.metadata?.tags).toContain('has-beforeEach');
+    });
+
+    it('detects story-level beforeEach', async () => {
+      vol.fromJSON({
+        '/project/src/Form.stories.tsx': STORY_WITH_BEFORE_EACH,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      const formStories = result.items.find(c => c.name === 'Form');
+      const prefilledVariant = formStories?.variants.find(v => v.name === 'Prefilled');
+      expect(prefilledVariant?.props?.hasBeforeEach).toBe(true);
+    });
+  });
+
+  describe('index.json v5 parsing', () => {
+    it('extracts componentPath from v5 entries', async () => {
+      vol.fromJSON({
+        '/storybook-static/index.json': STORYBOOK_INDEX_JSON_V5,
+      });
+
+      const scanner = new StorybookScanner({
+        projectRoot: '/project',
+        staticDir: '/storybook-static',
+      });
+
+      const result = await scanner.scan();
+
+      const buttonComponent = result.items.find(c => c.name === 'Button');
+      expect(buttonComponent).toBeDefined();
+      // v5 includes componentPath which should be extracted
+      expect(buttonComponent?.metadata?.tags).toContain(
+        'storybook-componentPath:./src/components/Button.tsx'
+      );
     });
   });
 });
