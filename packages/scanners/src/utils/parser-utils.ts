@@ -115,6 +115,9 @@ export const COMMON_REACT_PATTERNS = {
   /** Matches withProvider<ElementType, PropsType> - Chakra UI pattern */
   withProvider: /withProvider\s*<([^>]+)>/,
 
+  /** Matches withRootProvider<PropsType> - Chakra UI pattern for root providers */
+  withRootProvider: /withRootProvider\s*<([^>]+)>/,
+
   /** Matches chakra("element", { ... }) - Chakra styled factory */
   chakraStyled: /chakra\s*\(\s*["']/,
 
@@ -141,6 +144,12 @@ export const COMMON_REACT_PATTERNS = {
 
   /** Matches styled.element`` or styled(Component)`` - styled-components/emotion */
   styled: /styled(?:\.(\w+)|\(([^)]+)\))/,
+
+  /** Matches Ark UI import pattern: import { X as ArkX } from "@ark-ui/react/x" */
+  arkUIImport: /import\s+\{[^}]+\}\s+from\s+["']@ark-ui\/react\/\w+["']/,
+
+  /** Matches displayName assignment: Component.displayName = "Name" */
+  displayName: /(\w+)\.displayName\s*=\s*["'](\w+)["']/,
 };
 
 /**
@@ -542,4 +551,288 @@ export function detectDesignSystem(code: string): string | null {
     return "tailwind-cva";
 
   return null;
+}
+
+/**
+ * Extract displayName from a component file.
+ * Looks for patterns like: Component.displayName = "Name"
+ *
+ * @param code The code string to search
+ * @returns The displayName value, or null if not found
+ */
+export function extractDisplayName(code: string): string | null {
+  const match = code.match(COMMON_REACT_PATTERNS.displayName);
+  return match?.[2] ?? null;
+}
+
+/**
+ * Extract the slot name from withContext or withProvider calls.
+ * E.g., from `withContext<A, B>("div", "body")` extracts "body".
+ *
+ * @param code The code string to search
+ * @returns The slot name, or null if not found
+ */
+export function extractSlotName(code: string): string | null {
+  // Match patterns like: withContext<...>("div", "slotName") or withProvider<...>("div", "slotName")
+  const pattern =
+    /with(?:Context|Provider)\s*<[^>]+>\s*\(\s*["'][^"']+["']\s*,\s*["']([^"']+)["']/;
+  const match = code.match(pattern);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Chakra-style semantic tokens use specific patterns:
+ * - Numeric scale values: "4", "6", "12", "0.5"
+ * - Semantic path tokens: "bg.muted", "colors.primary.500"
+ * - Size keywords: "sm", "md", "lg", "xl", "2xl"
+ * - CSS variables: "var(--chakra-...)"
+ */
+const SEMANTIC_TOKEN_PATTERNS = {
+  /** Numeric scale (spacing/sizing scale): 0, 1, 2, ... 96, 0.5, 1.5, etc. */
+  numericScale: /^-?\d+(\.\d+)?$/,
+
+  /** Semantic path tokens: bg.muted, colors.primary.500 */
+  semanticPath: /^[a-z]+\.[a-z0-9.]+$/i,
+
+  /** Size keywords: xs, sm, md, lg, xl, 2xl, 3xl, etc. */
+  sizeKeyword: /^(\d*)?(xs|sm|md|lg|xl|2xl|3xl|4xl|5xl|6xl|full)$/,
+
+  /** Named tokens (single word, no units): solid, outline, ghost, etc. */
+  namedToken: /^[a-z][a-z0-9-]*$/i,
+
+  /** CSS variable reference */
+  cssVariable: /^var\(--/,
+
+  /** Hardcoded color values */
+  hardcodedColor: /^(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\()/,
+
+  /** Hardcoded unit values */
+  hardcodedUnit: /^\d+(\.\d+)?(px|rem|em|vh|vw|%)$/,
+};
+
+/**
+ * Check if a value represents a semantic design token vs a hardcoded value.
+ *
+ * @param value The prop value to check
+ * @returns True if the value appears to be a semantic token
+ */
+export function isSemanticTokenValue(value: string): boolean {
+  const trimmed = value.trim();
+
+  // CSS variables are always tokens
+  if (SEMANTIC_TOKEN_PATTERNS.cssVariable.test(trimmed)) {
+    return true;
+  }
+
+  // Hardcoded colors are not tokens
+  if (SEMANTIC_TOKEN_PATTERNS.hardcodedColor.test(trimmed)) {
+    return false;
+  }
+
+  // Values with units are hardcoded
+  if (SEMANTIC_TOKEN_PATTERNS.hardcodedUnit.test(trimmed)) {
+    return false;
+  }
+
+  // Numeric scale values (Chakra spacing/sizing)
+  if (SEMANTIC_TOKEN_PATTERNS.numericScale.test(trimmed)) {
+    return true;
+  }
+
+  // Semantic paths like bg.muted, colors.primary.500
+  if (SEMANTIC_TOKEN_PATTERNS.semanticPath.test(trimmed)) {
+    return true;
+  }
+
+  // Size keywords
+  if (SEMANTIC_TOKEN_PATTERNS.sizeKeyword.test(trimmed)) {
+    return true;
+  }
+
+  // Named tokens (single lowercase word, typically variant names)
+  if (SEMANTIC_TOKEN_PATTERNS.namedToken.test(trimmed) && !trimmed.includes("-")) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Represents an extracted Chakra-style prop with its semantic token status.
+ */
+export interface ChakraSemanticProp {
+  prop: string;
+  value: string;
+  isSemanticToken: boolean;
+}
+
+/**
+ * Extract Chakra-style semantic props from JSX-like content.
+ * Identifies which props use semantic tokens vs hardcoded values.
+ *
+ * @param code The JSX-like code string to parse
+ * @returns Array of extracted props with semantic token classification
+ */
+export function extractChakraSemanticProps(code: string): ChakraSemanticProp[] {
+  const props: ChakraSemanticProp[] = [];
+
+  // Match prop="value" or prop='value' patterns (not spread or expressions)
+  const propPattern = /(\w+)=["']([^"']+)["']/g;
+
+  let match;
+  while ((match = propPattern.exec(code)) !== null) {
+    const [, propName, value] = match;
+    if (propName && value) {
+      props.push({
+        prop: propName,
+        value,
+        isSemanticToken: isSemanticTokenValue(value),
+      });
+    }
+  }
+
+  return props;
+}
+
+/**
+ * Represents an Ark UI component import.
+ */
+export interface ArkUIImport {
+  originalName: string;
+  alias: string;
+  package: string;
+}
+
+/**
+ * Extract Ark UI component imports from code.
+ * Handles patterns like: import { Dialog as ArkDialog } from "@ark-ui/react/dialog"
+ *
+ * @param code The code string to search
+ * @returns Array of Ark UI imports, or a single import object for single matches
+ */
+export function extractArkUIWrappedComponent(
+  code: string,
+): ArkUIImport[] | ArkUIImport {
+  const imports: ArkUIImport[] = [];
+
+  // Match Ark UI import statements
+  const importPattern =
+    /import\s+\{([^}]+)\}\s+from\s+["']@ark-ui\/react\/(\w+)["']/g;
+
+  let match;
+  while ((match = importPattern.exec(code)) !== null) {
+    const [, namedImports, packageName] = match;
+    if (namedImports && packageName) {
+      // Parse individual imports from the destructuring
+      const importItems = namedImports.split(",").map((s) => s.trim());
+
+      for (const item of importItems) {
+        // Handle "Foo as Bar" or just "Foo"
+        const aliasMatch = item.match(/^(\w+)\s+as\s+(\w+)$/);
+        if (aliasMatch?.[1] && aliasMatch[2]) {
+          imports.push({
+            originalName: aliasMatch[1],
+            alias: aliasMatch[2],
+            package: packageName,
+          });
+        } else if (isValidIdentifier(item)) {
+          // Only include PascalCase component names, not hooks like useDialogContext
+          if (/^[A-Z]/.test(item)) {
+            imports.push({
+              originalName: item,
+              alias: item,
+              package: packageName,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // If only one import found and expecting single result, return object
+  if (imports.length === 1) {
+    return imports[0]!;
+  }
+
+  return imports;
+}
+
+/**
+ * Represents parsed Chakra style props from an object.
+ */
+export interface ChakraStylePropsResult {
+  /** Props using semantic tokens as "prop:value" strings */
+  semanticTokens: string[];
+  /** Pseudo selector props like _hover, _focus */
+  pseudoSelectors: string[];
+  /** Props using responsive array or object syntax */
+  responsiveProps: string[];
+  /** Whether the css prop is present */
+  hasCssProp: boolean;
+}
+
+/**
+ * Parse Chakra-style props from an object literal.
+ * Identifies semantic tokens, pseudo selectors, and responsive values.
+ *
+ * @param code The object literal code string
+ * @returns Parsed style props information
+ */
+export function parseChakraStyleProps(code: string): ChakraStylePropsResult {
+  const result: ChakraStylePropsResult = {
+    semanticTokens: [],
+    pseudoSelectors: [],
+    responsiveProps: [],
+    hasCssProp: false,
+  };
+
+  // Check for css prop
+  if (/\bcss\s*:/.test(code)) {
+    result.hasCssProp = true;
+  }
+
+  // Match pseudo selectors (_hover, _focus, etc.)
+  const pseudoPattern = /(_\w+)\s*:/g;
+  let pseudoMatch;
+  while ((pseudoMatch = pseudoPattern.exec(code)) !== null) {
+    if (pseudoMatch[1]) {
+      result.pseudoSelectors.push(pseudoMatch[1]);
+    }
+  }
+
+  // Match responsive array syntax: prop: ["value1", "value2"]
+  const responsiveArrayPattern = /(\w+)\s*:\s*\[/g;
+  let arrayMatch;
+  while ((arrayMatch = responsiveArrayPattern.exec(code)) !== null) {
+    if (arrayMatch[1] && !arrayMatch[1].startsWith("_")) {
+      result.responsiveProps.push(arrayMatch[1]);
+    }
+  }
+
+  // Match responsive object syntax: prop: { base: "value", md: "value" }
+  const responsiveObjPattern = /(\w+)\s*:\s*\{\s*(?:base|sm|md|lg|xl)\s*:/g;
+  let objMatch;
+  while ((objMatch = responsiveObjPattern.exec(code)) !== null) {
+    if (objMatch[1] && !result.responsiveProps.includes(objMatch[1])) {
+      result.responsiveProps.push(objMatch[1]);
+    }
+  }
+
+  // Match simple semantic token props: prop: "value"
+  const simplePropsPattern = /(\w+)\s*:\s*["']([^"']+)["']/g;
+  let propMatch;
+  while ((propMatch = simplePropsPattern.exec(code)) !== null) {
+    const [, propName, value] = propMatch;
+    if (
+      propName &&
+      value &&
+      !propName.startsWith("_") &&
+      propName !== "css" &&
+      isSemanticTokenValue(value)
+    ) {
+      result.semanticTokens.push(`${propName}:${value}`);
+    }
+  }
+
+  return result;
 }

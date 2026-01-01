@@ -10,6 +10,12 @@ import {
   extractHOCWrappedType,
   splitTopLevelArgs,
   COMMON_REACT_PATTERNS,
+  extractDisplayName,
+  extractSlotName,
+  extractChakraSemanticProps,
+  extractArkUIWrappedComponent,
+  isSemanticTokenValue,
+  parseChakraStyleProps,
 } from "./parser-utils.js";
 
 describe("parser-utils", () => {
@@ -262,6 +268,186 @@ describe("parser-utils", () => {
     it("should match interface extends pattern", () => {
       const code = "interface ButtonProps extends RecipeProps<\"button\">";
       expect(COMMON_REACT_PATTERNS.interfaceExtends.test(code)).toBe(true);
+    });
+
+    it("should match withRootProvider pattern", () => {
+      const code = "withRootProvider<DialogRootProps>(ArkDialog.Root)";
+      expect(COMMON_REACT_PATTERNS.withRootProvider.test(code)).toBe(true);
+    });
+
+    it("should match Ark UI import pattern", () => {
+      const code = 'import { Dialog as ArkDialog } from "@ark-ui/react/dialog"';
+      expect(COMMON_REACT_PATTERNS.arkUIImport.test(code)).toBe(true);
+    });
+
+    it("should match displayName assignment pattern", () => {
+      const code = 'Button.displayName = "Button"';
+      expect(COMMON_REACT_PATTERNS.displayName.test(code)).toBe(true);
+    });
+  });
+
+  describe("extractDisplayName", () => {
+    it("should extract displayName from assignment", () => {
+      const code = 'Button.displayName = "Button"';
+      expect(extractDisplayName(code)).toBe("Button");
+    });
+
+    it("should extract displayName with single quotes", () => {
+      const code = "Heading.displayName = 'Heading'";
+      expect(extractDisplayName(code)).toBe("Heading");
+    });
+
+    it("should return null when no displayName", () => {
+      const code = "const Button = forwardRef()";
+      expect(extractDisplayName(code)).toBeNull();
+    });
+
+    it("should extract displayName from multiline code", () => {
+      const code = `
+        export const Skeleton = chakra("div", {})
+        Skeleton.displayName = "Skeleton"
+      `;
+      expect(extractDisplayName(code)).toBe("Skeleton");
+    });
+  });
+
+  describe("extractSlotName", () => {
+    it("should extract slot name from withContext call", () => {
+      const code = 'withContext<HTMLDivElement, CardBodyProps>("div", "body")';
+      expect(extractSlotName(code)).toBe("body");
+    });
+
+    it("should extract slot name from withProvider call", () => {
+      const code = 'withProvider<HTMLDivElement, CardRootProps>("div", "root")';
+      expect(extractSlotName(code)).toBe("root");
+    });
+
+    it("should return null when no slot name", () => {
+      const code = "withContext<HTMLInputElement, InputProps>(ArkField.Input)";
+      expect(extractSlotName(code)).toBeNull();
+    });
+
+    it("should handle slot names with single quotes", () => {
+      const code = "withContext<HTMLHeadingElement, CardTitleProps>('h3', 'title')";
+      expect(extractSlotName(code)).toBe("title");
+    });
+  });
+
+  describe("extractChakraSemanticProps", () => {
+    it("should extract semantic props from JSX-like string", () => {
+      const code = '<Box padding="6" bg="bg.muted" borderWidth="1px" rounded="lg" />';
+      const props = extractChakraSemanticProps(code);
+      expect(props).toContainEqual({ prop: "padding", value: "6", isSemanticToken: true });
+      expect(props).toContainEqual({ prop: "bg", value: "bg.muted", isSemanticToken: true });
+      expect(props).toContainEqual({ prop: "rounded", value: "lg", isSemanticToken: true });
+    });
+
+    it("should identify hardcoded values vs semantic tokens", () => {
+      const code = '<Box color="#ff0000" padding="4" margin="1rem" />';
+      const props = extractChakraSemanticProps(code);
+      expect(props).toContainEqual({ prop: "color", value: "#ff0000", isSemanticToken: false });
+      expect(props).toContainEqual({ prop: "padding", value: "4", isSemanticToken: true });
+      expect(props).toContainEqual({ prop: "margin", value: "1rem", isSemanticToken: false });
+    });
+
+    it("should handle object spread syntax", () => {
+      const code = '<chakra.button {...rest} className={cx(result.className)} />';
+      const props = extractChakraSemanticProps(code);
+      // Should not crash on spread syntax
+      expect(Array.isArray(props)).toBe(true);
+    });
+  });
+
+  describe("isSemanticTokenValue", () => {
+    it("should identify numeric scale tokens", () => {
+      expect(isSemanticTokenValue("4")).toBe(true);
+      expect(isSemanticTokenValue("12")).toBe(true);
+      expect(isSemanticTokenValue("0.5")).toBe(true);
+    });
+
+    it("should identify semantic path tokens", () => {
+      expect(isSemanticTokenValue("bg.muted")).toBe(true);
+      expect(isSemanticTokenValue("colors.primary.500")).toBe(true);
+      expect(isSemanticTokenValue("spacing.lg")).toBe(true);
+    });
+
+    it("should identify size keywords", () => {
+      expect(isSemanticTokenValue("sm")).toBe(true);
+      expect(isSemanticTokenValue("md")).toBe(true);
+      expect(isSemanticTokenValue("lg")).toBe(true);
+      expect(isSemanticTokenValue("xl")).toBe(true);
+      expect(isSemanticTokenValue("2xl")).toBe(true);
+    });
+
+    it("should reject hardcoded values", () => {
+      expect(isSemanticTokenValue("#ff0000")).toBe(false);
+      expect(isSemanticTokenValue("rgb(255, 0, 0)")).toBe(false);
+      expect(isSemanticTokenValue("16px")).toBe(false);
+      expect(isSemanticTokenValue("1rem")).toBe(false);
+      expect(isSemanticTokenValue("100vh")).toBe(false);
+    });
+
+    it("should accept CSS variables as tokens", () => {
+      expect(isSemanticTokenValue("var(--chakra-colors-primary)")).toBe(true);
+    });
+  });
+
+  describe("extractArkUIWrappedComponent", () => {
+    it("should extract Ark UI component from import", () => {
+      const code = 'import { Dialog as ArkDialog } from "@ark-ui/react/dialog"';
+      const result = extractArkUIWrappedComponent(code);
+      expect(result).toEqual({ originalName: "Dialog", alias: "ArkDialog", package: "dialog" });
+    });
+
+    it("should handle multiple Ark UI imports", () => {
+      const code = `
+        import { Dialog as ArkDialog, useDialogContext } from "@ark-ui/react/dialog"
+        import { Field as ArkField } from "@ark-ui/react/field"
+      `;
+      const results = extractArkUIWrappedComponent(code);
+      expect(results).toContainEqual({ originalName: "Dialog", alias: "ArkDialog", package: "dialog" });
+      expect(results).toContainEqual({ originalName: "Field", alias: "ArkField", package: "field" });
+    });
+
+    it("should handle imports without alias", () => {
+      const code = 'import { Avatar } from "@ark-ui/react/avatar"';
+      const result = extractArkUIWrappedComponent(code);
+      // Single import returns object directly, not array
+      expect(result).toEqual({ originalName: "Avatar", alias: "Avatar", package: "avatar" });
+    });
+  });
+
+  describe("parseChakraStyleProps", () => {
+    it("should parse Chakra style props from object", () => {
+      const code = `{
+        padding: "6",
+        bg: "bg.muted",
+        _hover: { bg: "bg.emphasized" },
+        borderRadius: "lg"
+      }`;
+      const result = parseChakraStyleProps(code);
+      expect(result.semanticTokens).toContain("padding:6");
+      expect(result.semanticTokens).toContain("bg:bg.muted");
+      expect(result.semanticTokens).toContain("borderRadius:lg");
+      expect(result.pseudoSelectors).toContain("_hover");
+    });
+
+    it("should identify responsive array syntax", () => {
+      const code = '{ padding: ["4", "6", "8"] }';
+      const result = parseChakraStyleProps(code);
+      expect(result.responsiveProps).toContain("padding");
+    });
+
+    it("should identify responsive object syntax", () => {
+      const code = '{ fontSize: { base: "sm", md: "md", lg: "lg" } }';
+      const result = parseChakraStyleProps(code);
+      expect(result.responsiveProps).toContain("fontSize");
+    });
+
+    it("should handle css prop with array", () => {
+      const code = '{ css: [result.styles, props.css] }';
+      const result = parseChakraStyleProps(code);
+      expect(result.hasCssProp).toBe(true);
     });
   });
 });
