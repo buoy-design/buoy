@@ -107,13 +107,13 @@ export function createScanCommand(): Command {
             info("To fix:");
             info(
               "  1. Run " +
-                chalk.cyan("buoy bootstrap") +
+                chalk.cyan("buoy tokens") +
                 " to extract tokens from existing code",
             );
             info(
               "  2. Run " +
-                chalk.cyan("buoy build") +
-                " to generate a design system with AI",
+                chalk.cyan("buoy init") +
+                " to configure your project manually",
             );
             info("  3. Or add paths manually to your config");
           }

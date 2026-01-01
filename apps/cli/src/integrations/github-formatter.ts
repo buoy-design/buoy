@@ -65,7 +65,7 @@ export function formatPRComment(results: DriftResult): string {
     lines.push('');
     for (const signal of infos) {
       const loc = signal.file ? ` (${signal.file}${signal.line ? `:${signal.line}` : ''})` : '';
-      lines.push(`- \`${signal.component || 'Unknown'}\`: ${signal.message}${loc}`);
+      lines.push(`- \`${signal.component || '-'}\`: ${signal.message}${loc}`);
     }
     lines.push('');
     lines.push('</details>');

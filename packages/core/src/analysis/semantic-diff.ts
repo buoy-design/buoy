@@ -992,7 +992,8 @@ export class SemanticDiffEngine {
         lowerName.endsWith(suffix) &&
         lowerName.length > suffix.length &&
         // Ensure the suffix is at a word boundary (e.g., "ButtonGroup" not "Buttong")
-        lowerName[lowerName.length - suffix.length - 1]?.match(/[a-z]/)
+        // Use [a-z0-9] to handle names like "Button2Group" where digit precedes suffix
+        lowerName[lowerName.length - suffix.length - 1]?.match(/[a-z0-9]/)
       ) {
         // This is a compound component, not a duplicate candidate
         // Return the full name as the base (it's distinct)
