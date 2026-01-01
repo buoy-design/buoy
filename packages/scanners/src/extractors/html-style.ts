@@ -13,49 +13,58 @@ export interface StyleMatch {
 }
 
 /**
+ * Calculate line and column numbers from a position in the content
+ */
+function getLineAndColumn(content: string, position: number): { line: number; column: number } {
+  const beforeMatch = content.slice(0, position);
+  const lines = beforeMatch.split('\n');
+  const line = lines.length;
+  const lastLine = lines[lines.length - 1] || '';
+  const column = lastLine.length + 1;
+  return { line, column };
+}
+
+/**
  * Extract inline style attributes from HTML-like content
+ * Supports multi-line style attributes by processing the entire content at once.
  */
 export function extractHtmlStyleAttributes(content: string): StyleMatch[] {
   const matches: StyleMatch[] = [];
 
-  // Track line/column positions
-  const lines = content.split('\n');
+  // Match style="..." with double quotes
+  // Use negative lookbehind to avoid matching data-style, ng-style, v-bind:style, :style, etc.
+  // Use [\s\S] instead of [^"] to allow newlines in the value
+  const doubleQuoteRegex = /(?<![:\w-])style\s*=\s*"((?:[^"\\]|\\.)*)"/gi;
+  let match;
 
-  for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-    const line = lines[lineNum]!;
-
-    // Match style="..." with double quotes
-    // Use negative lookbehind to avoid matching data-style, ng-style, v-bind:style, :style, etc.
-    // Handle both double and single quoted values separately to support nested quotes
-    const doubleQuoteRegex = /(?<![:\w-])style\s*=\s*"([^"]*)"/gi;
-    let match;
-
-    while ((match = doubleQuoteRegex.exec(line)) !== null) {
-      const css = match[1];
-      // Skip empty or whitespace-only values
-      if (css && css.trim()) {
-        matches.push({
-          css,
-          line: lineNum + 1,
-          column: match.index + 1,
-          context: 'inline',
-        });
-      }
+  while ((match = doubleQuoteRegex.exec(content)) !== null) {
+    const css = match[1];
+    // Skip empty or whitespace-only values
+    if (css && css.trim()) {
+      const { line, column } = getLineAndColumn(content, match.index);
+      matches.push({
+        css,
+        line,
+        column,
+        context: 'inline',
+      });
     }
+  }
 
-    // Match style='...' with single quotes (allows nested double quotes)
-    const singleQuoteRegex = /(?<![:\w-])style\s*=\s*'([^']*)'/gi;
-    while ((match = singleQuoteRegex.exec(line)) !== null) {
-      const css = match[1];
-      // Skip empty or whitespace-only values
-      if (css && css.trim()) {
-        matches.push({
-          css,
-          line: lineNum + 1,
-          column: match.index + 1,
-          context: 'inline',
-        });
-      }
+  // Match style='...' with single quotes (allows nested double quotes)
+  // Use [\s\S] instead of [^'] to allow newlines in the value
+  const singleQuoteRegex = /(?<![:\w-])style\s*=\s*'((?:[^'\\]|\\.)*)'/gi;
+  while ((match = singleQuoteRegex.exec(content)) !== null) {
+    const css = match[1];
+    // Skip empty or whitespace-only values
+    if (css && css.trim()) {
+      const { line, column } = getLineAndColumn(content, match.index);
+      matches.push({
+        css,
+        line,
+        column,
+        context: 'inline',
+      });
     }
   }
 

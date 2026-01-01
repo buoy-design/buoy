@@ -211,6 +211,69 @@ describe('extractHtmlStyleAttributes', () => {
       expect(result).toHaveLength(1);
       expect(result[0]!.css).toContain('<?php');
     });
+
+    it('handles ERB with nested double quotes in style value', () => {
+      const content = `<div style="background: url(<%= image_path('bg.png') %>)"></div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe(`background: url(<%= image_path('bg.png') %>)`);
+    });
+
+    it('handles Liquid/Shopify syntax with filters', () => {
+      const content = `<div style="background: {{ 'bg.png' | asset_url }}"></div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain(`{{ 'bg.png' | asset_url }}`);
+    });
+  });
+
+  describe('multi-line style attributes', () => {
+    it('extracts style attribute spanning multiple lines', () => {
+      const content = `<div style="color: red;
+        padding: 10px;
+        margin: 5px">test</div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('color: red');
+      expect(result[0]!.css).toContain('padding: 10px');
+      expect(result[0]!.css).toContain('margin: 5px');
+    });
+
+    it('extracts style with newline after opening quote', () => {
+      const content = `<div style="
+        color: red;
+        padding: 10px
+      ">test</div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('color: red');
+      expect(result[0]!.css).toContain('padding: 10px');
+    });
+
+    it('handles multi-line style with single quotes', () => {
+      const content = `<div style='color: red;
+        padding: 10px'>test</div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('color: red');
+      expect(result[0]!.css).toContain('padding: 10px');
+    });
+  });
+
+  describe('SVG style handling', () => {
+    it('extracts style from SVG elements', () => {
+      const content = `<svg><rect style="fill: blue; stroke: black; stroke-width: 2" /></svg>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('fill: blue; stroke: black; stroke-width: 2');
+    });
+
+    it('extracts style from SVG path element', () => {
+      const content = `<svg><path style="fill: none; stroke: #333; stroke-linecap: round" d="M0 0 L10 10" /></svg>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('stroke: #333');
+    });
   });
 });
 
