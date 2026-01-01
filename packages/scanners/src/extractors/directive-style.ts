@@ -196,19 +196,21 @@ export function extractNgStyleBindings(content: string): StyleMatch[] {
 /**
  * Extract Vue :style bindings
  * :style="{ color: 'red' }" or v-bind:style="{ ... }"
+ * :style='{ color: "red" }' (single-quoted attribute)
  * :style="`color: red`" (template literals)
+ * :style="[{ color: 'red' }, styleObj]" (array bindings)
  * :style="{ opacity: isHovering ? 1 : 0 }" (dynamic values)
  * Multi-line support
  */
 export function extractVueStyleBindings(content: string): StyleMatch[] {
   const matches: StyleMatch[] = [];
-
-  // Match :style="{ ... }" or v-bind:style="{ ... }" - including multi-line
-  // Use a more permissive regex that handles nested braces carefully
-  const vueStyleObjectRegex = /(?::|v-bind:)style\s*=\s*"\{([\s\S]*?)\}"/g;
   let match;
 
-  while ((match = vueStyleObjectRegex.exec(content)) !== null) {
+  // Match :style="{ ... }" or v-bind:style="{ ... }" - including multi-line (double-quoted)
+  const vueStyleObjectDoubleQuoteRegex =
+    /(?::|v-bind:)style\s*=\s*"\{([\s\S]*?)\}"/g;
+
+  while ((match = vueStyleObjectDoubleQuoteRegex.exec(content)) !== null) {
     const objectContent = match[1];
     if (!objectContent) continue;
 
@@ -226,14 +228,85 @@ export function extractVueStyleBindings(content: string): StyleMatch[] {
     }
   }
 
-  // Match :style="`...`" or v-bind:style="`...`" (template literals)
-  const templateLiteralRegex = /(?::|v-bind:)style\s*=\s*"`([^`]*)`"/g;
-  while ((match = templateLiteralRegex.exec(content)) !== null) {
+  // Match :style='{ ... }' or v-bind:style='{ ... }' (single-quoted attribute)
+  const vueStyleObjectSingleQuoteRegex =
+    /(?::|v-bind:)style\s*=\s*'\{([\s\S]*?)\}'/g;
+
+  while ((match = vueStyleObjectSingleQuoteRegex.exec(content)) !== null) {
+    const objectContent = match[1];
+    if (!objectContent) continue;
+
+    const css = parseStyleObjectExtended(objectContent);
+    if (css) {
+      const beforeMatch = content.slice(0, match.index);
+      const lineNum = beforeMatch.split('\n').length;
+
+      matches.push({
+        css,
+        line: lineNum,
+        column: 1,
+        context: 'inline',
+      });
+    }
+  }
+
+  // Match :style="[...]" or v-bind:style="[...]" (array bindings)
+  // Extract objects from array binding
+  const vueStyleArrayRegex = /(?::|v-bind:)style\s*=\s*"\[([\s\S]*?)\]"/g;
+
+  while ((match = vueStyleArrayRegex.exec(content)) !== null) {
+    const arrayContent = match[1];
+    if (!arrayContent) continue;
+
+    // Extract all object literals from the array
+    const objectMatches = arrayContent.match(/\{[^{}]*\}/g);
+    if (objectMatches) {
+      for (const objMatch of objectMatches) {
+        // Remove surrounding braces to get content
+        const objContent = objMatch.slice(1, -1);
+        const css = parseStyleObjectExtended(objContent);
+        if (css) {
+          const beforeMatch = content.slice(0, match.index);
+          const lineNum = beforeMatch.split('\n').length;
+
+          matches.push({
+            css,
+            line: lineNum,
+            column: 1,
+            context: 'inline',
+          });
+        }
+      }
+    }
+  }
+
+  // Match :style="`...`" or v-bind:style="`...`" (template literals in double quotes)
+  // Template literals may contain ${...} expressions
+  // Use \x60 (hex for backtick) to avoid regex literal parsing issues with backticks
+  const templateLiteralDoubleQuoteRegex =
+    /(?::|v-bind:)style\s*=\s*"\x60([^\x60]*)\x60"/g;
+  while ((match = templateLiteralDoubleQuoteRegex.exec(content)) !== null) {
     const templateContent = match[1];
     if (!templateContent) continue;
 
-    // Template literal content is raw CSS (possibly with ${} expressions)
-    // Preserve the content as-is, including ${} placeholders
+    const beforeMatch = content.slice(0, match.index);
+    const lineNum = beforeMatch.split('\n').length;
+
+    matches.push({
+      css: templateContent.trim(),
+      line: lineNum,
+      column: 1,
+      context: 'inline',
+    });
+  }
+
+  // Match :style='`...`' (template literals in single quotes)
+  const templateLiteralSingleQuoteRegex =
+    /(?::|v-bind:)style\s*=\s*'\x60([^\x60]*)\x60'/g;
+  while ((match = templateLiteralSingleQuoteRegex.exec(content)) !== null) {
+    const templateContent = match[1];
+    if (!templateContent) continue;
+
     const beforeMatch = content.slice(0, match.index);
     const lineNum = beforeMatch.split('\n').length;
 

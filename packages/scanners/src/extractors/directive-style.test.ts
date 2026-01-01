@@ -387,4 +387,73 @@ describe('Vue advanced patterns from vuetifyjs/vuetify', () => {
       // Should detect the style object
     });
   });
+
+  describe('CSS custom properties in Vue :style', () => {
+    it('extracts --progress CSS variable from :style object', () => {
+      const content = `<div :style="{ '--progress': 'calc(50 * 1%)' }"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('--progress');
+    });
+
+    it('extracts multiple CSS custom properties', () => {
+      const content = `<div :style="{ '--v-video-aspect-ratio': '16/9', '--v-btn-height': '48px' }"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('--v-video-aspect-ratio');
+      expect(result[0]!.css).toContain('--v-btn-height');
+    });
+
+    it('extracts CSS custom property with template literal value', () => {
+      const content = '<div :style="{ \'--v-icon-btn-rotate\': `${degrees}deg` }"></div>';
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('--v-icon-btn-rotate');
+    });
+
+    it('extracts CSS custom property with dynamic expression value', () => {
+      const content = `<div :style="{ '--v-date-picker-days-in-week': weekdays.length }"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('--v-date-picker-days-in-week');
+    });
+
+    it('extracts CSS custom property mixed with regular properties', () => {
+      const content = `<div :style="{
+        width: '100%',
+        '--progress': '50%',
+        display: 'grid'
+      }"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('width: 100%');
+      expect(result[0]!.css).toContain('--progress');
+      expect(result[0]!.css).toContain('display: grid');
+    });
+  });
+
+  describe('Vue :style with single-quoted attribute', () => {
+    it('extracts :style with single-quoted attribute value', () => {
+      const content = `<div :style='{ color: "red" }'></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('color: red');
+    });
+
+    it('extracts v-bind:style with single-quoted attribute value', () => {
+      const content = `<div v-bind:style='{ padding: "16px" }'></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('padding: 16px');
+    });
+  });
+
+  describe('Vue :style array binding', () => {
+    it('extracts objects from :style array binding', () => {
+      const content = `<div :style="[{ color: 'red' }, { padding: '16px' }]"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result.length).toBeGreaterThanOrEqual(1);
+      // Should extract styles from array elements
+    });
+  });
 });
