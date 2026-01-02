@@ -4,6 +4,12 @@ import { glob } from 'glob';
 import type { DesignToken, TokenSource } from '@buoy-design/core';
 import { createTokenId } from '@buoy-design/core';
 
+export interface ContainerConfig {
+  center?: boolean;
+  padding?: string | Record<string, string>;
+  screens?: Record<string, string>;
+}
+
 export interface TailwindTheme {
   colors: Record<string, string | Record<string, string>>;
   spacing: Record<string, string>;
@@ -20,6 +26,15 @@ export interface TailwindTheme {
   keyframes?: string[];
   animation?: Record<string, string>;
   maxWidth?: Record<string, string>;
+  // New properties
+  container?: ContainerConfig;
+  screens?: Record<string, string>;
+  darkMode?: string | string[];
+  zIndex?: Record<string, string>;
+  lineHeight?: Record<string, string>;
+  letterSpacing?: Record<string, string>;
+  opacity?: Record<string, string>;
+  transitionDuration?: Record<string, string>;
 }
 
 export interface ParsedTailwindConfig {
@@ -775,7 +790,106 @@ export class TailwindConfigParser {
     // Extract plugins from the plugins array
     theme.plugins = this.extractPluginsFromJS(content);
 
+    // Extract container configuration
+    const containerMatches = this.extractObjectFromConfig(content, 'container');
+    if (containerMatches) {
+      theme.container = this.parseContainerConfig(containerMatches);
+    }
+
+    // Extract screens configuration - check both theme.screens and theme.extend.screens
+    theme.screens = {};
+    const allScreensMatches = this.extractAllObjectsFromConfig(content, 'screens');
+    for (const screensContent of allScreensMatches) {
+      const parsed = this.parseObjectLiteral(screensContent);
+      Object.assign(theme.screens, parsed);
+    }
+
+    // Extract darkMode configuration
+    theme.darkMode = this.extractDarkMode(content);
+
+    // Extract zIndex
+    const zIndexMatches = this.extractObjectFromConfig(content, 'zIndex');
+    if (zIndexMatches) {
+      theme.zIndex = this.parseObjectLiteral(zIndexMatches);
+    }
+
+    // Extract lineHeight
+    const lineHeightMatches = this.extractObjectFromConfig(content, 'lineHeight');
+    if (lineHeightMatches) {
+      theme.lineHeight = this.parseObjectLiteral(lineHeightMatches);
+    }
+
+    // Extract letterSpacing
+    const letterSpacingMatches = this.extractObjectFromConfig(content, 'letterSpacing');
+    if (letterSpacingMatches) {
+      theme.letterSpacing = this.parseObjectLiteral(letterSpacingMatches);
+    }
+
+    // Extract opacity
+    const opacityMatches = this.extractObjectFromConfig(content, 'opacity');
+    if (opacityMatches) {
+      theme.opacity = this.parseObjectLiteral(opacityMatches);
+    }
+
+    // Extract transitionDuration
+    const transitionDurationMatches = this.extractObjectFromConfig(content, 'transitionDuration');
+    if (transitionDurationMatches) {
+      theme.transitionDuration = this.parseObjectLiteral(transitionDurationMatches);
+    }
+
     return theme;
+  }
+
+  /**
+   * Parse container configuration object
+   */
+  private parseContainerConfig(content: string): ContainerConfig {
+    const config: ContainerConfig = {};
+
+    // Extract center: true/false
+    const centerMatch = content.match(/center\s*:\s*(true|false)/);
+    if (centerMatch) {
+      config.center = centerMatch[1] === 'true';
+    }
+
+    // Extract padding as string or object
+    const paddingStrMatch = content.match(/padding\s*:\s*["']([^"']+)["']/);
+    if (paddingStrMatch) {
+      config.padding = paddingStrMatch[1]!;
+    }
+
+    // Extract screens object inside container
+    const screensMatch = this.extractObjectFromConfig(content, 'screens');
+    if (screensMatch) {
+      config.screens = this.parseObjectLiteral(screensMatch);
+    }
+
+    return config;
+  }
+
+  /**
+   * Extract darkMode configuration
+   */
+  private extractDarkMode(content: string): string | string[] | undefined {
+    // Match darkMode: ["class"] or darkMode: ["class", "[data-theme='dark']"]
+    const arrayMatch = content.match(/darkMode\s*:\s*\[([^\]]+)\]/);
+    if (arrayMatch) {
+      const items: string[] = [];
+      const itemRegex = /["']([^"']+)["']/g;
+      let match;
+      while ((match = itemRegex.exec(arrayMatch[1]!)) !== null) {
+        items.push(match[1]!);
+      }
+      return items;
+    }
+
+    // Match darkMode: "class" or darkMode: "selector" or darkMode: 'media'
+    const stringMatch = content.match(/darkMode\s*:\s*["']([^"']+)["']/);
+    if (stringMatch) {
+      return stringMatch[1];
+    }
+
+    return undefined;
   }
 
   private extractObjectFromConfig(content: string, key: string): string | null {
@@ -806,6 +920,40 @@ export class TailwindConfigParser {
     }
 
     return null;
+  }
+
+  /**
+   * Extract ALL occurrences of an object with a given key from config
+   * This handles cases where same key appears in both theme and theme.extend
+   */
+  private extractAllObjectsFromConfig(content: string, key: string): string[] {
+    const results: string[] = [];
+    const keyPatterns = [
+      new RegExp(`${key}:\\s*\\{`, 'g'),
+      new RegExp(`['"]${key}['"]:\\s*\\{`, 'g'),
+    ];
+
+    for (const pattern of keyPatterns) {
+      let keyMatch;
+      while ((keyMatch = pattern.exec(content)) !== null) {
+        const startIdx = keyMatch.index + keyMatch[0].length;
+        let depth = 1;
+        let endIdx = startIdx;
+
+        // Find matching closing brace
+        for (let i = startIdx; i < content.length && depth > 0; i++) {
+          if (content[i] === '{') depth++;
+          else if (content[i] === '}') depth--;
+          endIdx = i;
+        }
+
+        if (depth === 0) {
+          results.push(content.substring(startIdx, endIdx));
+        }
+      }
+    }
+
+    return results;
   }
 
   private parseObjectLiteral(content: string): Record<string, any> {
@@ -853,7 +1001,12 @@ export class TailwindConfigParser {
           tokens.push(this.createColorToken(name, value, source, 'v3'));
         } else if (typeof value === 'object') {
           for (const [shade, color] of Object.entries(value)) {
-            tokens.push(this.createColorToken(`${name}-${shade}`, color, source, 'v3'));
+            // Handle DEFAULT key - use just the parent name for the token
+            if (shade === 'DEFAULT') {
+              tokens.push(this.createColorToken(name, color, source, 'v3'));
+            } else {
+              tokens.push(this.createColorToken(`${name}-${shade}`, color, source, 'v3'));
+            }
           }
         }
       }
@@ -883,7 +1036,7 @@ export class TailwindConfigParser {
     // Convert borderRadius to tokens
     if (theme.borderRadius) {
       for (const [name, value] of Object.entries(theme.borderRadius)) {
-        tokens.push(this.createRawToken(`radius-${name}`, value, 'border', source));
+        tokens.push(this.createBorderRadiusToken(name, value, source));
       }
     }
 
@@ -935,6 +1088,23 @@ export class TailwindConfigParser {
       const colorTags = [...tags, 'hsl'];
       if (value.includes('/') || value.startsWith('hsla(')) {
         colorTags.push('alpha');
+      }
+      // Check for var() inside hsl() - e.g., hsl(var(--border))
+      const hslVarMatch = value.match(/var\(--([^,)]+)\)/);
+      if (hslVarMatch) {
+        colorTags.push('reference');
+        const refName = hslVarMatch[1]!;
+        return {
+          id: createTokenId(source, tokenName),
+          name: tokenName,
+          category: 'color',
+          value: { type: 'raw', value },
+          source,
+          aliases: mode === 'dark' ? [`${name}-dark`, refName] : [name, refName],
+          usedBy: [],
+          metadata: { tags: colorTags },
+          scannedAt: new Date(),
+        };
       }
       return {
         id: createTokenId(source, tokenName),
@@ -1030,6 +1200,35 @@ export class TailwindConfigParser {
       aliases: [name],
       usedBy: [],
       metadata: { tags: ['tailwind'] },
+      scannedAt: new Date(),
+    };
+  }
+
+  /**
+   * Create a border radius token with proper tags for calc() and var() expressions
+   */
+  private createBorderRadiusToken(name: string, value: string, source: TokenSource): DesignToken {
+    const tags = ['tailwind'];
+
+    // Check for calc() expressions
+    if (value.startsWith('calc(')) {
+      tags.push('calc');
+    }
+
+    // Check for var() references
+    if (value.includes('var(')) {
+      tags.push('reference');
+    }
+
+    return {
+      id: createTokenId(source, `tw-radius-${name}`),
+      name: `tw-radius-${name}`,
+      category: 'border',
+      value: { type: 'raw', value },
+      source,
+      aliases: [name],
+      usedBy: [],
+      metadata: { tags },
       scannedAt: new Date(),
     };
   }

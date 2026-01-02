@@ -880,4 +880,335 @@ describe('TailwindConfigParser', () => {
       expect(smToken?.metadata?.tags).toContain('calc');
     });
   });
+
+  describe('Theme configuration extraction (v3)', () => {
+    it('extracts container configuration with center, padding, and screens', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            container: {
+              center: true,
+              padding: "2rem",
+              screens: {
+                "2xl": "1400px",
+              },
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      expect(result?.theme.container).toBeDefined();
+      expect(result?.theme.container?.center).toBe(true);
+      expect(result?.theme.container?.padding).toBe('2rem');
+      expect(result?.theme.container?.screens?.['2xl']).toBe('1400px');
+    });
+
+    it('extracts screens configuration (custom breakpoints)', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            screens: {
+              'sm': '640px',
+              'md': '768px',
+              'lg': '1024px',
+              'xl': '1280px',
+              '2xl': '1536px',
+              '3xl': '1920px',
+            },
+            extend: {
+              screens: {
+                '4xl': '2560px',
+              },
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      expect(result?.theme.screens).toBeDefined();
+      expect(result?.theme.screens?.['sm']).toBe('640px');
+      expect(result?.theme.screens?.['3xl']).toBe('1920px');
+      expect(result?.theme.screens?.['4xl']).toBe('2560px');
+    });
+
+    it('extracts darkMode configuration', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          darkMode: ["class"],
+          theme: {
+            extend: {},
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      expect(result?.theme.darkMode).toBeDefined();
+      expect(result?.theme.darkMode).toEqual(['class']);
+    });
+
+    it('extracts darkMode as string', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          darkMode: "selector",
+          theme: {
+            extend: {},
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      expect(result?.theme.darkMode).toBe('selector');
+    });
+
+    it('extracts hsl(var()) wrapped references as proper tokens', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            extend: {
+              colors: {
+                border: "hsl(var(--border))",
+                input: "hsl(var(--input))",
+                ring: "hsl(var(--ring))",
+                background: "hsl(var(--background))",
+              },
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      const borderToken = result?.tokens.find(t => t.name === 'tw-border');
+      expect(borderToken).toBeDefined();
+      expect(borderToken?.value).toEqual({ type: 'raw', value: 'hsl(var(--border))' });
+      expect(borderToken?.metadata?.tags).toContain('hsl');
+      expect(borderToken?.metadata?.tags).toContain('reference');
+      expect(borderToken?.aliases).toContain('border');
+    });
+
+    it('extracts nested color scales with DEFAULT key correctly', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            extend: {
+              colors: {
+                primary: {
+                  DEFAULT: "hsl(var(--primary))",
+                  foreground: "hsl(var(--primary-foreground))",
+                },
+                secondary: {
+                  DEFAULT: "hsl(var(--secondary))",
+                  foreground: "hsl(var(--secondary-foreground))",
+                },
+                muted: {
+                  DEFAULT: "hsl(var(--muted))",
+                  foreground: "hsl(var(--muted-foreground))",
+                },
+              },
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      // Primary should be extractable via DEFAULT
+      const primaryDefault = result?.tokens.find(t => t.name === 'tw-primary');
+      expect(primaryDefault).toBeDefined();
+      expect(primaryDefault?.value).toEqual({ type: 'raw', value: 'hsl(var(--primary))' });
+
+      const primaryFg = result?.tokens.find(t => t.name === 'tw-primary-foreground');
+      expect(primaryFg).toBeDefined();
+      expect(primaryFg?.value).toEqual({ type: 'raw', value: 'hsl(var(--primary-foreground))' });
+
+      const mutedFg = result?.tokens.find(t => t.name === 'tw-muted-foreground');
+      expect(mutedFg).toBeDefined();
+    });
+
+    it('extracts borderRadius with calc() and var() expressions', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            extend: {
+              borderRadius: {
+                lg: "var(--radius)",
+                md: "calc(var(--radius) - 2px)",
+                sm: "calc(var(--radius) - 4px)",
+              },
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      expect(result?.theme.borderRadius?.['lg']).toBe('var(--radius)');
+      expect(result?.theme.borderRadius?.['md']).toBe('calc(var(--radius) - 2px)');
+      expect(result?.theme.borderRadius?.['sm']).toBe('calc(var(--radius) - 4px)');
+
+      const mdToken = result?.tokens.find(t => t.name === 'tw-radius-md');
+      expect(mdToken).toBeDefined();
+      expect(mdToken?.metadata?.tags).toContain('calc');
+    });
+
+    it('extracts zIndex values', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            extend: {
+              zIndex: {
+                "60": "60",
+                "70": "70",
+                "80": "80",
+              },
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      expect(result?.theme.zIndex).toBeDefined();
+      expect(result?.theme.zIndex?.['60']).toBe('60');
+      expect(result?.theme.zIndex?.['80']).toBe('80');
+    });
+
+    it('extracts lineHeight values', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            extend: {
+              lineHeight: {
+                "tight": "1.25",
+                "relaxed": "1.75",
+              },
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      expect(result?.theme.lineHeight).toBeDefined();
+      expect(result?.theme.lineHeight?.['tight']).toBe('1.25');
+      expect(result?.theme.lineHeight?.['relaxed']).toBe('1.75');
+    });
+
+    it('extracts letterSpacing values', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            extend: {
+              letterSpacing: {
+                "tighter": "-0.05em",
+                "wider": "0.05em",
+              },
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      expect(result?.theme.letterSpacing).toBeDefined();
+      expect(result?.theme.letterSpacing?.['tighter']).toBe('-0.05em');
+      expect(result?.theme.letterSpacing?.['wider']).toBe('0.05em');
+    });
+
+    it('extracts opacity values', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            extend: {
+              opacity: {
+                "15": "0.15",
+                "35": "0.35",
+                "85": "0.85",
+              },
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      expect(result?.theme.opacity).toBeDefined();
+      expect(result?.theme.opacity?.['15']).toBe('0.15');
+      expect(result?.theme.opacity?.['85']).toBe('0.85');
+    });
+
+    it('extracts transitionDuration values', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            extend: {
+              transitionDuration: {
+                "400": "400ms",
+                "600": "600ms",
+              },
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      expect(result?.theme.transitionDuration).toBeDefined();
+      expect(result?.theme.transitionDuration?.['400']).toBe('400ms');
+      expect(result?.theme.transitionDuration?.['600']).toBe('600ms');
+    });
+  });
 });
