@@ -605,6 +605,87 @@ body { margin: 0; }
   });
 });
 
+describe('pre and code tag handling', () => {
+  describe('inline styles', () => {
+    it('ignores inline styles inside pre tag', () => {
+      const content = `<pre><div style="color: red"></div></pre>
+<div style="color: blue"></div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: blue');
+    });
+
+    it('ignores inline styles inside code tag', () => {
+      const content = `<code><span style="color: red"></span></code>
+<span style="color: blue"></span>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: blue');
+    });
+
+    it('ignores inline styles inside pre with code nested', () => {
+      const content = `<pre><code>const html = '<div style="color: red"></div>';</code></pre>
+<div style="color: blue"></div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: blue');
+    });
+
+    it('handles multiple pre tags', () => {
+      const content = `<pre><div style="color: red"></div></pre>
+<div style="color: green"></div>
+<pre><span style="color: yellow"></span></pre>
+<span style="color: purple"></span>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(2);
+      expect(result[0]!.css).toBe('color: green');
+      expect(result[1]!.css).toBe('color: purple');
+    });
+
+    it('handles pre tag with class attribute', () => {
+      const content = `<pre class="language-html"><code class="language-html"><div style="color: red"></div></code></pre>
+<div style="color: blue"></div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: blue');
+    });
+
+    it('extracts style from pre tag itself but not its content', () => {
+      const content = `<pre style="background: gray"><div style="color: red"></div></pre>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('background: gray');
+    });
+
+    it('extracts style from code tag itself but not its content', () => {
+      const content = `<code style="font-family: monospace"><span style="color: red"></span></code>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('font-family: monospace');
+    });
+  });
+
+  describe('style blocks', () => {
+    it('ignores style blocks inside pre tag', () => {
+      const content = `<pre><style>.a { color: red; }</style></pre>
+<style>.b { color: blue; }</style>`;
+      const result = extractStyleBlocks(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('.b');
+      expect(result[0]!.css).not.toContain('.a');
+    });
+
+    it('ignores style blocks inside code tag', () => {
+      const content = `<code><style>.a { color: red; }</style></code>
+<style>.b { color: blue; }</style>`;
+      const result = extractStyleBlocks(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('.b');
+      expect(result[0]!.css).not.toContain('.a');
+    });
+  });
+});
+
 describe('textarea handling', () => {
   describe('inline styles', () => {
     it('ignores inline styles inside textarea', () => {

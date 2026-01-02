@@ -70,6 +70,46 @@ function stripTextareaTags(content: string): string {
 }
 
 /**
+ * Remove pre tag contents from content while preserving the opening tag attributes
+ * Pre tags contain code examples that may have style= strings that aren't actual styles
+ * We preserve the opening tag to allow extracting styles on the <pre> element itself
+ */
+function stripPreTagContents(content: string): string {
+  // Match pre tags with any attributes: <pre...>...</pre>
+  // Capture the opening tag separately so we can preserve its attributes
+  // Case insensitive, handles multiline content
+  return content.replace(
+    /(<pre[^>]*>)([\s\S]*?)(<\/pre>)/gi,
+    (_match, openTag: string, innerContent: string, closeTag: string) => {
+      // Preserve opening tag, replace inner content with markers, preserve closing tag
+      return (
+        openTag + STRIPPED_MARKER.repeat(innerContent.length) + closeTag
+      );
+    }
+  );
+}
+
+/**
+ * Remove code tag contents from content while preserving the opening tag attributes
+ * Code tags contain code examples that may have style= strings that aren't actual styles
+ * We preserve the opening tag to allow extracting styles on the <code> element itself
+ */
+function stripCodeTagContents(content: string): string {
+  // Match code tags with any attributes: <code...>...</code>
+  // Capture the opening tag separately so we can preserve its attributes
+  // Case insensitive, handles multiline content
+  return content.replace(
+    /(<code[^>]*>)([\s\S]*?)(<\/code>)/gi,
+    (_match, openTag: string, innerContent: string, closeTag: string) => {
+      // Preserve opening tag, replace inner content with markers, preserve closing tag
+      return (
+        openTag + STRIPPED_MARKER.repeat(innerContent.length) + closeTag
+      );
+    }
+  );
+}
+
+/**
  * Strip CDATA wrappers from CSS content
  * CDATA sections are used in SVG/XML to escape CSS, but the wrapper isn't valid CSS
  */
@@ -84,14 +124,16 @@ function stripCdataWrapper(css: string): string {
 }
 
 /**
- * Preprocess content by removing comments, script tags, and textarea tags
+ * Preprocess content by removing comments, script tags, textarea tags, and pre/code tag contents
  * This ensures we don't extract styles from non-HTML contexts
  */
 function preprocessContent(content: string): string {
-  // Order matters: strip comments first, then script/textarea tags
+  // Order matters: strip comments first, then script/textarea tags, then pre/code contents
   let processed = stripHtmlComments(content);
   processed = stripScriptTags(processed);
   processed = stripTextareaTags(processed);
+  processed = stripPreTagContents(processed);
+  processed = stripCodeTagContents(processed);
   return processed;
 }
 
