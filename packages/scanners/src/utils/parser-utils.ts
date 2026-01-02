@@ -1707,6 +1707,54 @@ export interface NamespaceExportResult {
 }
 
 /**
+ * Result of extracting conditional type with infer keyword.
+ */
+export interface ConditionalTypeInferResult {
+  /** The type alias name */
+  typeName: string;
+  /** The inferred type variable names */
+  inferredVars: string[];
+  /** The condition expression containing infer */
+  condition: string;
+}
+
+/**
+ * Result of extracting template literal type.
+ */
+export interface TemplateLiteralTypeResult {
+  /** The type alias name */
+  typeName: string;
+  /** The full template literal string */
+  template: string;
+  /** Placeholder type names inside ${} */
+  placeholders: string[];
+}
+
+/**
+ * Result of extracting mapped type keys.
+ */
+export interface MappedTypeKeysResult {
+  /** The iteration variable name (e.g., "K") */
+  keyVar: string;
+  /** The source of keys (e.g., "keyof BadgeVariant") */
+  keySource: string;
+  /** Whether the value has a conditional type */
+  hasConditionalValue: boolean;
+}
+
+/**
+ * Result of extracting recursive type pattern.
+ */
+export interface RecursiveTypePatternResult {
+  /** The type alias name */
+  typeName: string;
+  /** Whether this type is recursive */
+  isRecursive: boolean;
+  /** The points where the type references itself */
+  recursionPoints: string[];
+}
+
+/**
  * Options for extractNamespaceExport.
  */
 export interface ExtractNamespaceExportOptions {
@@ -1758,5 +1806,175 @@ export function extractNamespaceExport(
   return {
     name: singleMatch[1]!,
     source: singleMatch[2]!,
+  };
+}
+
+/**
+ * Extract conditional type definitions that use the `infer` keyword.
+ * Common in Chakra UI for type inference from generics.
+ *
+ * @param code The code string to search
+ * @returns Conditional type infer info, or null if not found
+ */
+export function extractConditionalTypeInfer(
+  code: string,
+): ConditionalTypeInferResult | null {
+  // Match: type TypeName<...> = ... extends ... infer X ...
+  const typePattern = /type\s+(\w+)(?:<[^>]+>)?\s*=\s*([^;]+)/;
+  const match = code.match(typePattern);
+
+  if (!match) {
+    return null;
+  }
+
+  const typeName = match[1]!;
+  const typeBody = match[2]!;
+
+  // Check if there's an infer keyword in the type body
+  if (!typeBody.includes("infer ")) {
+    return null;
+  }
+
+  // Extract all inferred variable names
+  const inferPattern = /infer\s+(\w+)/g;
+  const inferredVars: string[] = [];
+  let inferMatch;
+
+  while ((inferMatch = inferPattern.exec(typeBody)) !== null) {
+    if (inferMatch[1] && !inferredVars.includes(inferMatch[1])) {
+      inferredVars.push(inferMatch[1]);
+    }
+  }
+
+  if (inferredVars.length === 0) {
+    return null;
+  }
+
+  // Extract the condition part (before the ?)
+  const conditionPattern = /extends\s+([^?]+)\?/;
+  const conditionMatch = typeBody.match(conditionPattern);
+  const condition = conditionMatch?.[1]?.trim() ?? typeBody;
+
+  return {
+    typeName,
+    inferredVars,
+    condition,
+  };
+}
+
+/**
+ * Extract template literal type definitions.
+ * Common in Chakra UI for CSS variable names and composite types.
+ *
+ * @param code The code string to search
+ * @returns Template literal type info, or null if not found
+ */
+export function extractTemplateLiteralType(
+  code: string,
+): TemplateLiteralTypeResult | null {
+  // Match template literal in type definition
+  const templatePattern = /`([^`]+)`/;
+  const templateMatch = code.match(templatePattern);
+
+  if (!templateMatch) {
+    return null;
+  }
+
+  const template = "`" + templateMatch[1] + "`";
+
+  // Extract placeholders from the template
+  const placeholderPattern = /\$\{([^}]+)\}/g;
+  const placeholders: string[] = [];
+  let placeholderMatch;
+
+  while ((placeholderMatch = placeholderPattern.exec(templateMatch[1]!)) !== null) {
+    if (placeholderMatch[1]) {
+      placeholders.push(placeholderMatch[1].trim());
+    }
+  }
+
+  // Try to extract the type name
+  const typeNamePattern = /type\s+(\w+)(?:<[^>]+>)?\s*=/;
+  const typeNameMatch = code.match(typeNamePattern);
+  const typeName = typeNameMatch?.[1] ?? "";
+
+  return {
+    typeName,
+    template,
+    placeholders,
+  };
+}
+
+/**
+ * Extract mapped type key patterns.
+ * Common in Chakra UI for variant props and slot styles.
+ *
+ * @param code The code string to search
+ * @returns Mapped type keys info, or null if not found
+ */
+export function extractMappedTypeKeys(code: string): MappedTypeKeysResult | null {
+  // Match mapped type pattern: { [K in Source]: ValueType }
+  const mappedPattern = /\{\s*\[(\w+)\s+in\s+([^\]]+)\]\??:\s*([^}]+)\}/;
+  const match = code.match(mappedPattern);
+
+  if (!match) {
+    return null;
+  }
+
+  const keyVar = match[1]!;
+  const keySource = match[2]!.trim();
+  const valueType = match[3]!;
+
+  // Check if the value type contains a conditional
+  const hasConditionalValue = valueType.includes(" extends ") && valueType.includes("?");
+
+  return {
+    keyVar,
+    keySource,
+    hasConditionalValue,
+  };
+}
+
+/**
+ * Detect recursive type patterns where a type references itself.
+ * Common in Chakra UI for nested styles and conditional values.
+ *
+ * @param code The code string to search
+ * @returns Recursive type pattern info, or null if not recursive
+ */
+export function extractRecursiveTypePattern(
+  code: string,
+): RecursiveTypePatternResult | null {
+  // Extract the type name
+  const typeNamePattern = /type\s+(\w+)(?:<([^>]+)>)?\s*=/;
+  const typeMatch = code.match(typeNamePattern);
+
+  if (!typeMatch) {
+    return null;
+  }
+
+  const typeName = typeMatch[1]!;
+
+  // Find all references to this type name in the definition
+  // Match TypeName<...> patterns after the =
+  const afterEquals = code.substring(code.indexOf("=") + 1);
+  const selfRefPattern = new RegExp(`${typeName}<[^>]+>`, "g");
+  const recursionPoints: string[] = [];
+
+  let refMatch;
+  while ((refMatch = selfRefPattern.exec(afterEquals)) !== null) {
+    if (!recursionPoints.includes(refMatch[0])) {
+      recursionPoints.push(refMatch[0]);
+    }
+  }
+
+  if (recursionPoints.length === 0) {
+    return null;
+  }
+
+  return {
+    typeName,
+    isRecursive: true,
+    recursionPoints,
   };
 }

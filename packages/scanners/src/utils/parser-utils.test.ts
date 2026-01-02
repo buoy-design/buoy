@@ -31,6 +31,10 @@ import {
   extractInferRecipeProps,
   extractTypeUtility,
   extractNamespaceExport,
+  extractConditionalTypeInfer,
+  extractTemplateLiteralType,
+  extractMappedTypeKeys,
+  extractRecursiveTypePattern,
 } from "./parser-utils.js";
 
 describe("parser-utils", () => {
@@ -1048,6 +1052,126 @@ export * as Card from "./namespace"
     it("should return null for non-namespace exports", () => {
       const code = `export { Button } from "./button"`;
       const result = extractNamespaceExport(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractConditionalTypeInfer", () => {
+    it("should extract inferred type from simple conditional", () => {
+      const code = `type RecipeVariantProps<T extends RecipeDefinition> = T extends RecipeDefinition<infer U> ? RecipeSelection<U> : never`;
+      const result = extractConditionalTypeInfer(code);
+      expect(result).not.toBeNull();
+      expect(result?.typeName).toBe("RecipeVariantProps");
+      expect(result?.inferredVars).toContain("U");
+      expect(result?.condition).toContain("RecipeDefinition<infer U>");
+    });
+
+    it("should extract multiple inferred types", () => {
+      const code = `type ChakraComponent<T extends ElementType, P> = T extends ChakraComponent<infer A, infer B> ? ChakraComponent<A, P & B> : T`;
+      const result = extractConditionalTypeInfer(code);
+      expect(result).not.toBeNull();
+      expect(result?.inferredVars).toEqual(["A", "B"]);
+    });
+
+    it("should handle nested conditional types", () => {
+      const code = `type SlotRecipeResult<T> = T extends SlotRecipeDefinition<string, infer U> ? SystemSlotRecipeFn<RecipeVariantProps<infer V>> : never`;
+      const result = extractConditionalTypeInfer(code);
+      expect(result).not.toBeNull();
+      expect(result?.inferredVars).toContain("U");
+      expect(result?.inferredVars).toContain("V");
+    });
+
+    it("should return null for non-conditional types", () => {
+      const code = `type ButtonProps = { onClick: () => void }`;
+      const result = extractConditionalTypeInfer(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractTemplateLiteralType", () => {
+    it("should extract template literal type pattern", () => {
+      const code = `type CssVarName = \`--\${string}\``;
+      const result = extractTemplateLiteralType(code);
+      expect(result).not.toBeNull();
+      expect(result?.typeName).toBe("CssVarName");
+      expect(result?.template).toBe("`--${string}`");
+    });
+
+    it("should extract template literal with multiple placeholders", () => {
+      const code = `type ColorWithOpacity = \`\${ColorToken}/\${number}\``;
+      const result = extractTemplateLiteralType(code);
+      expect(result).not.toBeNull();
+      expect(result?.placeholders).toEqual(["ColorToken", "number"]);
+    });
+
+    it("should handle template literal with conditional type", () => {
+      const code = `type WithImportant<T> = T extends string ? \`\${T}!important\` : T`;
+      const result = extractTemplateLiteralType(code);
+      expect(result).not.toBeNull();
+      expect(result?.template).toBe("`${T}!important`");
+      expect(result?.placeholders).toContain("T");
+    });
+
+    it("should return null for non-template types", () => {
+      const code = `type Simple = string | number`;
+      const result = extractTemplateLiteralType(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractMappedTypeKeys", () => {
+    it("should extract mapped type with keyof", () => {
+      const code = `type VariantProps = { [K in keyof BadgeVariant]?: ConditionalValue<BadgeVariant[K]> }`;
+      const result = extractMappedTypeKeys(code);
+      expect(result).not.toBeNull();
+      expect(result?.keyVar).toBe("K");
+      expect(result?.keySource).toBe("keyof BadgeVariant");
+    });
+
+    it("should extract mapped type with string literal union", () => {
+      const code = `type SlotStyles = { [K in "root" | "label" | "control"]: SystemStyleObject }`;
+      const result = extractMappedTypeKeys(code);
+      expect(result).not.toBeNull();
+      expect(result?.keyVar).toBe("K");
+      expect(result?.keySource).toBe('"root" | "label" | "control"');
+    });
+
+    it("should extract mapped type with conditional value", () => {
+      const code = `type FilteredProps = { [K in keyof T]: K extends U ? T[K] : never }`;
+      const result = extractMappedTypeKeys(code);
+      expect(result).not.toBeNull();
+      expect(result?.keyVar).toBe("K");
+      expect(result?.hasConditionalValue).toBe(true);
+    });
+
+    it("should return null for non-mapped types", () => {
+      const code = `type Simple = { name: string }`;
+      const result = extractMappedTypeKeys(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractRecursiveTypePattern", () => {
+    it("should detect recursive type definition", () => {
+      const code = `type Nested<P> = P & { [K in Selectors]?: Nested<P> }`;
+      const result = extractRecursiveTypePattern(code);
+      expect(result).not.toBeNull();
+      expect(result?.typeName).toBe("Nested");
+      expect(result?.isRecursive).toBe(true);
+      expect(result?.recursionPoints).toContain("Nested<P>");
+    });
+
+    it("should detect ConditionalValue recursive pattern", () => {
+      const code = `type ConditionalValue<V> = V | Array<V | null> | { [K in keyof Conditions]?: ConditionalValue<V> }`;
+      const result = extractRecursiveTypePattern(code);
+      expect(result).not.toBeNull();
+      expect(result?.typeName).toBe("ConditionalValue");
+      expect(result?.isRecursive).toBe(true);
+    });
+
+    it("should return null for non-recursive types", () => {
+      const code = `type Simple<T> = T | null`;
+      const result = extractRecursiveTypePattern(code);
       expect(result).toBeNull();
     });
   });
