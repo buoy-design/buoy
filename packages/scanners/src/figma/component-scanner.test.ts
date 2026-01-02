@@ -1305,4 +1305,370 @@ describe('FigmaComponentScanner', () => {
       expect(button!.metadata.tags).toContainEqual(expect.stringMatching(/^variant-dimension:Type\[3\]$/));
     });
   });
+
+  describe('single variant component set detection', () => {
+    it('flags component sets with only one variant child', async () => {
+      const file = createFigmaFile([
+        {
+          id: '36:1',
+          name: 'SingleButton',
+          type: 'COMPONENT_SET',
+          componentPropertyDefinitions: {
+            'State': {
+              type: 'VARIANT',
+              defaultValue: 'Default',
+              variantOptions: ['Default'], // Only one option
+            },
+          },
+          children: [
+            { id: '36:2', name: 'State=Default', type: 'COMPONENT' },
+          ],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const button = result.items.find(c => c.name === 'SingleButton' && c.metadata.tags?.includes('component-set'));
+      expect(button).toBeDefined();
+      // A component set with only one variant should be flagged - probably should just be a COMPONENT
+      expect(button!.metadata.tags).toContain('single-variant');
+    });
+
+    it('does not flag component sets with multiple variants', async () => {
+      const file = createFigmaFile([
+        {
+          id: '37:1',
+          name: 'Button',
+          type: 'COMPONENT_SET',
+          componentPropertyDefinitions: {
+            'State': {
+              type: 'VARIANT',
+              defaultValue: 'Default',
+              variantOptions: ['Default', 'Hover'],
+            },
+          },
+          children: [
+            { id: '37:2', name: 'State=Default', type: 'COMPONENT' },
+            { id: '37:3', name: 'State=Hover', type: 'COMPONENT' },
+          ],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const button = result.items.find(c => c.name === 'Button' && c.metadata.tags?.includes('component-set'));
+      expect(button).toBeDefined();
+      expect(button!.metadata.tags).not.toContain('single-variant');
+    });
+  });
+
+  describe('bound variables detection', () => {
+    it('detects components with bound design token variables', async () => {
+      const file = createFigmaFile([
+        {
+          id: '38:1',
+          name: 'TokenButton',
+          type: 'COMPONENT',
+          boundVariables: {
+            fills: [{ id: 'color-primary', type: 'VARIABLE_ALIAS' }],
+          },
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const button = result.items.find(c => c.name === 'TokenButton');
+      expect(button).toBeDefined();
+      // Should detect and tag components with bound variables
+      expect(button!.metadata.tags).toContain('uses-variables');
+    });
+
+    it('does not flag components without bound variables', async () => {
+      const file = createFigmaFile([
+        {
+          id: '39:1',
+          name: 'HardcodedButton',
+          type: 'COMPONENT',
+          // No boundVariables
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const button = result.items.find(c => c.name === 'HardcodedButton');
+      expect(button).toBeDefined();
+      expect(button!.metadata.tags).not.toContain('uses-variables');
+    });
+  });
+
+  describe('exposed nested instance properties detection', () => {
+    it('detects components that expose nested instance properties', async () => {
+      const file = createFigmaFile([
+        {
+          id: '40:1',
+          name: 'CardWithButton',
+          type: 'COMPONENT',
+          componentPropertyDefinitions: {
+            'Button#Icon': {  // Exposed from nested Button component's Icon property
+              type: 'INSTANCE_SWAP',
+              defaultValue: 'icon-default',
+            },
+            'Button#Label': {  // Exposed from nested Button component's Label property
+              type: 'TEXT',
+              defaultValue: 'Click me',
+            },
+          },
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const card = result.items.find(c => c.name === 'CardWithButton');
+      expect(card).toBeDefined();
+      // Should detect exposed nested instance properties (contains # in name)
+      expect(card!.metadata.tags).toContain('exposes-nested-properties');
+    });
+  });
+
+  describe('deeply nested component hierarchy detection', () => {
+    it('adds depth information for deeply nested components', async () => {
+      const file = createFigmaFile([
+        {
+          id: '41:1',
+          name: 'Level1',
+          type: 'FRAME',
+          children: [
+            {
+              id: '41:2',
+              name: 'Level2',
+              type: 'FRAME',
+              children: [
+                {
+                  id: '41:3',
+                  name: 'Level3',
+                  type: 'FRAME',
+                  children: [
+                    {
+                      id: '41:4',
+                      name: 'Level4',
+                      type: 'FRAME',
+                      children: [
+                        {
+                          id: '41:5',
+                          name: 'DeeplyNestedButton',
+                          type: 'COMPONENT',
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const button = result.items.find(c => c.name === 'DeeplyNestedButton');
+      expect(button).toBeDefined();
+      // Should have a depth tag indicating nesting level
+      expect(button!.metadata.tags).toContainEqual(expect.stringMatching(/^depth:[45]$/));
+    });
+  });
+
+  describe('orphan component detection', () => {
+    it('flags standalone components that could be part of a component set', async () => {
+      // Multiple components with the same base name and similar variant-like naming
+      const file = createFigmaFile([
+        {
+          id: '42:1',
+          name: 'Button/Primary',
+          type: 'COMPONENT',
+        },
+        {
+          id: '42:2',
+          name: 'Button/Secondary',
+          type: 'COMPONENT',
+        },
+        {
+          id: '42:3',
+          name: 'Button/Tertiary',
+          type: 'COMPONENT',
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      // All these buttons share the same base name - they could be variants in a COMPONENT_SET
+      const buttons = result.items.filter(c => c.name === 'Primary' || c.name === 'Secondary' || c.name === 'Tertiary');
+      expect(buttons.length).toBe(3);
+      // Each should be tagged as potentially an orphan variant
+      buttons.forEach(button => {
+        expect(button!.metadata.tags).toContain('potential-variant');
+      });
+    });
+
+    it('does not flag unrelated standalone components', async () => {
+      const file = createFigmaFile([
+        {
+          id: '43:1',
+          name: 'Button',
+          type: 'COMPONENT',
+        },
+        {
+          id: '43:2',
+          name: 'Card',
+          type: 'COMPONENT',
+        },
+        {
+          id: '43:3',
+          name: 'Avatar',
+          type: 'COMPONENT',
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      // These have different base names - no pattern suggesting they should be variants
+      result.items.forEach(component => {
+        expect(component.metadata.tags).not.toContain('potential-variant');
+      });
+    });
+  });
+
+  describe('variant value ordering detection', () => {
+    it('detects variant values that follow a size progression', async () => {
+      const file = createFigmaFile([
+        {
+          id: '44:1',
+          name: 'Button',
+          type: 'COMPONENT_SET',
+          componentPropertyDefinitions: {
+            'Size': {
+              type: 'VARIANT',
+              defaultValue: 'Medium',
+              variantOptions: ['XSmall', 'Small', 'Medium', 'Large', 'XLarge'], // Follows size progression
+            },
+          },
+          children: [],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const button = result.items.find(c => c.name === 'Button');
+      expect(button).toBeDefined();
+      // Should detect size-based ordering pattern
+      expect(button!.metadata.tags).toContain('size-progression');
+    });
+
+    it('detects out-of-order size variant values', async () => {
+      const file = createFigmaFile([
+        {
+          id: '45:1',
+          name: 'Button',
+          type: 'COMPONENT_SET',
+          componentPropertyDefinitions: {
+            'Size': {
+              type: 'VARIANT',
+              defaultValue: 'Medium',
+              variantOptions: ['Large', 'Small', 'Medium', 'XLarge', 'XSmall'], // Out of order
+            },
+          },
+          children: [],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const button = result.items.find(c => c.name === 'Button');
+      expect(button).toBeDefined();
+      // Should detect out-of-order size values
+      expect(button!.metadata.tags).toContain('unordered-size-variants');
+    });
+  });
+
+  describe('boolean property visibility detection', () => {
+    it('detects boolean properties named for visibility', async () => {
+      const file = createFigmaFile([
+        {
+          id: '46:1',
+          name: 'Button',
+          type: 'COMPONENT',
+          componentPropertyDefinitions: {
+            'Show Icon': {
+              type: 'BOOLEAN',
+              defaultValue: true,
+            },
+            'Has Badge': {
+              type: 'BOOLEAN',
+              defaultValue: false,
+            },
+            'Icon Visible': {
+              type: 'BOOLEAN',
+              defaultValue: true,
+            },
+          },
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const button = result.items.find(c => c.name === 'Button');
+      expect(button).toBeDefined();
+      // Should extract boolean visibility props count
+      expect(button!.metadata.tags).toContainEqual(expect.stringMatching(/^visibility-toggles:3$/));
+    });
+  });
+
+  describe('containing frame extraction', () => {
+    it('extracts the containing frame name for organization', async () => {
+      const file = createFigmaFile([
+        {
+          id: '47:1',
+          name: 'Forms',
+          type: 'FRAME',
+          children: [
+            {
+              id: '47:2',
+              name: 'TextField',
+              type: 'COMPONENT',
+            },
+          ],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const textField = result.items.find(c => c.name === 'TextField');
+      expect(textField).toBeDefined();
+      // Should have containing frame tag
+      expect(textField!.metadata.tags).toContainEqual(expect.stringMatching(/^containing-frame:Forms$/));
+    });
+  });
 });

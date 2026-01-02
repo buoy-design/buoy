@@ -39,6 +39,9 @@ export class FigmaComponentScanner extends Scanner<Component, FigmaScannerConfig
       }
     }
 
+    // Post-processing: detect potential variants (orphan components that should be in a COMPONENT_SET)
+    this.detectPotentialVariants(components);
+
     const stats: ScanStats = {
       filesScanned,
       itemsFound: components.length,
@@ -194,6 +197,52 @@ export class FigmaComponentScanner extends Scanner<Component, FigmaScannerConfig
     // Add hierarchy path as tag for organization tracking
     if (hierarchyPath.length > 0) {
       tags.push(`hierarchy:${hierarchyPath.join('/')}`);
+    }
+
+    // Detect single-variant component sets (defeats the purpose of a component set)
+    if (isComponentSet && this.isSingleVariant(node)) {
+      tags.push('single-variant');
+    }
+
+    // Detect components using design token variables
+    if (node.boundVariables && Object.keys(node.boundVariables).length > 0) {
+      tags.push('uses-variables');
+    }
+
+    // Detect components that expose nested instance properties (properties with # in name)
+    if (this.hasExposedNestedProperties(node)) {
+      tags.push('exposes-nested-properties');
+    }
+
+    // Add depth tag for deeply nested components
+    const depth = hierarchyPath.length;
+    if (depth >= 3) {
+      tags.push(`depth:${depth}`);
+    }
+
+    // Detect size progression patterns in variant values
+    if (isComponentSet) {
+      const sizeProgression = this.detectSizeProgression(node);
+      if (sizeProgression === 'ordered') {
+        tags.push('size-progression');
+      } else if (sizeProgression === 'unordered') {
+        tags.push('unordered-size-variants');
+      }
+    }
+
+    // Count and tag boolean visibility toggles
+    const visibilityToggleCount = this.countVisibilityToggles(node);
+    if (visibilityToggleCount > 0) {
+      tags.push(`visibility-toggles:${visibilityToggleCount}`);
+    }
+
+    // Add containing frame tag (parent frame for organization)
+    if (hierarchyPath.length >= 2) {
+      // The containing frame is the parent of the component (second-to-last element)
+      const containingFrame = hierarchyPath[hierarchyPath.length - 2];
+      if (containingFrame) {
+        tags.push(`containing-frame:${containingFrame}`);
+      }
     }
 
     return {
@@ -536,5 +585,200 @@ export class FigmaComponentScanner extends Scanner<Component, FigmaScannerConfig
     }
 
     return defaultParts.length > 0 ? defaultParts.join(', ') : null;
+  }
+
+  /**
+   * Detect if a component set has only one variant.
+   * A single-variant component set defeats the purpose - it should just be a COMPONENT.
+   */
+  private isSingleVariant(node: FigmaNode): boolean {
+    // Check children count
+    if (node.children && node.children.length === 1) {
+      return true;
+    }
+
+    // Also check componentPropertyDefinitions
+    if (node.componentPropertyDefinitions) {
+      const variantDefs = Object.values(node.componentPropertyDefinitions).filter(
+        def => def.type === 'VARIANT'
+      );
+
+      // If all variant dimensions have only one option, it's effectively single variant
+      if (variantDefs.length > 0) {
+        const allSingleOption = variantDefs.every(
+          def => def.variantOptions && def.variantOptions.length === 1
+        );
+        if (allSingleOption) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Detect if component exposes properties from nested instances.
+   * Figma uses # notation for exposed nested properties (e.g., "Button#Icon").
+   */
+  private hasExposedNestedProperties(node: FigmaNode): boolean {
+    if (!node.componentPropertyDefinitions) {
+      return false;
+    }
+
+    for (const key of Object.keys(node.componentPropertyDefinitions)) {
+      if (key.includes('#')) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Detect size progression patterns in variant values.
+   * Returns 'ordered' if values follow proper size order (xs, sm, md, lg, xl),
+   * 'unordered' if size values are present but out of order,
+   * null if no size-like values detected.
+   */
+  private detectSizeProgression(node: FigmaNode): 'ordered' | 'unordered' | null {
+    if (!node.componentPropertyDefinitions) {
+      return null;
+    }
+
+    // Standard size order (lowercase for comparison)
+    const sizeOrder = ['2xs', 'xxs', 'xsmall', 'xs', '2xsmall', 'small', 'sm', 'medium', 'md', 'default', 'large', 'lg', 'xlarge', 'xl', '2xl', 'xxl', '2xlarge'];
+
+    // Look for properties that appear to be size-related
+    for (const [key, def] of Object.entries(node.componentPropertyDefinitions)) {
+      if (def.type !== 'VARIANT' || !def.variantOptions) {
+        continue;
+      }
+
+      const keyLower = key.toLowerCase();
+      if (!keyLower.includes('size') && keyLower !== 'scale') {
+        continue;
+      }
+
+      const options = def.variantOptions.map(v => v.toLowerCase());
+
+      // Check if these look like size values
+      const sizeValues = options.filter(opt =>
+        sizeOrder.some(s => opt === s || opt.endsWith(s) || opt.startsWith(s))
+      );
+
+      if (sizeValues.length < 2) {
+        continue; // Not enough size values to determine order
+      }
+
+      // Get indices in standard order
+      const indices = sizeValues.map(v => {
+        for (let i = 0; i < sizeOrder.length; i++) {
+          if (v === sizeOrder[i] || v.endsWith(sizeOrder[i]!) || v.startsWith(sizeOrder[i]!)) {
+            return i;
+          }
+        }
+        return -1;
+      }).filter(i => i !== -1);
+
+      if (indices.length < 2) {
+        continue;
+      }
+
+      // Check if indices are in ascending order
+      let isOrdered = true;
+      for (let i = 1; i < indices.length; i++) {
+        if (indices[i]! < indices[i - 1]!) {
+          isOrdered = false;
+          break;
+        }
+      }
+
+      return isOrdered ? 'ordered' : 'unordered';
+    }
+
+    return null;
+  }
+
+  /**
+   * Count boolean properties that appear to control visibility.
+   * Common patterns: "Show X", "Has X", "X Visible", "Hide X"
+   */
+  private countVisibilityToggles(node: FigmaNode): number {
+    if (!node.componentPropertyDefinitions) {
+      return 0;
+    }
+
+    const visibilityPatterns = [
+      /^show\s/i,
+      /^has\s/i,
+      /\svisible$/i,
+      /^hide\s/i,
+      /^display\s/i,
+      /^is\s*visible$/i,
+      /^visible$/i,
+    ];
+
+    let count = 0;
+    for (const [key, def] of Object.entries(node.componentPropertyDefinitions)) {
+      if (def.type !== 'BOOLEAN') {
+        continue;
+      }
+
+      const keyLower = key.toLowerCase();
+      if (visibilityPatterns.some(pattern => pattern.test(keyLower))) {
+        count++;
+      }
+    }
+
+    return count;
+  }
+
+  /**
+   * Detect potential variants - standalone COMPONENT nodes that share naming patterns
+   * suggesting they should be consolidated into a COMPONENT_SET.
+   * Modifies components in place to add 'potential-variant' tag.
+   */
+  private detectPotentialVariants(components: Component[]): void {
+    // Filter to only standalone components (not in a component set)
+    const standaloneComponents = components.filter(
+      c => !c.metadata.tags?.includes('component-set')
+    );
+
+    // Group by base name pattern (e.g., "Button/Primary" -> "Button")
+    const baseNameGroups = new Map<string, Component[]>();
+
+    for (const comp of standaloneComponents) {
+      // Look for hierarchy patterns from the original name via tags
+      const hierarchyTag = comp.metadata.tags?.find(t => t.startsWith('hierarchy:'));
+      if (!hierarchyTag) {
+        continue;
+      }
+
+      const fullPath = hierarchyTag.replace('hierarchy:', '');
+      const parts = fullPath.split('/');
+
+      // If there are at least 2 parts and the component is at the end
+      if (parts.length >= 2) {
+        // The base name is the second-to-last part (parent container)
+        const baseName = parts[parts.length - 2];
+        if (baseName) {
+          if (!baseNameGroups.has(baseName)) {
+            baseNameGroups.set(baseName, []);
+          }
+          baseNameGroups.get(baseName)!.push(comp);
+        }
+      }
+    }
+
+    // Mark components as potential-variant if they share a base name with 2+ other components
+    for (const [, group] of baseNameGroups) {
+      if (group.length >= 2) {
+        for (const comp of group) {
+          comp.metadata.tags = comp.metadata.tags || [];
+          comp.metadata.tags.push('potential-variant');
+        }
+      }
+    }
   }
 }

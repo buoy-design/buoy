@@ -19,6 +19,7 @@ export interface FigmaNode {
   children?: FigmaNode[];
   componentId?: string;
   componentPropertyDefinitions?: Record<string, FigmaPropertyDefinition>;
+  boundVariables?: Record<string, unknown>;
 }
 
 export interface FigmaPropertyDefinition {
