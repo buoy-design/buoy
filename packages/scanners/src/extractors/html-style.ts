@@ -110,6 +110,45 @@ function stripCodeTagContents(content: string): string {
 }
 
 /**
+ * Remove Jinja/Nunjucks/Twig comments from content while preserving line numbers
+ * These use {# ... #} syntax
+ */
+function stripJinjaComments(content: string): string {
+  // Match Jinja/Nunjucks/Twig comments: {# ... #}
+  // Using [\s\S] to match across newlines
+  return content.replace(/\{#[\s\S]*?#\}/g, (match) => {
+    // Replace with same-length string of markers to preserve positions
+    return STRIPPED_MARKER.repeat(match.length);
+  });
+}
+
+/**
+ * Remove Liquid comment blocks from content while preserving line numbers
+ * These use {% comment %}...{% endcomment %} syntax
+ */
+function stripLiquidComments(content: string): string {
+  // Match Liquid comments: {% comment %}...{% endcomment %}
+  // Case insensitive, handles multiline content
+  return content.replace(/\{%\s*comment\s*%\}[\s\S]*?\{%\s*endcomment\s*%\}/gi, (match) => {
+    // Replace with same-length string of markers to preserve positions
+    return STRIPPED_MARKER.repeat(match.length);
+  });
+}
+
+/**
+ * Remove ERB comments from content while preserving line numbers
+ * These use <%# ... %> syntax
+ */
+function stripErbComments(content: string): string {
+  // Match ERB comments: <%# ... %>
+  // Using [\s\S] to match across newlines within the comment
+  return content.replace(/<%#[\s\S]*?%>/g, (match) => {
+    // Replace with same-length string of markers to preserve positions
+    return STRIPPED_MARKER.repeat(match.length);
+  });
+}
+
+/**
  * Strip CDATA wrappers from CSS content
  * CDATA sections are used in SVG/XML to escape CSS, but the wrapper isn't valid CSS
  */
@@ -128,8 +167,11 @@ function stripCdataWrapper(css: string): string {
  * This ensures we don't extract styles from non-HTML contexts
  */
 function preprocessContent(content: string): string {
-  // Order matters: strip comments first, then script/textarea tags, then pre/code contents
+  // Order matters: strip all comment types first, then script/textarea tags, then pre/code contents
   let processed = stripHtmlComments(content);
+  processed = stripJinjaComments(processed);
+  processed = stripLiquidComments(processed);
+  processed = stripErbComments(processed);
   processed = stripScriptTags(processed);
   processed = stripTextareaTags(processed);
   processed = stripPreTagContents(processed);

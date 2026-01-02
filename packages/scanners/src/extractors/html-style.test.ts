@@ -524,6 +524,138 @@ describe('HTML comment and script tag handling', () => {
   });
 });
 
+describe('Template engine comment handling', () => {
+  describe('Jinja/Nunjucks/Twig comments', () => {
+    it('ignores inline styles inside Jinja comments', () => {
+      const content = `{# <div style="color: red"></div> #}
+<div style="color: blue"></div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: blue');
+    });
+
+    it('ignores style blocks inside Jinja comments', () => {
+      const content = `{# <style>.a { color: red; }</style> #}
+<style>
+.b { color: blue; }
+</style>`;
+      const result = extractStyleBlocks(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('.b');
+      expect(result[0]!.css).not.toContain('.a');
+    });
+
+    it('handles multiline Jinja comments with styles', () => {
+      const content = `{#
+        <div style="color: red">
+          Commented out
+        </div>
+      #}
+<div style="color: blue"></div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: blue');
+    });
+
+    it('handles multiple Jinja comments', () => {
+      const content = `{# first comment style="color: red" #}
+<div style="color: green"></div>
+{# second comment style="color: yellow" #}`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: green');
+    });
+  });
+
+  describe('Liquid comments', () => {
+    it('ignores inline styles inside Liquid comments', () => {
+      const content = `{% comment %}<div style="color: red"></div>{% endcomment %}
+<div style="color: blue"></div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: blue');
+    });
+
+    it('ignores style blocks inside Liquid comments', () => {
+      const content = `{% comment %}
+<style>.a { color: red; }</style>
+{% endcomment %}
+<style>
+.b { color: blue; }
+</style>`;
+      const result = extractStyleBlocks(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('.b');
+      expect(result[0]!.css).not.toContain('.a');
+    });
+
+    it('handles Liquid comments with extra whitespace', () => {
+      const content = `{%  comment  %}
+  <div style="color: red"></div>
+{%  endcomment  %}
+<div style="color: blue"></div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: blue');
+    });
+  });
+
+  describe('ERB comments', () => {
+    it('ignores inline styles inside ERB comments', () => {
+      const content = `<%# <div style="color: red"></div> %>
+<div style="color: blue"></div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: blue');
+    });
+
+    it('ignores style blocks inside ERB comments', () => {
+      const content = `<%# <style>.a { color: red; }</style> %>
+<style>
+.b { color: blue; }
+</style>`;
+      const result = extractStyleBlocks(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('.b');
+      expect(result[0]!.css).not.toContain('.a');
+    });
+
+    it('handles multiline ERB comments', () => {
+      const content = `<%#
+        <div style="color: red">
+          Commented out
+        </div>
+      %>
+<div style="color: blue"></div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: blue');
+    });
+  });
+
+  describe('mixed template comments', () => {
+    it('handles HTML and Jinja comments together', () => {
+      const content = `<!-- <div style="color: red"></div> -->
+{# <div style="color: green"></div> #}
+<div style="color: blue"></div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: blue');
+    });
+
+    it('handles all comment types together', () => {
+      const content = `<!-- HTML comment style="color: red" -->
+{# Jinja comment style="color: green" #}
+{% comment %}Liquid comment style="color: yellow"{% endcomment %}
+<%# ERB comment style="color: orange" %>
+<div style="color: blue"></div>`;
+      const result = extractHtmlStyleAttributes(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: blue');
+    });
+  });
+});
+
 describe('extractAllHtmlStyles', () => {
   it('combines inline styles and style blocks', () => {
     const content = `<style>.a { color: red; }</style>
