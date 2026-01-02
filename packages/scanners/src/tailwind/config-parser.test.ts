@@ -1276,6 +1276,7 @@ describe('TailwindConfigParser', () => {
 
 @source "../components/**/*.tsx";
 @source "../lib/**/*.ts";
+@source inline("./node_modules/@acme/ui");
 
 @theme inline {
   --color-brand: #ff6b6b;
@@ -1288,8 +1289,12 @@ describe('TailwindConfigParser', () => {
       const result = await parser.parse();
 
       expect(result).not.toBeNull();
-      // Source paths should be tracked in theme
-      expect(result?.theme).toBeDefined();
+      // Source paths should be extracted and tracked
+      expect(result?.theme.sources).toBeDefined();
+      expect(result?.theme.sources).toContain('../components/**/*.tsx');
+      expect(result?.theme.sources).toContain('../lib/**/*.ts');
+      // Should handle @source inline() syntax as well
+      expect(result?.theme.sources).toContain('./node_modules/@acme/ui');
     });
 
     it('extracts CSS variables from @layer base with :root', async () => {
@@ -1527,6 +1532,108 @@ describe('TailwindConfigParser', () => {
 
       const boldToken = result?.tokens.find(t => t.name === 'tw-font-weight-bold');
       expect(boldToken).toBeDefined();
+    });
+  });
+
+  describe('fontSize tuple extraction (v3)', () => {
+    it('extracts fontSize with tuple syntax [size, { lineHeight }]', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            fontSize: {
+              xs: ['0.75rem', { lineHeight: '1rem' }],
+              sm: ['0.875rem', { lineHeight: '1.25rem' }],
+              base: ['1rem', { lineHeight: '1.5rem' }],
+              lg: ['1.125rem', { lineHeight: '1.75rem' }],
+              xl: ['1.25rem', { lineHeight: '1.75rem' }],
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      expect(result?.theme.fontSize).toBeDefined();
+      expect(result?.theme.fontSize?.['xs']).toEqual(['0.75rem', { lineHeight: '1rem' }]);
+      expect(result?.theme.fontSize?.['sm']).toEqual(['0.875rem', { lineHeight: '1.25rem' }]);
+      expect(result?.theme.fontSize?.['base']).toEqual(['1rem', { lineHeight: '1.5rem' }]);
+    });
+
+    it('creates tokens for fontSize tuples', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            fontSize: {
+              xs: ['0.75rem', { lineHeight: '1rem' }],
+              heading: ['2rem', { lineHeight: '2.5rem', letterSpacing: '-0.02em' }],
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      const xsToken = result?.tokens.find(t => t.name === 'tw-text-xs');
+      expect(xsToken).toBeDefined();
+      expect(xsToken?.category).toBe('typography');
+      expect(xsToken?.metadata?.tags).toContain('font-size');
+
+      const headingToken = result?.tokens.find(t => t.name === 'tw-text-heading');
+      expect(headingToken).toBeDefined();
+    });
+
+    it('extracts fontSize with tuple and extended properties [size, { lineHeight, letterSpacing, fontWeight }]', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            fontSize: {
+              hero: ['4rem', { lineHeight: '1.1', letterSpacing: '-0.05em', fontWeight: '700' }],
+              display: ['3rem', { lineHeight: '1.2', fontWeight: '600' }],
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      expect(result?.theme.fontSize?.['hero']).toEqual(['4rem', { lineHeight: '1.1', letterSpacing: '-0.05em', fontWeight: '700' }]);
+      expect(result?.theme.fontSize?.['display']).toEqual(['3rem', { lineHeight: '1.2', fontWeight: '600' }]);
+    });
+
+    it('handles mixed fontSize values (strings and tuples)', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((path) => {
+        return path === '/test/project/tailwind.config.js';
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+        module.exports = {
+          theme: {
+            fontSize: {
+              'body': '1rem',
+              'body-lg': ['1.125rem', { lineHeight: '1.75rem' }],
+              'caption': '0.75rem',
+            },
+          },
+        };
+      `);
+
+      const parser = new TailwindConfigParser(mockProjectRoot);
+      const result = await parser.parse();
+
+      expect(result?.theme.fontSize?.['body']).toBe('1rem');
+      expect(result?.theme.fontSize?.['body-lg']).toEqual(['1.125rem', { lineHeight: '1.75rem' }]);
+      expect(result?.theme.fontSize?.['caption']).toBe('0.75rem');
     });
   });
 });

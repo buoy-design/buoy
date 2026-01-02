@@ -37,6 +37,7 @@ export interface TailwindTheme {
   letterSpacing?: Record<string, string>;
   opacity?: Record<string, string>;
   transitionDuration?: Record<string, string>;
+  sources?: string[]; // v4 @source directive paths
 }
 
 export interface ParsedTailwindConfig {
@@ -283,6 +284,10 @@ export class TailwindConfigParser {
     // Extract @utility declarations
     const utilities = this.extractUtilities(content);
     theme.utilities = utilities;
+
+    // Extract @source directives (v4 content paths)
+    const sources = this.extractSources(content);
+    theme.sources = sources;
 
     return { theme, tokens };
   }
@@ -703,6 +708,29 @@ export class TailwindConfigParser {
     return imports;
   }
 
+  /**
+   * Extract @source directives from v4 CSS config
+   * Handles both @source "path" and @source inline("path") syntax
+   */
+  private extractSources(content: string): string[] {
+    const sources: string[] = [];
+
+    // Match @source "path"; or @source 'path';
+    const simpleRegex = /@source\s+['"]([^'"]+)['"];?/g;
+    let match;
+    while ((match = simpleRegex.exec(content)) !== null) {
+      sources.push(match[1]!);
+    }
+
+    // Match @source inline("path"); or @source inline('path');
+    const inlineRegex = /@source\s+inline\(\s*['"]([^'"]+)['"]\s*\);?/g;
+    while ((match = inlineRegex.exec(content)) !== null) {
+      sources.push(match[1]!);
+    }
+
+    return sources;
+  }
+
   private addToTheme(theme: Partial<TailwindTheme>, token: DesignToken): void {
     if (token.category === 'color') {
       const name = token.name.replace('tw-', '').replace('-dark', '');
@@ -758,10 +786,10 @@ export class TailwindConfigParser {
       theme.spacing = this.parseObjectLiteral(spacingMatches);
     }
 
-    // Extract fontSize
+    // Extract fontSize (handles both simple values and tuples)
     const fontSizeMatches = this.extractObjectFromConfig(content, 'fontSize');
     if (fontSizeMatches) {
-      theme.fontSize = this.parseObjectLiteral(fontSizeMatches);
+      theme.fontSize = this.parseFontSizeObject(fontSizeMatches);
     }
 
     // Extract fontFamily (handles array syntax)
@@ -1094,6 +1122,13 @@ export class TailwindConfigParser {
       }
     }
 
+    // Convert fontSize to tokens (handles both string and tuple values)
+    if (theme.fontSize) {
+      for (const [name, value] of Object.entries(theme.fontSize)) {
+        tokens.push(this.createFontSizeToken(name, value, source));
+      }
+    }
+
     return tokens;
   }
 
@@ -1385,6 +1420,80 @@ export class TailwindConfigParser {
   }
 
   /**
+   * Parse fontSize object which can contain:
+   * - Simple string values: 'xs': '0.75rem'
+   * - Tuple values: 'xs': ['0.75rem', { lineHeight: '1rem' }]
+   * - Extended tuples: 'hero': ['4rem', { lineHeight: '1.1', letterSpacing: '-0.05em', fontWeight: '700' }]
+   */
+  private parseFontSizeObject(
+    content: string
+  ): Record<string, string | [string, Record<string, string>]> {
+    const result: Record<string, string | [string, Record<string, string>]> = {};
+
+    // First, extract simple string values: 'key': 'value'
+    const simpleKvPattern = /['"]?([\w-]+)['"]?\s*:\s*['"]([^'"]+)['"]\s*(?:,|}|$)/g;
+    let match;
+
+    while ((match = simpleKvPattern.exec(content)) !== null) {
+      // Only add if not already parsed as tuple
+      if (!result[match[1]!]) {
+        result[match[1]!] = match[2]!;
+      }
+    }
+
+    // Then extract tuple values: 'key': ['size', { lineHeight: 'value', ... }]
+    // Use balanced bracket matching for arrays with nested objects
+    const tuplePattern = /['"]?([\w-]+)['"]?\s*:\s*\[/g;
+
+    while ((match = tuplePattern.exec(content)) !== null) {
+      const key = match[1]!;
+      const startIdx = match.index + match[0].length;
+
+      // Find the matching closing bracket for the array
+      let depth = 1;
+      let endIdx = startIdx;
+
+      for (let i = startIdx; i < content.length && depth > 0; i++) {
+        if (content[i] === '[') depth++;
+        else if (content[i] === ']') depth--;
+        endIdx = i;
+      }
+
+      if (depth === 0) {
+        const arrayContent = content.substring(startIdx, endIdx);
+
+        // Parse the tuple: first element is the size, second is the config object
+        // Format: 'size', { lineHeight: 'value', ... }
+        const sizeMatch = arrayContent.match(/^\s*['"]([^'"]+)['"]/);
+        if (sizeMatch) {
+          const size = sizeMatch[1]!;
+
+          // Extract the config object
+          const configMatch = arrayContent.match(/\{\s*([^}]+)\s*\}/);
+          if (configMatch) {
+            const configContent = configMatch[1]!;
+            const config: Record<string, string> = {};
+
+            // Parse each property in the config object
+            const propPattern = /['"]?([\w-]+)['"]?\s*:\s*['"]([^'"]+)['"]/g;
+            let propMatch;
+            while ((propMatch = propPattern.exec(configContent)) !== null) {
+              config[propMatch[1]!] = propMatch[2]!;
+            }
+
+            result[key] = [size, config];
+          } else {
+            // Array with just size value, no config object
+            result[key] = size;
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Parse object literals that may have multi-line string values
    * Handles cases like:
    *   "md-dark":
@@ -1508,6 +1617,51 @@ export class TailwindConfigParser {
       aliases: [name],
       usedBy: [],
       metadata: { tags: ['tailwind', 'font-weight'] },
+      scannedAt: new Date(),
+    };
+  }
+
+  /**
+   * Create a font size token
+   * Handles both simple string values and tuple values [size, { lineHeight, ... }]
+   */
+  private createFontSizeToken(
+    name: string,
+    value: string | [string, Record<string, string>],
+    source: TokenSource
+  ): DesignToken {
+    if (typeof value === 'string') {
+      return {
+        id: createTokenId(source, `tw-text-${name}`),
+        name: `tw-text-${name}`,
+        category: 'typography',
+        value: { type: 'raw', value },
+        source,
+        aliases: [name],
+        usedBy: [],
+        metadata: { tags: ['tailwind', 'font-size'] },
+        scannedAt: new Date(),
+      };
+    }
+
+    // Handle tuple: [size, { lineHeight, letterSpacing, fontWeight }]
+    const [size, config] = value;
+    const configStr = Object.entries(config)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(', ');
+
+    return {
+      id: createTokenId(source, `tw-text-${name}`),
+      name: `tw-text-${name}`,
+      category: 'typography',
+      value: { type: 'raw', value: `${size} [${configStr}]` },
+      source,
+      aliases: [name],
+      usedBy: [],
+      metadata: {
+        tags: ['tailwind', 'font-size', 'tuple'],
+        description: `Font size ${size} with ${configStr}`,
+      },
       scannedAt: new Date(),
     };
   }
