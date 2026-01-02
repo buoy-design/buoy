@@ -16,6 +16,10 @@ import {
   COMPONENT_WITH_COMPLEX_PROPS_ASTRO,
   COMPONENT_WITH_SLOT_FALLBACK_ASTRO,
   COMPONENT_WITH_MULTI_FRAMEWORK_ASTRO,
+  COMPONENT_WITH_EXPORT_TYPE_PROPS_ASTRO,
+  COMPONENT_WITH_INTERSECTION_PROPS_ASTRO,
+  COMPONENT_WITH_SIMPLE_INTERSECTION_ASTRO,
+  COMPONENT_WITH_UNION_TYPE_ASTRO,
 } from '../__tests__/fixtures/astro-components.js';
 import {
   SIMPLE_COUNTER_SOLID,
@@ -290,6 +294,107 @@ describe('TemplateScanner - Astro', () => {
       const authorProp = result.items[0]!.props.find(p => p.name === 'author');
       expect(authorProp).toBeDefined();
       expect(authorProp!.type).toBe('Author');
+    });
+
+    it('extracts props from export type Props', async () => {
+      vol.fromJSON({
+        '/project/src/components/Dialog.astro': COMPONENT_WITH_EXPORT_TYPE_PROPS_ASTRO,
+      });
+
+      const scanner = new TemplateScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.astro'],
+        templateType: 'astro',
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items[0]!.props).toHaveLength(3);
+
+      const titleProp = result.items[0]!.props.find(p => p.name === 'title');
+      expect(titleProp).toBeDefined();
+      expect(titleProp!.required).toBe(true);
+      expect(titleProp!.type).toBe('string');
+
+      const isOpenProp = result.items[0]!.props.find(p => p.name === 'isOpen');
+      expect(isOpenProp).toBeDefined();
+      expect(isOpenProp!.required).toBe(false);
+
+      const onCloseProp = result.items[0]!.props.find(p => p.name === 'onClose');
+      expect(onCloseProp).toBeDefined();
+      expect(onCloseProp!.required).toBe(true);
+    });
+
+    it('extracts inline props from intersection type with grouped unions', async () => {
+      vol.fromJSON({
+        '/project/src/components/Picture.astro': COMPONENT_WITH_INTERSECTION_PROPS_ASTRO,
+      });
+
+      const scanner = new TemplateScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.astro'],
+        templateType: 'astro',
+      });
+
+      const result = await scanner.scan();
+
+      // Should extract the 3 inline props from the intersection type
+      expect(result.items[0]!.props).toHaveLength(3);
+
+      const formatsProp = result.items[0]!.props.find(p => p.name === 'formats');
+      expect(formatsProp).toBeDefined();
+      expect(formatsProp!.required).toBe(false);
+
+      const fallbackProp = result.items[0]!.props.find(p => p.name === 'fallbackFormat');
+      expect(fallbackProp).toBeDefined();
+      expect(fallbackProp!.required).toBe(false);
+
+      const pictureAttrsProp = result.items[0]!.props.find(p => p.name === 'pictureAttributes');
+      expect(pictureAttrsProp).toBeDefined();
+      expect(pictureAttrsProp!.required).toBe(false);
+    });
+
+    it('extracts inline props from simple intersection type', async () => {
+      vol.fromJSON({
+        '/project/src/components/Extended.astro': COMPONENT_WITH_SIMPLE_INTERSECTION_ASTRO,
+      });
+
+      const scanner = new TemplateScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.astro'],
+        templateType: 'astro',
+      });
+
+      const result = await scanner.scan();
+
+      // Should extract the 2 inline props from the simple intersection
+      expect(result.items[0]!.props).toHaveLength(2);
+
+      const extraFieldProp = result.items[0]!.props.find(p => p.name === 'extraField');
+      expect(extraFieldProp).toBeDefined();
+      expect(extraFieldProp!.required).toBe(true);
+      expect(extraFieldProp!.type).toBe('string');
+
+      const optionalProp = result.items[0]!.props.find(p => p.name === 'optional');
+      expect(optionalProp).toBeDefined();
+      expect(optionalProp!.required).toBe(false);
+    });
+
+    it('returns empty props for pure union type (external type references)', async () => {
+      vol.fromJSON({
+        '/project/src/components/Image.astro': COMPONENT_WITH_UNION_TYPE_ASTRO,
+      });
+
+      const scanner = new TemplateScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.astro'],
+        templateType: 'astro',
+      });
+
+      const result = await scanner.scan();
+
+      // Pure union type with no inline props - cannot extract prop definitions
+      expect(result.items[0]!.props).toHaveLength(0);
     });
   });
 

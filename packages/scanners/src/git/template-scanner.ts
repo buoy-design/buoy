@@ -569,7 +569,13 @@ export class TemplateScanner extends Scanner<Component, TemplateScannerConfig> {
 
   /**
    * Extract props from Astro component frontmatter
-   * Supports both `interface Props` and `type Props` syntax
+   * Supports:
+   * - `interface Props { ... }`
+   * - `type Props = { ... }`
+   * - `export type Props = { ... }`
+   * - `type Props = (SomeType | OtherType) & { ... }` (intersection with inline object)
+   * - `type Props = SomeType & { ... }` (simple intersection)
+   * - `type Props = SomeType | OtherType` (union types - no inline props)
    */
   private extractAstroProps(content: string): PropDefinition[] {
     const props: PropDefinition[] = [];
@@ -580,17 +586,41 @@ export class TemplateScanner extends Scanner<Component, TemplateScannerConfig> {
 
     const frontmatter = frontmatterMatch[1];
 
-    // Find the start of Props definition
-    const propsStart = frontmatter.match(/(?:interface|type)\s+Props\s*(?:=\s*)?\{/);
-    if (!propsStart || propsStart.index === undefined) return props;
+    // Pattern 1: Direct inline props - interface Props { ... } or type Props = { ... }
+    // Also supports export keyword: export type Props = { ... }
+    const directPropsMatch = frontmatter.match(/(?:export\s+)?(?:interface|type)\s+Props\s*(?:=\s*)?\{/);
+    if (directPropsMatch && directPropsMatch.index !== undefined) {
+      const startIndex = directPropsMatch.index + directPropsMatch[0].length;
+      const propsBlock = this.extractBalancedBraces(frontmatter, startIndex);
+      if (propsBlock) {
+        return this.parseTopLevelProps(propsBlock);
+      }
+    }
 
-    // Extract the Props block with balanced brace matching
-    const startIndex = propsStart.index + propsStart[0].length;
-    const propsBlock = this.extractBalancedBraces(frontmatter, startIndex);
-    if (!propsBlock) return props;
+    // Pattern 2: Intersection type with inline props at the end
+    // e.g., type Props = (SomeType | OtherType) & { formats?: string[] }
+    // or: export type Props = SomeType & { extraProp: string }
+    const intersectionMatch = frontmatter.match(/(?:export\s+)?type\s+Props\s*=\s*[^;{]+&\s*\{/);
+    if (intersectionMatch && intersectionMatch.index !== undefined) {
+      // Find the last { in the match to get the inline object part
+      const matchEnd = intersectionMatch.index + intersectionMatch[0].length;
+      const propsBlock = this.extractBalancedBraces(frontmatter, matchEnd);
+      if (propsBlock) {
+        return this.parseTopLevelProps(propsBlock);
+      }
+    }
 
-    // Parse top-level prop definitions only
-    return this.parseTopLevelProps(propsBlock);
+    // Pattern 3: Union or external type reference (no inline props to extract)
+    // e.g., type Props = LocalImageProps | RemoteImageProps
+    // We can still record the type reference for traceability
+    const typeRefMatch = frontmatter.match(/(?:export\s+)?type\s+Props\s*=\s*([^;{]+);/);
+    if (typeRefMatch && typeRefMatch[1]) {
+      // This is a type alias to external types - no inline props available
+      // Could potentially add a metadata field to track the referenced types
+      return [];
+    }
+
+    return props;
   }
 
   /**

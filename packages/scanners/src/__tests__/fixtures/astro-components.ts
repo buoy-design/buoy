@@ -343,3 +343,76 @@ const { count } = Astro.props;
   <SolidToggle client:only="solid" initial={true} />
 </div>
 `;
+
+/**
+ * Astro component with exported type Props (export keyword)
+ */
+export const COMPONENT_WITH_EXPORT_TYPE_PROPS_ASTRO = `---
+export type Props = {
+  title: string;
+  isOpen?: boolean;
+  onClose: () => void;
+}
+
+const { title, isOpen = false, onClose } = Astro.props;
+---
+<dialog open={isOpen}>
+  <h2>{title}</h2>
+  <slot />
+  <button onclick={onClose}>Close</button>
+</dialog>
+`;
+
+/**
+ * Astro component with intersection type props (like Picture.astro)
+ * Uses (TypeA | TypeB) & { additionalProps }
+ */
+export const COMPONENT_WITH_INTERSECTION_PROPS_ASTRO = `---
+import type { LocalImageProps, RemoteImageProps } from 'astro:assets';
+import type { HTMLAttributes } from '../types';
+
+export type Props = (LocalImageProps | RemoteImageProps) & {
+  formats?: string[];
+  fallbackFormat?: string;
+  pictureAttributes?: HTMLAttributes<'picture'>;
+};
+
+const { formats = ['webp'], pictureAttributes = {}, fallbackFormat, ...props } = Astro.props;
+---
+<picture {...pictureAttributes}>
+  {formats.map(format => (
+    <source type={\`image/\${format}\`} />
+  ))}
+  <img {...props} />
+</picture>
+`;
+
+/**
+ * Astro component with simple intersection type
+ */
+export const COMPONENT_WITH_SIMPLE_INTERSECTION_ASTRO = `---
+import type { BaseProps } from '../types';
+
+type Props = BaseProps & {
+  extraField: string;
+  optional?: number;
+};
+
+const { extraField, optional } = Astro.props;
+---
+<div>{extraField}</div>
+`;
+
+/**
+ * Astro component with pure union type (no inline props)
+ * Like Image.astro: type Props = LocalImageProps | RemoteImageProps;
+ */
+export const COMPONENT_WITH_UNION_TYPE_ASTRO = `---
+import type { LocalImageProps, RemoteImageProps } from 'astro:assets';
+
+type Props = LocalImageProps | RemoteImageProps;
+
+const props = Astro.props;
+---
+<img src={props.src} />
+`;
