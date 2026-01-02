@@ -216,7 +216,32 @@ export class TailwindScanner {
         classPatterns.extractablePatterns.length;
     }
 
+    // Deduplicate tokens by semantic name to avoid counting the same token multiple times
+    // when it appears in multiple CSS files or is extracted by multiple methods
+    result.tokens = this.deduplicateTokensBySemanticName(result.tokens);
+    result.stats.tokensExtracted = result.tokens.length;
+
     return result;
+  }
+
+  /**
+   * Deduplicate tokens by their semantic name.
+   * When the same CSS variable (e.g., --background) is defined in multiple files
+   * or extracted by multiple methods, keep only the first occurrence.
+   * This ensures accurate token counts for design system analysis.
+   */
+  private deduplicateTokensBySemanticName(tokens: DesignToken[]): DesignToken[] {
+    const seen = new Map<string, DesignToken>();
+
+    for (const token of tokens) {
+      // Use the token name as the semantic key for deduplication
+      // This handles cases like 'tw-background' and 'tw-background-dark'
+      if (!seen.has(token.name)) {
+        seen.set(token.name, token);
+      }
+    }
+
+    return Array.from(seen.values());
   }
 
   /**

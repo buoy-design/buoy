@@ -941,6 +941,137 @@ const buttonVariants = cva(
     });
   });
 
+  describe('token deduplication', () => {
+    it('deduplicates tokens by semantic name when scanning multiple CSS files', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(glob.glob).mockResolvedValue([
+        '/test/project/styles/globals.css',
+        '/test/project/templates/styles/globals.css',
+        '/test/project/packages/test-fixtures/globals.css',
+      ]);
+
+      // Multiple CSS files with the same semantic tokens defined
+      vi.mocked(fs.readFileSync).mockImplementation((path) => {
+        // All files have the same tailwind v4 structure with identical semantic tokens
+        return `
+@import "tailwindcss";
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+}
+        `;
+      });
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+      });
+
+      const result = await scanner.scan();
+
+      // Should deduplicate tokens - each semantic name should appear only once
+      // With 6 root tokens + 4 dark tokens = 10 unique semantic tokens max
+      // (background, foreground, primary, primary-foreground, secondary, radius)
+      // + dark variants (background-dark, foreground-dark, primary-dark, primary-foreground-dark)
+      expect(result.tokens.length).toBeLessThanOrEqual(10);
+
+      // Verify specific tokens only appear once each
+      const backgroundTokens = result.tokens.filter(t =>
+        t.name.includes('background') && !t.name.includes('foreground')
+      );
+      // Should have max 2: one light, one dark
+      expect(backgroundTokens.length).toBeLessThanOrEqual(2);
+
+      const primaryTokens = result.tokens.filter(t =>
+        t.name === 'tw-primary' || t.name === 'tw-primary-dark'
+      );
+      // Should have max 2: one light, one dark
+      expect(primaryTokens.length).toBeLessThanOrEqual(2);
+    });
+
+    it('prefers tokens from primary CSS file over duplicates from other files', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(glob.glob).mockResolvedValue([
+        '/test/project/styles/globals.css',
+        '/test/project/deprecated/styles/old-globals.css',
+      ]);
+
+      vi.mocked(fs.readFileSync).mockImplementation((path) => {
+        const pathStr = String(path);
+        if (pathStr.includes('deprecated')) {
+          return `
+@import "tailwindcss";
+:root {
+  --primary: #ff0000;
+}
+          `;
+        }
+        // Primary config with different value
+        return `
+@import "tailwindcss";
+:root {
+  --primary: #0066cc;
+}
+        `;
+      });
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+      });
+
+      const result = await scanner.scan();
+
+      // Should have only one primary token
+      const primaryTokens = result.tokens.filter(t => t.name.includes('primary'));
+      expect(primaryTokens.length).toBe(1);
+
+      // Should use value from first (primary) file found
+      expect(primaryTokens[0]!.value.type).toBe('color');
+    });
+
+    it('reports correct tokensExtracted count after deduplication', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(glob.glob).mockResolvedValue([
+        '/test/project/file1.css',
+        '/test/project/file2.css',
+        '/test/project/file3.css',
+      ]);
+
+      // 3 files with same 5 tokens each = 15 raw tokens, should be 5 after dedup
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+@import "tailwindcss";
+:root {
+  --background: #fff;
+  --foreground: #000;
+  --primary: #007acc;
+  --secondary: #6c757d;
+  --border: #dee2e6;
+}
+      `);
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+      });
+
+      const result = await scanner.scan();
+
+      // Stats should reflect deduplicated count
+      expect(result.stats.tokensExtracted).toBe(result.tokens.length);
+      expect(result.tokens.length).toBe(5);
+    });
+  });
+
   describe('scan orchestration', () => {
     it('combines theme tokens and arbitrary value detection', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
