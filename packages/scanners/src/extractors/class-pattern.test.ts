@@ -13,6 +13,8 @@ import {
   extractGroupPeerVariants,
   extractDataSlotAttributes,
   extractShortFormDataPatterns,
+  extractDynamicDataAttributes,
+  extractRenderPropClassNames,
 } from './class-pattern.js';
 
 describe('extractClassPatterns', () => {
@@ -1058,6 +1060,250 @@ describe('group/peer variant name extraction', () => {
 
       expect(result.some(r => r.name === 'card-header')).toBe(true);
       expect(result.some(r => r.name === 'dropdown-menu-item')).toBe(true);
+    });
+  });
+});
+
+// ============================================================================
+// Dynamic Data Attribute Extraction Tests (shadcn-ui v4)
+// ============================================================================
+
+describe('dynamic data attribute extraction', () => {
+  describe('extractDynamicDataAttributes', () => {
+    it('extracts data-variant={variant} patterns', () => {
+      const content = `
+        <Comp
+          data-slot="button"
+          data-variant={variant}
+          data-size={size}
+          className={cn(buttonVariants({ variant, size, className }))}
+          {...props}
+        />
+      `;
+      const result = extractDynamicDataAttributes(content);
+
+      expect(result.some(r => r.name === 'variant' && r.valueExpression === 'variant')).toBe(true);
+      expect(result.some(r => r.name === 'size' && r.valueExpression === 'size')).toBe(true);
+    });
+
+    it('extracts data-inset={inset} patterns', () => {
+      const content = `
+        <DropdownMenuPrimitive.Label
+          data-slot="dropdown-menu-label"
+          data-inset={inset}
+          className={cn("px-2 py-1.5", className)}
+        />
+      `;
+      const result = extractDynamicDataAttributes(content);
+
+      expect(result.some(r => r.name === 'inset' && r.valueExpression === 'inset')).toBe(true);
+    });
+
+    it('extracts data-orientation={orientation} patterns', () => {
+      const content = `
+        <div
+          data-slot="button-group"
+          data-orientation={orientation}
+          className={cn(buttonGroupVariants({ orientation }), className)}
+        />
+      `;
+      const result = extractDynamicDataAttributes(content);
+
+      expect(result.some(r => r.name === 'orientation')).toBe(true);
+    });
+
+    it('extracts multiple data attributes from same element', () => {
+      const content = `
+        <DropdownMenuPrimitive.Item
+          data-slot="dropdown-menu-item"
+          data-inset={inset}
+          data-variant={variant}
+          className={cn("...", className)}
+        />
+      `;
+      const result = extractDynamicDataAttributes(content);
+
+      expect(result.length).toBeGreaterThanOrEqual(2);
+      expect(result.some(r => r.name === 'inset')).toBe(true);
+      expect(result.some(r => r.name === 'variant')).toBe(true);
+    });
+
+    it('extracts data attributes with complex expressions', () => {
+      const content = `
+        <div data-state={open ? "open" : "closed"} />
+        <div data-active={isActive || false} />
+      `;
+      const result = extractDynamicDataAttributes(content);
+
+      expect(result.some(r => r.name === 'state')).toBe(true);
+      expect(result.some(r => r.name === 'active')).toBe(true);
+    });
+
+    it('ignores static data attributes', () => {
+      const content = `
+        <div data-slot="button" data-testid="test" />
+      `;
+      const result = extractDynamicDataAttributes(content);
+
+      // data-slot with static string should not be in dynamic results
+      expect(result.every(r => r.name !== 'slot')).toBe(true);
+    });
+
+    it('categorizes data attributes semantically', () => {
+      const content = `
+        <div
+          data-variant={variant}
+          data-size={size}
+          data-state={state}
+          data-orientation={orientation}
+        />
+      `;
+      const result = extractDynamicDataAttributes(content);
+
+      const variantAttr = result.find(r => r.name === 'variant');
+      const sizeAttr = result.find(r => r.name === 'size');
+      const stateAttr = result.find(r => r.name === 'state');
+      const orientationAttr = result.find(r => r.name === 'orientation');
+
+      expect(variantAttr?.category).toBe('variant');
+      expect(sizeAttr?.category).toBe('size');
+      expect(stateAttr?.category).toBe('state');
+      expect(orientationAttr?.category).toBe('layout');
+    });
+  });
+});
+
+// ============================================================================
+// Render Prop className Pattern Tests (HeadlessUI)
+// ============================================================================
+
+describe('render prop className patterns', () => {
+  describe('extractRenderPropClassNames', () => {
+    it('extracts className as function with selected state', () => {
+      const content = `
+        <Tab
+          className={({ selected }) =>
+            classNames(
+              selected ? 'text-gray-900' : 'text-gray-500',
+              'px-4 py-4 text-sm font-medium'
+            )
+          }
+        >
+      `;
+      const result = extractRenderPropClassNames(content);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.parameters).toContain('selected');
+      expect(result[0]!.staticClasses).toContain('px-4');
+      expect(result[0]!.conditionalClasses.length).toBeGreaterThan(0);
+    });
+
+    it('extracts className with checked state', () => {
+      const content = `
+        <Switch
+          className={({ checked }) =>
+            classNames(
+              'relative inline-flex h-6 w-11 cursor-pointer rounded-full',
+              checked ? 'bg-indigo-600' : 'bg-gray-200'
+            )
+          }
+        />
+      `;
+      const result = extractRenderPropClassNames(content);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.parameters).toContain('checked');
+    });
+
+    it('extracts className with multiple states', () => {
+      const content = `
+        <Listbox.Option
+          className={({ active, selected }) =>
+            classNames(
+              active ? 'bg-blue-500 text-white' : 'text-gray-900',
+              selected ? 'font-bold' : 'font-normal',
+              'relative cursor-pointer py-2 pl-3 pr-9'
+            )
+          }
+        />
+      `;
+      const result = extractRenderPropClassNames(content);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.parameters).toContain('active');
+      expect(result[0]!.parameters).toContain('selected');
+    });
+
+    it('extracts focus state from render prop', () => {
+      const content = `
+        <Listbox.Button
+          className={({ open, focus }) =>
+            cn(
+              'flex items-center gap-2 rounded-md px-3 py-2',
+              open ? 'ring-2 ring-blue-500' : '',
+              focus ? 'outline-blue-500' : ''
+            )
+          }
+        />
+      `;
+      const result = extractRenderPropClassNames(content);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.parameters).toContain('open');
+      expect(result[0]!.parameters).toContain('focus');
+    });
+
+    it('extracts disabled state from render prop', () => {
+      const content = `
+        <Menu.Item
+          className={({ active, disabled }) =>
+            classNames(
+              active && 'bg-gray-100',
+              disabled && 'opacity-50 cursor-not-allowed',
+              'block px-4 py-2'
+            )
+          }
+        />
+      `;
+      const result = extractRenderPropClassNames(content);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.parameters).toContain('disabled');
+    });
+
+    it('handles cn utility function', () => {
+      const content = `
+        <Button
+          className={({ pressed }) =>
+            cn(
+              pressed ? 'scale-95' : 'scale-100',
+              'transition-transform'
+            )
+          }
+        />
+      `;
+      const result = extractRenderPropClassNames(content);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.utility).toBe('cn');
+    });
+
+    it('extracts conditional classes separately', () => {
+      const content = `
+        <Tab
+          className={({ selected }) =>
+            classNames(
+              selected ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700',
+              'px-4 py-2 text-sm font-medium'
+            )
+          }
+        />
+      `;
+      const result = extractRenderPropClassNames(content);
+
+      expect(result[0]!.conditionalClasses.some(c =>
+        c.condition === 'selected' && c.trueClasses?.includes('text-blue-600')
+      )).toBe(true);
     });
   });
 });

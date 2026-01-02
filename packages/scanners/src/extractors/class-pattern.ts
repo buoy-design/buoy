@@ -1735,3 +1735,334 @@ export function extractShortFormDataPatterns(content: string): ShortFormDataPatt
 
   return results;
 }
+
+// ============================================================================
+// Dynamic Data Attribute Extraction (shadcn-ui v4)
+// ============================================================================
+
+/**
+ * Represents a dynamic data attribute binding in JSX
+ * These are attributes like data-variant={variant} that pass props to data attributes
+ */
+export interface DynamicDataAttribute {
+  /** The data attribute name without 'data-' prefix (e.g., "variant", "size", "inset") */
+  name: string;
+  /** The expression used as the value (e.g., "variant", "open ? 'open' : 'closed'") */
+  valueExpression: string;
+  /** Semantic category inferred from attribute name */
+  category?: 'variant' | 'size' | 'state' | 'layout' | 'boolean' | 'other';
+  /** Line number where attribute was found */
+  line: number;
+}
+
+/**
+ * Categories for dynamic data attributes
+ */
+const DYNAMIC_DATA_CATEGORIES: Record<string, DynamicDataAttribute['category']> = {
+  // Variant attributes
+  'variant': 'variant',
+  'type': 'variant',
+  'theme': 'variant',
+  'color': 'variant',
+  // Size attributes
+  'size': 'size',
+  // State attributes
+  'state': 'state',
+  'open': 'state',
+  'checked': 'state',
+  'selected': 'state',
+  'active': 'state',
+  'disabled': 'state',
+  'expanded': 'state',
+  'pressed': 'state',
+  // Layout attributes
+  'orientation': 'layout',
+  'side': 'layout',
+  'align': 'layout',
+  'position': 'layout',
+  // Boolean attributes
+  'inset': 'boolean',
+};
+
+/**
+ * Extract dynamic data attribute bindings from JSX content
+ * Matches patterns like: data-variant={variant}, data-size={size}
+ *
+ * @param content - The source code content to scan
+ * @returns Array of extracted dynamic data attributes
+ */
+export function extractDynamicDataAttributes(content: string): DynamicDataAttribute[] {
+  const results: DynamicDataAttribute[] = [];
+  const seen = new Set<string>();
+  const lines = content.split('\n');
+
+  // Match: data-name={expression}
+  // Captures: 1=attribute name, 2=expression inside braces
+  const dynamicDataRegex = /data-([a-zA-Z][\w-]*)\s*=\s*\{([^}]+)\}/g;
+
+  for (let lineNum = 0; lineNum < lines.length; lineNum++) {
+    const line = lines[lineNum]!;
+    let match;
+
+    while ((match = dynamicDataRegex.exec(line)) !== null) {
+      const name = match[1]!.toLowerCase();
+      const valueExpression = match[2]!.trim();
+
+      // Skip if this is a static string in braces like {"value"}
+      if (/^["'].*["']$/.test(valueExpression)) {
+        continue;
+      }
+
+      // Create unique key for deduplication
+      const key = `${name}:${valueExpression}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      // Determine category
+      const category = DYNAMIC_DATA_CATEGORIES[name] || 'other';
+
+      results.push({
+        name,
+        valueExpression,
+        category,
+        line: lineNum + 1,
+      });
+    }
+
+    dynamicDataRegex.lastIndex = 0;
+  }
+
+  return results;
+}
+
+// ============================================================================
+// Render Prop className Pattern Extraction (HeadlessUI)
+// ============================================================================
+
+/**
+ * Represents a conditional class application based on render prop state
+ */
+export interface ConditionalClass {
+  /** The condition variable (e.g., "selected", "active") */
+  condition: string;
+  /** Classes applied when condition is true */
+  trueClasses?: string[];
+  /** Classes applied when condition is false */
+  falseClasses?: string[];
+}
+
+/**
+ * Represents a className render prop pattern from HeadlessUI components
+ * Matches patterns like: className={({ selected }) => classNames(...)}
+ */
+export interface RenderPropClassName {
+  /** Parameters destructured from the render prop (e.g., ["selected", "active"]) */
+  parameters: string[];
+  /** The utility function used (classNames, cn, clsx, etc.) */
+  utility: string;
+  /** Static classes that are always applied */
+  staticClasses: string[];
+  /** Conditional classes based on state */
+  conditionalClasses: ConditionalClass[];
+  /** Line number where pattern was found */
+  line: number;
+}
+
+/**
+ * Class utility functions that are commonly used with render props
+ */
+const RENDER_PROP_UTILITIES = ['classNames', 'cn', 'clsx', 'cx', 'twMerge'];
+
+/**
+ * Extract render prop className patterns from HeadlessUI-style components
+ * Matches patterns like: className={({ selected, active }) => classNames(...)}
+ *
+ * @param content - The source code content to scan
+ * @returns Array of extracted render prop className patterns
+ */
+export function extractRenderPropClassNames(content: string): RenderPropClassName[] {
+  const results: RenderPropClassName[] = [];
+
+  // Match: className={({ params }) => utilityFn(...)}
+  // We need to find the start of such patterns, then parse them more carefully
+  const classNameFuncStart = /className\s*=\s*\{\s*\(\s*\{([^}]+)\}\s*\)\s*=>/g;
+  let match;
+
+  while ((match = classNameFuncStart.exec(content)) !== null) {
+    const paramsStr = match[1]!;
+    const startIdx = match.index;
+
+    // Extract parameters
+    const parameters = paramsStr
+      .split(',')
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
+
+    if (parameters.length === 0) continue;
+
+    // Calculate line number
+    const beforeMatch = content.slice(0, startIdx);
+    const lineNum = beforeMatch.split('\n').length;
+
+    // Find the utility function and its content
+    const afterArrow = content.slice(match.index + match[0].length);
+
+    // Look for utility function call
+    let utility = '';
+    let utilityContent = '';
+
+    for (const util of RENDER_PROP_UTILITIES) {
+      const utilRegex = new RegExp(`^\\s*${util}\\s*\\(`);
+      const utilMatch = afterArrow.match(utilRegex);
+
+      if (utilMatch) {
+        utility = util;
+
+        // Extract balanced parentheses content
+        const contentStart = afterArrow.indexOf('(', utilMatch.index || 0);
+        if (contentStart !== -1) {
+          utilityContent = extractBalancedParensContentSimple(afterArrow, contentStart) || '';
+        }
+        break;
+      }
+    }
+
+    if (!utility) continue;
+
+    // Parse the utility content to extract static and conditional classes
+    const { staticClasses, conditionalClasses } = parseUtilityContent(utilityContent, parameters);
+
+    results.push({
+      parameters,
+      utility,
+      staticClasses,
+      conditionalClasses,
+      line: lineNum,
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Simple balanced parentheses extraction (doesn't handle all edge cases but works for common patterns)
+ */
+function extractBalancedParensContentSimple(content: string, startIdx: number): string | null {
+  if (content[startIdx] !== '(') return null;
+
+  let depth = 0;
+  let i = startIdx;
+
+  while (i < content.length) {
+    const char = content[i];
+
+    // Handle string literals
+    if (char === '"' || char === "'" || char === '`') {
+      const quote = char;
+      i++;
+      while (i < content.length) {
+        if (content[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (content[i] === quote) break;
+        // Handle template literal expressions
+        if (quote === '`' && content[i] === '$' && content[i + 1] === '{') {
+          let templateDepth = 1;
+          i += 2;
+          while (i < content.length && templateDepth > 0) {
+            if (content[i] === '{') templateDepth++;
+            else if (content[i] === '}') templateDepth--;
+            i++;
+          }
+          continue;
+        }
+        i++;
+      }
+      i++;
+      continue;
+    }
+
+    if (char === '(') depth++;
+    else if (char === ')') depth--;
+
+    if (depth === 0) {
+      return content.slice(startIdx + 1, i);
+    }
+    i++;
+  }
+
+  return null;
+}
+
+/**
+ * Parse utility function content to extract static and conditional classes
+ */
+function parseUtilityContent(content: string, parameters: string[]): {
+  staticClasses: string[];
+  conditionalClasses: ConditionalClass[];
+} {
+  const staticClasses: string[] = [];
+  const conditionalClasses: ConditionalClass[] = [];
+
+  // Extract string literals for static classes
+  const stringRegex = /["'`]([^"'`]+)["'`]/g;
+  let stringMatch;
+
+  while ((stringMatch = stringRegex.exec(content)) !== null) {
+    const classes = stringMatch[1]!.split(/\s+/).filter(Boolean);
+    staticClasses.push(...classes);
+  }
+
+  // Extract conditional patterns: param ? 'true-classes' : 'false-classes'
+  for (const param of parameters) {
+    // Match: param ? 'trueClasses' : 'falseClasses'
+    const ternaryRegex = new RegExp(
+      `${param}\\s*\\?\\s*["'\`]([^"'\`]+)["'\`]\\s*:\\s*["'\`]([^"'\`]*)["'\`]`,
+      'g'
+    );
+    let ternaryMatch;
+
+    while ((ternaryMatch = ternaryRegex.exec(content)) !== null) {
+      const trueClasses = ternaryMatch[1]!.split(/\s+/).filter(Boolean);
+      const falseClasses = ternaryMatch[2]!.split(/\s+/).filter(Boolean);
+
+      conditionalClasses.push({
+        condition: param,
+        trueClasses: trueClasses.length > 0 ? trueClasses : undefined,
+        falseClasses: falseClasses.length > 0 ? falseClasses : undefined,
+      });
+
+      // Remove these from static classes
+      trueClasses.forEach(c => {
+        const idx = staticClasses.indexOf(c);
+        if (idx !== -1) staticClasses.splice(idx, 1);
+      });
+      falseClasses.forEach(c => {
+        const idx = staticClasses.indexOf(c);
+        if (idx !== -1) staticClasses.splice(idx, 1);
+      });
+    }
+
+    // Match: param && 'classes' (short-circuit pattern)
+    const andRegex = new RegExp(`${param}\\s*&&\\s*["'\`]([^"'\`]+)["'\`]`, 'g');
+    let andMatch;
+
+    while ((andMatch = andRegex.exec(content)) !== null) {
+      const trueClasses = andMatch[1]!.split(/\s+/).filter(Boolean);
+
+      conditionalClasses.push({
+        condition: param,
+        trueClasses: trueClasses.length > 0 ? trueClasses : undefined,
+      });
+
+      // Remove these from static classes
+      trueClasses.forEach(c => {
+        const idx = staticClasses.indexOf(c);
+        if (idx !== -1) staticClasses.splice(idx, 1);
+      });
+    }
+  }
+
+  return { staticClasses, conditionalClasses };
+}

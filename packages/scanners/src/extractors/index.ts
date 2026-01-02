@@ -140,6 +140,8 @@ export {
   extractGroupPeerVariants,
   extractDataSlotAttributes,
   extractShortFormDataPatterns,
+  extractDynamicDataAttributes,
+  extractRenderPropClassNames,
   type ClassPatternMatch,
   type CvaPattern,
   type StaticClassStrings,
@@ -149,4 +151,7 @@ export {
   type GroupPeerVariant,
   type DataSlotAttribute,
   type ShortFormDataPattern,
+  type DynamicDataAttribute,
+  type RenderPropClassName,
+  type ConditionalClass,
 } from './class-pattern.js';
