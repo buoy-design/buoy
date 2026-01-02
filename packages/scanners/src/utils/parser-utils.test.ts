@@ -25,6 +25,12 @@ import {
   extractRootProviderWrappedComponent,
   isGeneratedFile,
   extractDesignSystemInfo,
+  extractRecipeDefinition,
+  extractAnatomyParts,
+  extractChakraFactoryComponent,
+  extractInferRecipeProps,
+  extractTypeUtility,
+  extractNamespaceExport,
 } from "./parser-utils.js";
 
 describe("parser-utils", () => {
@@ -823,6 +829,226 @@ export function helper() { return "util" }
       const result = extractDesignSystemInfo(code);
       expect(result.designSystem).toBeNull();
       expect(result.patterns).toHaveLength(0);
+    });
+  });
+
+  describe("extractRecipeDefinition", () => {
+    it("should extract recipe key from defineRecipe", () => {
+      const code = `export const buttonRecipe = defineRecipe({
+  className: "chakra-button",
+  base: { display: "inline-flex" },
+})`;
+      const result = extractRecipeDefinition(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("buttonRecipe");
+      expect(result?.className).toBe("chakra-button");
+      expect(result?.type).toBe("recipe");
+    });
+
+    it("should extract slot recipe from defineSlotRecipe", () => {
+      const code = `export const alertSlotRecipe = defineSlotRecipe({
+  className: "chakra-alert",
+  slots: ["root", "title", "description", "indicator"],
+})`;
+      const result = extractRecipeDefinition(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("alertSlotRecipe");
+      expect(result?.className).toBe("chakra-alert");
+      expect(result?.type).toBe("slotRecipe");
+      expect(result?.slots).toEqual(["root", "title", "description", "indicator"]);
+    });
+
+    it("should return null for non-recipe code", () => {
+      const code = `export const Button = forwardRef(() => {})`;
+      const result = extractRecipeDefinition(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractAnatomyParts", () => {
+    it("should extract parts from createAnatomy().parts()", () => {
+      const code = `export const alertAnatomy = createAnatomy("alert").parts(
+  "title",
+  "description",
+  "root",
+  "indicator",
+)`;
+      const result = extractAnatomyParts(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("alertAnatomy");
+      expect(result?.key).toBe("alert");
+      expect(result?.parts).toEqual(["title", "description", "root", "indicator"]);
+    });
+
+    it("should extract extended parts from extendWith()", () => {
+      const code = `export const dialogAnatomy = arkDialogAnatomy.extendWith(
+  "header",
+  "body",
+  "footer",
+  "backdrop",
+)`;
+      const result = extractAnatomyParts(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("dialogAnatomy");
+      expect(result?.extendedParts).toEqual(["header", "body", "footer", "backdrop"]);
+    });
+
+    it("should handle createAnatomy with array syntax", () => {
+      const code = `export const checkboxCardAnatomy = createAnatomy("checkbox-card", [
+  "root",
+  "control",
+  "label",
+])`;
+      const result = extractAnatomyParts(code);
+      expect(result).not.toBeNull();
+      expect(result?.key).toBe("checkbox-card");
+      expect(result?.parts).toEqual(["root", "control", "label"]);
+    });
+
+    it("should return null for non-anatomy code", () => {
+      const code = `export const Button = forwardRef(() => {})`;
+      const result = extractAnatomyParts(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractChakraFactoryComponent", () => {
+    it("should extract element from chakra(element)", () => {
+      const code = `export const Box = chakra("div")`;
+      const result = extractChakraFactoryComponent(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("Box");
+      expect(result?.element).toBe("div");
+      expect(result?.wrapsComponent).toBe(false);
+    });
+
+    it("should extract element with options from chakra(element, options)", () => {
+      const code = `export const Center = chakra("div", {
+  base: { display: "flex", alignItems: "center" }
+})`;
+      const result = extractChakraFactoryComponent(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("Center");
+      expect(result?.element).toBe("div");
+      expect(result?.hasBaseStyle).toBe(true);
+    });
+
+    it("should extract wrapped component from chakra(Component)", () => {
+      const code = `export const Presence = chakra(ArkPresence)`;
+      const result = extractChakraFactoryComponent(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("Presence");
+      expect(result?.wrappedComponent).toBe("ArkPresence");
+      expect(result?.wrapsComponent).toBe(true);
+    });
+
+    it("should extract wrapped component with options from chakra(Component, {}, options)", () => {
+      const code = `const StyledSelect = chakra(ArkField.Select, {}, { forwardAsChild: true })`;
+      const result = extractChakraFactoryComponent(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("StyledSelect");
+      expect(result?.wrappedComponent).toBe("ArkField.Select");
+      expect(result?.forwardAsChild).toBe(true);
+    });
+
+    it("should return null for non-chakra code", () => {
+      const code = `export const Button = forwardRef(() => {})`;
+      const result = extractChakraFactoryComponent(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractInferRecipeProps", () => {
+    it("should extract type from InferRecipeProps<typeof X>", () => {
+      const code = `type VariantProps = InferRecipeProps<typeof StyledGroup>`;
+      const result = extractInferRecipeProps(code);
+      expect(result).not.toBeNull();
+      expect(result?.typeName).toBe("VariantProps");
+      expect(result?.sourceComponent).toBe("StyledGroup");
+    });
+
+    it("should handle InferSlotRecipeProps", () => {
+      const code = `type CardVariants = InferSlotRecipeProps<typeof cardRecipe>`;
+      const result = extractInferRecipeProps(code);
+      expect(result).not.toBeNull();
+      expect(result?.typeName).toBe("CardVariants");
+      expect(result?.sourceComponent).toBe("cardRecipe");
+      expect(result?.isSlotRecipe).toBe(true);
+    });
+
+    it("should return null for non-infer code", () => {
+      const code = `type ButtonProps = { onClick: () => void }`;
+      const result = extractInferRecipeProps(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractTypeUtility", () => {
+    it("should extract Omit type parameters", () => {
+      const code = `interface GridItemProps extends Omit<HTMLChakraProps<"div">, "columns"> {}`;
+      const result = extractTypeUtility(code, "Omit");
+      expect(result).not.toBeNull();
+      expect(result?.utilityType).toBe("Omit");
+      expect(result?.baseType).toBe('HTMLChakraProps<"div">');
+      expect(result?.params).toContain('"columns"');
+    });
+
+    it("should extract Pick type parameters", () => {
+      const code = `type PartialProps = Pick<ButtonProps, "variant" | "size">`;
+      const result = extractTypeUtility(code, "Pick");
+      expect(result).not.toBeNull();
+      expect(result?.utilityType).toBe("Pick");
+      expect(result?.baseType).toBe("ButtonProps");
+      expect(result?.params).toContain('"variant" | "size"');
+    });
+
+    it("should extract Parameters type", () => {
+      const code = `type HighlighterOptions = Parameters<typeof createHighlighter>[0]`;
+      const result = extractTypeUtility(code, "Parameters");
+      expect(result).not.toBeNull();
+      expect(result?.utilityType).toBe("Parameters");
+      expect(result?.baseType).toBe("typeof createHighlighter");
+    });
+
+    it("should return null when utility type not found", () => {
+      const code = `interface ButtonProps extends BaseProps {}`;
+      const result = extractTypeUtility(code, "Omit");
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractNamespaceExport", () => {
+    it("should extract namespace export pattern", () => {
+      const code = `export * as Dialog from "./namespace"`;
+      const result = extractNamespaceExport(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("Dialog");
+      expect(result?.source).toBe("./namespace");
+    });
+
+    it("should extract multiple namespace exports", () => {
+      const code = `
+export * as Dialog from "./namespace"
+export * as Tabs from "./namespace"
+export * as Card from "./namespace"
+`;
+      const results = extractNamespaceExport(code, { all: true });
+      expect(results).toHaveLength(3);
+      expect(results?.map((r: { name: string }) => r.name)).toEqual(["Dialog", "Tabs", "Card"]);
+    });
+
+    it("should handle re-exports with different paths", () => {
+      const code = `export * as Button from "./button/namespace"`;
+      const result = extractNamespaceExport(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("Button");
+      expect(result?.source).toBe("./button/namespace");
+    });
+
+    it("should return null for non-namespace exports", () => {
+      const code = `export { Button } from "./button"`;
+      const result = extractNamespaceExport(code);
+      expect(result).toBeNull();
     });
   });
 });

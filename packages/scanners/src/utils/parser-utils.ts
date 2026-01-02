@@ -1397,3 +1397,366 @@ export function extractDesignSystemInfo(code: string): DesignSystemInfo {
 
   return result;
 }
+
+/**
+ * Result of extracting a recipe definition.
+ */
+export interface RecipeDefinitionResult {
+  /** The variable name (e.g., "buttonRecipe") */
+  name: string;
+  /** The className from the recipe config */
+  className: string | null;
+  /** The type of recipe: "recipe" or "slotRecipe" */
+  type: "recipe" | "slotRecipe";
+  /** The slots array for slot recipes */
+  slots?: string[];
+}
+
+/**
+ * Extract recipe definition from defineRecipe or defineSlotRecipe calls.
+ * Used in Chakra UI theme files to define component styling.
+ *
+ * @param code The code string to search
+ * @returns Recipe definition info, or null if not found
+ */
+export function extractRecipeDefinition(code: string): RecipeDefinitionResult | null {
+  // Match: export const buttonRecipe = defineRecipe({ ... }) or defineSlotRecipe({ ... })
+  const recipePattern = /(?:export\s+)?const\s+(\w+)\s*=\s*define(Slot)?Recipe\s*\(\s*\{/;
+  const match = code.match(recipePattern);
+
+  if (!match) {
+    return null;
+  }
+
+  const name = match[1]!;
+  const isSlotRecipe = !!match[2];
+
+  // Find the opening brace and extract the object content
+  const openBraceIndex = code.indexOf("{", match.index! + match[0].length - 1);
+  const objectContent = extractBalancedBraces(code, openBraceIndex);
+
+  if (!objectContent) {
+    return null;
+  }
+
+  // Extract className
+  const className = extractObjectProperty(objectContent, "className");
+
+  const result: RecipeDefinitionResult = {
+    name,
+    className,
+    type: isSlotRecipe ? "slotRecipe" : "recipe",
+  };
+
+  // Extract slots for slot recipes
+  if (isSlotRecipe) {
+    const slotsMatch = objectContent.match(/slots\s*:\s*\[([^\]]+)\]/);
+    if (slotsMatch?.[1]) {
+      const slotsStr = slotsMatch[1];
+      const slots = slotsStr
+        .split(",")
+        .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+        .filter((s) => s.length > 0);
+      result.slots = slots;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Result of extracting anatomy parts.
+ */
+export interface AnatomyPartsResult {
+  /** The variable name (e.g., "alertAnatomy") */
+  name: string;
+  /** The anatomy key (e.g., "alert") */
+  key: string | null;
+  /** The parts defined in .parts() */
+  parts?: string[];
+  /** The parts added via .extendWith() */
+  extendedParts?: string[];
+}
+
+/**
+ * Extract anatomy parts from createAnatomy().parts() or .extendWith() patterns.
+ * Used in Chakra UI and Ark UI to define component slot structure.
+ *
+ * @param code The code string to search
+ * @returns Anatomy parts info, or null if not found
+ */
+export function extractAnatomyParts(code: string): AnatomyPartsResult | null {
+  // Pattern 1: createAnatomy("key").parts(...)
+  const createAnatomyPattern = /(?:export\s+)?const\s+(\w+)\s*=\s*createAnatomy\s*\(\s*["']([^"']+)["']/;
+  const createMatch = code.match(createAnatomyPattern);
+
+  if (createMatch) {
+    const name = createMatch[1]!;
+    const key = createMatch[2]!;
+
+    // Check for .parts(...) method call
+    const partsPattern = /\.parts\s*\(\s*([^)]+)\)/;
+    const partsMatch = code.match(partsPattern);
+
+    // Check for array syntax: createAnatomy("key", [...])
+    const arrayPattern = new RegExp(`createAnatomy\\s*\\(\\s*["']${key}["']\\s*,\\s*\\[([^\\]]+)\\]`);
+    const arrayMatch = code.match(arrayPattern);
+
+    let parts: string[] | undefined;
+
+    if (partsMatch?.[1]) {
+      parts = partsMatch[1]
+        .split(",")
+        .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+        .filter((s) => s.length > 0 && !s.includes("("));
+    } else if (arrayMatch?.[1]) {
+      parts = arrayMatch[1]
+        .split(",")
+        .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+        .filter((s) => s.length > 0);
+    }
+
+    return { name, key, parts };
+  }
+
+  // Pattern 2: variable.extendWith(...)
+  const extendWithPattern = /(?:export\s+)?const\s+(\w+)\s*=\s*\w+\.extendWith\s*\(\s*([^)]+)\)/;
+  const extendMatch = code.match(extendWithPattern);
+
+  if (extendMatch) {
+    const name = extendMatch[1]!;
+    const partsStr = extendMatch[2]!;
+
+    const extendedParts = partsStr
+      .split(",")
+      .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+      .filter((s) => s.length > 0);
+
+    return { name, key: null, extendedParts };
+  }
+
+  return null;
+}
+
+/**
+ * Result of extracting a chakra factory component.
+ */
+export interface ChakraFactoryComponentResult {
+  /** The variable name (e.g., "Box", "StyledSelect") */
+  name: string;
+  /** The HTML element if wrapping an element (e.g., "div") */
+  element?: string;
+  /** The wrapped component if wrapping a component (e.g., "ArkPresence") */
+  wrappedComponent?: string;
+  /** Whether this wraps a component (true) or element (false) */
+  wrapsComponent: boolean;
+  /** Whether base styles are defined */
+  hasBaseStyle?: boolean;
+  /** Whether forwardAsChild is set */
+  forwardAsChild?: boolean;
+}
+
+/**
+ * Extract component info from chakra() factory calls.
+ * Handles both chakra("element", options) and chakra(Component, styleProps, options).
+ *
+ * @param code The code string to search
+ * @returns Chakra factory component info, or null if not found
+ */
+export function extractChakraFactoryComponent(code: string): ChakraFactoryComponentResult | null {
+  // Pattern: (export)? const Name = chakra(...)
+  const factoryPattern = /(?:export\s+)?const\s+(\w+)\s*=\s*chakra\s*\(/;
+  const match = code.match(factoryPattern);
+
+  if (!match) {
+    return null;
+  }
+
+  const name = match[1]!;
+  const startIndex = match.index! + match[0].length;
+
+  // Find what's being passed to chakra()
+  const remaining = code.substring(startIndex);
+
+  // Check for string element: chakra("div", ...)
+  const elementMatch = remaining.match(/^["']([a-z]+)["']/);
+  if (elementMatch) {
+    const element = elementMatch[1]!;
+
+    // Check if there's a second argument with base styles
+    const hasBaseStyle = /,\s*\{[^}]*base\s*:/.test(remaining);
+
+    return {
+      name,
+      element,
+      wrapsComponent: false,
+      hasBaseStyle,
+    };
+  }
+
+  // Check for component: chakra(ComponentName, ...)
+  const componentMatch = remaining.match(/^([A-Z][a-zA-Z0-9_.]*)/);
+  if (componentMatch) {
+    const wrappedComponent = componentMatch[1]!;
+
+    // Check for forwardAsChild in the third argument
+    const forwardAsChildMatch = remaining.match(/forwardAsChild\s*:\s*true/);
+
+    return {
+      name,
+      wrappedComponent,
+      wrapsComponent: true,
+      forwardAsChild: !!forwardAsChildMatch,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Result of extracting InferRecipeProps usage.
+ */
+export interface InferRecipePropsResult {
+  /** The type alias name (e.g., "VariantProps") */
+  typeName: string;
+  /** The source component/recipe name (e.g., "StyledGroup") */
+  sourceComponent: string;
+  /** Whether this is a slot recipe (InferSlotRecipeProps) */
+  isSlotRecipe?: boolean;
+}
+
+/**
+ * Extract InferRecipeProps or InferSlotRecipeProps usage.
+ * Used to infer variant props from chakra factory components.
+ *
+ * @param code The code string to search
+ * @returns Infer recipe props info, or null if not found
+ */
+export function extractInferRecipeProps(code: string): InferRecipePropsResult | null {
+  // Match: type VariantProps = Infer(Slot)?RecipeProps<typeof X>
+  const inferPattern = /type\s+(\w+)\s*=\s*Infer(Slot)?RecipeProps\s*<\s*typeof\s+(\w+)\s*>/;
+  const match = code.match(inferPattern);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    typeName: match[1]!,
+    sourceComponent: match[3]!,
+    isSlotRecipe: !!match[2],
+  };
+}
+
+/**
+ * Result of extracting TypeScript utility type usage.
+ */
+export interface TypeUtilityResult {
+  /** The utility type name (e.g., "Omit", "Pick") */
+  utilityType: string;
+  /** The base type being modified */
+  baseType: string;
+  /** Additional type parameters */
+  params: string[];
+}
+
+/**
+ * Extract TypeScript utility type usage (Omit, Pick, Partial, etc.).
+ * Useful for understanding prop type modifications.
+ *
+ * @param code The code string to search
+ * @param utilityTypeName The utility type to look for (e.g., "Omit", "Pick")
+ * @returns Utility type info, or null if not found
+ */
+export function extractTypeUtility(
+  code: string,
+  utilityTypeName: string,
+): TypeUtilityResult | null {
+  // Build pattern for the specific utility type
+  const pattern = new RegExp(`${utilityTypeName}\\s*<`);
+  const match = code.match(pattern);
+
+  if (!match) {
+    return null;
+  }
+
+  // Find the generic params
+  const startIndex = match.index! + match[0].length - 1;
+  const genericContent = code.substring(startIndex);
+  const params = parseGenericTypeParams(genericContent);
+
+  if (params.length < 1) {
+    return null;
+  }
+
+  return {
+    utilityType: utilityTypeName,
+    baseType: params[0]!,
+    params: params.slice(1),
+  };
+}
+
+/**
+ * Result of extracting namespace export.
+ */
+export interface NamespaceExportResult {
+  /** The namespace name (e.g., "Dialog") */
+  name: string;
+  /** The source path (e.g., "./namespace") */
+  source: string;
+}
+
+/**
+ * Options for extractNamespaceExport.
+ */
+export interface ExtractNamespaceExportOptions {
+  /** If true, returns all matches as an array */
+  all?: boolean;
+}
+
+/**
+ * Extract namespace export patterns like `export * as Name from "./path"`.
+ * Used to identify compound component namespaces.
+ *
+ * @param code The code string to search
+ * @param options Options for extraction
+ * @returns Namespace export info, or null/array depending on options
+ */
+export function extractNamespaceExport(
+  code: string,
+  options?: ExtractNamespaceExportOptions,
+): NamespaceExportResult | NamespaceExportResult[] | null {
+  const pattern = /export\s+\*\s+as\s+(\w+)\s+from\s+["']([^"']+)["']/g;
+
+  if (options?.all) {
+    const results: NamespaceExportResult[] = [];
+    let match;
+
+    while ((match = pattern.exec(code)) !== null) {
+      results.push({
+        name: match[1]!,
+        source: match[2]!,
+      });
+    }
+
+    return results;
+  }
+
+  const match = code.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  // Re-match to get capture groups
+  const singlePattern = /export\s+\*\s+as\s+(\w+)\s+from\s+["']([^"']+)["']/;
+  const singleMatch = code.match(singlePattern);
+
+  if (!singleMatch) {
+    return null;
+  }
+
+  return {
+    name: singleMatch[1]!,
+    source: singleMatch[2]!,
+  };
+}
