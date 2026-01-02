@@ -59,6 +59,12 @@ export class TokenScanner extends Scanner<DesignToken, TokenScannerConfig> {
         "**/*.tokens.json",
         "**/tokens.json",
         "**/tokens/**/*.json",
+        // Semantic token JSON files (Chakra UI v3)
+        "**/semantic-tokens/**/*.json",
+        // Style definition files (text-styles.json, animation-styles.json, layer-styles.json)
+        "**/*-styles.json",
+        // Theme token JSON files
+        "**/theme/**/*.json",
       ]);
       const cssFiles = await this.findTokenFiles(["**/*.css", "**/*.scss"]);
       const tsFiles = await this.findTokenFiles([
@@ -304,6 +310,13 @@ export class TokenScanner extends Scanner<DesignToken, TokenScannerConfig> {
       blur: "other",
       "aspect-ratios": "other",
       aspectratios: "other",
+      // Style definition files
+      "text-styles": "typography",
+      textstyles: "typography",
+      "animation-styles": "motion",
+      animationstyles: "motion",
+      "layer-styles": "other",
+      layerstyles: "other",
     };
 
     return fileNameToCategory[baseName] || "other";

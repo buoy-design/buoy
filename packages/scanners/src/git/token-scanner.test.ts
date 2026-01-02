@@ -1725,6 +1725,129 @@ type SizeType = 'sm' | 'lg';
     });
   });
 
+  describe("Extended JSON file patterns", () => {
+    it("scans **/semantic-tokens/**/*.json files by default", async () => {
+      vol.fromJSON({
+        "/project/apps/www/public/theme/semantic-tokens/colors.json": JSON.stringify([
+          "bg",
+          "bg.subtle",
+          "bg.muted",
+          "fg",
+          "fg.muted",
+          "border",
+        ]),
+        "/project/apps/www/public/theme/semantic-tokens/shadows.json": JSON.stringify([
+          "xs",
+          "sm",
+          "md",
+        ]),
+      });
+
+      const scanner = new TokenScanner({
+        projectRoot: "/project",
+      });
+
+      const result = await scanner.scan();
+
+      // Should detect tokens from semantic-tokens directory
+      expect(result.items.length).toBeGreaterThanOrEqual(9);
+
+      // Check color tokens from semantic colors
+      expect(result.items).toContainEqual(
+        expect.objectContaining({
+          name: "bg",
+          category: "color",
+        }),
+      );
+
+      // Check shadow tokens
+      expect(result.items).toContainEqual(
+        expect.objectContaining({
+          name: "sm",
+          category: "shadow",
+        }),
+      );
+    });
+
+    it("scans **/*-styles.json files for style definition tokens", async () => {
+      vol.fromJSON({
+        "/project/apps/www/public/theme/text-styles.json": JSON.stringify([
+          "2xs",
+          "xs",
+          "sm",
+          "md",
+          "lg",
+          "xl",
+          "2xl",
+          "label",
+        ]),
+        "/project/apps/www/public/theme/animation-styles.json": JSON.stringify([
+          "slide-fade-in",
+          "slide-fade-out",
+          "scale-fade-in",
+        ]),
+        "/project/apps/www/public/theme/layer-styles.json": JSON.stringify([
+          "fill.muted",
+          "fill.subtle",
+          "outline.solid",
+          "disabled",
+        ]),
+      });
+
+      const scanner = new TokenScanner({
+        projectRoot: "/project",
+      });
+
+      const result = await scanner.scan();
+
+      // Should detect tokens from style definition files
+      // text-styles: 8, animation-styles: 3, layer-styles: 4 = 15
+      expect(result.items.length).toBeGreaterThanOrEqual(15);
+
+      // Check text style tokens are categorized as typography
+      expect(result.items).toContainEqual(
+        expect.objectContaining({
+          name: "lg",
+          category: "typography",
+        }),
+      );
+
+      // Check animation style tokens are categorized as motion
+      expect(result.items).toContainEqual(
+        expect.objectContaining({
+          name: "slide-fade-in",
+          category: "motion",
+        }),
+      );
+    });
+
+    it("scans **/theme/**/*.json files for theme token files", async () => {
+      vol.fromJSON({
+        "/project/packages/ui/theme/colors.json": JSON.stringify([
+          "primary",
+          "secondary",
+          "success",
+          "danger",
+        ]),
+        "/project/packages/ui/theme/spacing.json": JSON.stringify([
+          "1",
+          "2",
+          "4",
+          "8",
+        ]),
+      });
+
+      const scanner = new TokenScanner({
+        projectRoot: "/project",
+      });
+
+      const result = await scanner.scan();
+
+      // Should detect tokens from theme directory JSON files
+      expect(result.items.length).toBeGreaterThanOrEqual(8);
+    });
+  });
+
   describe("JSON array format parsing", () => {
     it("extracts tokens from JSON arrays with token names (Chakra UI generated format)", async () => {
       vol.fromJSON({
