@@ -84,24 +84,34 @@ export class FigmaComponentScanner extends Scanner<Component, FigmaScannerConfig
     fileKey: string,
     componentsMeta: Record<string, FigmaComponentMeta>,
     components: Component[],
-    parentPath: string[] = []
+    parentPath: string[] = [],
+    parentComponentSetId?: string
   ): void {
     for (const node of nodes) {
       const currentPath = [...parentPath, node.name];
 
       // COMPONENT_SET is a group of variants
       if (node.type === 'COMPONENT_SET') {
-        const component = this.nodeToComponent(node, fileKey, true, componentsMeta, currentPath);
+        const component = this.nodeToComponent(node, fileKey, true, componentsMeta, currentPath, parentComponentSetId);
         components.push(component);
+
+        // Recurse into COMPONENT_SET children with this as parent
+        if (node.children) {
+          this.findComponentsRecursive(node.children, fileKey, componentsMeta, components, currentPath, node.id);
+        }
       }
       // COMPONENT is a single component
       else if (node.type === 'COMPONENT') {
-        const component = this.nodeToComponent(node, fileKey, false, componentsMeta, currentPath);
+        const component = this.nodeToComponent(node, fileKey, false, componentsMeta, currentPath, parentComponentSetId);
         components.push(component);
-      }
 
-      // Recurse into children
-      if (node.children) {
+        // Recurse into COMPONENT children (unlikely to have component children, but be thorough)
+        if (node.children) {
+          this.findComponentsRecursive(node.children, fileKey, componentsMeta, components, currentPath);
+        }
+      }
+      // For non-component nodes, just recurse
+      else if (node.children) {
         this.findComponentsRecursive(node.children, fileKey, componentsMeta, components, currentPath);
       }
     }
@@ -112,7 +122,8 @@ export class FigmaComponentScanner extends Scanner<Component, FigmaScannerConfig
     fileKey: string,
     isComponentSet: boolean,
     componentsMeta: Record<string, FigmaComponentMeta>,
-    hierarchyPath: string[] = []
+    hierarchyPath: string[] = [],
+    parentComponentSetId?: string
   ): Component {
     const source: FigmaSource = {
       type: 'figma',
@@ -227,6 +238,41 @@ export class FigmaComponentScanner extends Scanner<Component, FigmaScannerConfig
     // Detect slot components (naming pattern)
     if (this.isSlotComponent(node.name)) {
       tags.push('slot-component');
+    }
+
+    // Detect reserved property names (React conflicts)
+    if (this.hasReservedPropertyName(node)) {
+      tags.push('reserved-property-name');
+    }
+
+    // Detect numeric variant values
+    if (isComponentSet && this.hasNumericVariantValues(node)) {
+      tags.push('numeric-variant-values');
+    }
+
+    // Detect nested component sets (anti-pattern)
+    if (isComponentSet && parentComponentSetId) {
+      tags.push('nested-component-set');
+    }
+
+    // Detect semantic state variant naming (success/warning/error/info)
+    if (isComponentSet && this.hasSemanticStateVariants(node)) {
+      tags.push('semantic-state-variants');
+    }
+
+    // Detect semantic hierarchy variant naming (primary/secondary/tertiary)
+    if (isComponentSet && this.hasSemanticHierarchyVariants(node)) {
+      tags.push('semantic-hierarchy-variants');
+    }
+
+    // Add parent component set reference for child components
+    if (parentComponentSetId && !isComponentSet) {
+      tags.push(`parent-component-set:${parentComponentSetId}`);
+    }
+
+    // Detect special characters in variant values
+    if (isComponentSet && this.hasSpecialCharVariantValues(node)) {
+      tags.push('special-char-variant-values');
     }
 
     // Add hierarchy path as tag for organization tracking
@@ -1243,6 +1289,155 @@ export class FigmaComponentScanner extends Scanner<Component, FigmaScannerConfig
 
         // If there's a case-insensitive match but no exact match, it's a case mismatch
         if (caseInsensitiveMatch) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Detect property names that conflict with React reserved keywords.
+   * Properties named 'key', 'ref', 'children' will cause issues when mapped to React props.
+   */
+  private hasReservedPropertyName(node: FigmaNode): boolean {
+    if (!node.componentPropertyDefinitions) {
+      return false;
+    }
+
+    const reservedNames = ['key', 'ref', 'children', 'dangerouslySetInnerHTML'];
+
+    for (const key of Object.keys(node.componentPropertyDefinitions)) {
+      if (reservedNames.includes(key.toLowerCase())) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Detect variant values that are numeric strings.
+   * Values like "1", "2", "3" indicate the property might be better as a NUMBER type
+   * or the naming could be more semantic.
+   */
+  private hasNumericVariantValues(node: FigmaNode): boolean {
+    if (!node.componentPropertyDefinitions) {
+      return false;
+    }
+
+    for (const [, def] of Object.entries(node.componentPropertyDefinitions)) {
+      if (def.type !== 'VARIANT' || !def.variantOptions) {
+        continue;
+      }
+
+      // Check if a majority of values are numeric
+      const numericCount = def.variantOptions.filter(opt => /^\d+$/.test(opt)).length;
+      if (numericCount >= 2 && numericCount >= def.variantOptions.length * 0.5) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Detect semantic state variant naming patterns.
+   * Common patterns: success/warning/error/info, valid/invalid, active/inactive
+   */
+  private hasSemanticStateVariants(node: FigmaNode): boolean {
+    if (!node.componentPropertyDefinitions) {
+      return false;
+    }
+
+    const statePatterns = [
+      ['success', 'error'],
+      ['success', 'warning'],
+      ['success', 'warning', 'error'],
+      ['success', 'warning', 'error', 'info'],
+      ['valid', 'invalid'],
+      ['active', 'inactive'],
+      ['enabled', 'disabled'],
+      ['positive', 'negative'],
+    ];
+
+    for (const [, def] of Object.entries(node.componentPropertyDefinitions)) {
+      if (def.type !== 'VARIANT' || !def.variantOptions) {
+        continue;
+      }
+
+      const lowerOptions = def.variantOptions.map(opt => opt.toLowerCase());
+
+      for (const pattern of statePatterns) {
+        // Check if all pattern items are present in the options
+        const matchCount = pattern.filter(p => lowerOptions.includes(p)).length;
+        if (matchCount >= 2) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Detect semantic hierarchy variant naming patterns.
+   * Common patterns: primary/secondary/tertiary, main/alt, default/outlined/text
+   */
+  private hasSemanticHierarchyVariants(node: FigmaNode): boolean {
+    if (!node.componentPropertyDefinitions) {
+      return false;
+    }
+
+    const hierarchyPatterns = [
+      ['primary', 'secondary'],
+      ['primary', 'secondary', 'tertiary'],
+      ['main', 'alt'],
+      ['filled', 'outlined'],
+      ['solid', 'outline', 'ghost'],
+      ['default', 'outlined', 'text'],
+      ['contained', 'outlined', 'text'],
+    ];
+
+    for (const [, def] of Object.entries(node.componentPropertyDefinitions)) {
+      if (def.type !== 'VARIANT' || !def.variantOptions) {
+        continue;
+      }
+
+      const lowerOptions = def.variantOptions.map(opt => opt.toLowerCase());
+
+      for (const pattern of hierarchyPatterns) {
+        // Check if all pattern items are present in the options
+        const matchCount = pattern.filter(p => lowerOptions.includes(p)).length;
+        if (matchCount >= 2) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Detect variant values with problematic special characters.
+   * Characters like /, :, @, # can cause issues in code generation and mapping.
+   */
+  private hasSpecialCharVariantValues(node: FigmaNode): boolean {
+    if (!node.componentPropertyDefinitions) {
+      return false;
+    }
+
+    // Characters that are problematic in property values
+    const problematicChars = /[\/\:@#\[\]{}|\\<>]/;
+
+    for (const [, def] of Object.entries(node.componentPropertyDefinitions)) {
+      if (def.type !== 'VARIANT' || !def.variantOptions) {
+        continue;
+      }
+
+      for (const option of def.variantOptions) {
+        if (problematicChars.test(option)) {
           return true;
         }
       }

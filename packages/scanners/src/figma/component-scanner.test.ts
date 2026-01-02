@@ -2285,4 +2285,300 @@ describe('FigmaComponentScanner', () => {
       expect(button!.metadata.tags).not.toContain('variant-value-case-mismatch');
     });
   });
+
+  describe('reserved property name detection', () => {
+    it('detects property names that conflict with React reserved keywords', async () => {
+      const file = createFigmaFile([
+        {
+          id: '68:1',
+          name: 'BadComponent',
+          type: 'COMPONENT',
+          componentPropertyDefinitions: {
+            'key': {  // Conflicts with React key prop
+              type: 'TEXT',
+              defaultValue: 'my-key',
+            },
+            'ref': {  // Conflicts with React ref
+              type: 'TEXT',
+              defaultValue: 'my-ref',
+            },
+            'children': {  // Conflicts with React children
+              type: 'TEXT',
+              defaultValue: 'child content',
+            },
+          },
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const component = result.items.find(c => c.name === 'BadComponent');
+      expect(component).toBeDefined();
+      // Should detect reserved property names
+      expect(component!.metadata.tags).toContain('reserved-property-name');
+    });
+
+    it('does not flag components without reserved property names', async () => {
+      const file = createFigmaFile([
+        {
+          id: '69:1',
+          name: 'GoodComponent',
+          type: 'COMPONENT',
+          componentPropertyDefinitions: {
+            'Label': {
+              type: 'TEXT',
+              defaultValue: 'Click me',
+            },
+            'Icon': {
+              type: 'INSTANCE_SWAP',
+              defaultValue: 'icon-id',
+            },
+          },
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const component = result.items.find(c => c.name === 'GoodComponent');
+      expect(component).toBeDefined();
+      expect(component!.metadata.tags).not.toContain('reserved-property-name');
+    });
+  });
+
+  describe('numeric variant value detection', () => {
+    it('detects variant values that are numeric strings', async () => {
+      const file = createFigmaFile([
+        {
+          id: '70:1',
+          name: 'Stepper',
+          type: 'COMPONENT_SET',
+          componentPropertyDefinitions: {
+            'Count': {
+              type: 'VARIANT',
+              defaultValue: '1',
+              variantOptions: ['1', '2', '3', '4', '5'],  // Numeric values as strings
+            },
+          },
+          children: [
+            { id: '70:2', name: 'Count=1', type: 'COMPONENT' },
+            { id: '70:3', name: 'Count=2', type: 'COMPONENT' },
+            { id: '70:4', name: 'Count=3', type: 'COMPONENT' },
+          ],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const stepper = result.items.find(c => c.name === 'Stepper');
+      expect(stepper).toBeDefined();
+      // Should detect numeric variant values
+      expect(stepper!.metadata.tags).toContain('numeric-variant-values');
+    });
+
+    it('does not flag non-numeric variant values', async () => {
+      const file = createFigmaFile([
+        {
+          id: '71:1',
+          name: 'Button',
+          type: 'COMPONENT_SET',
+          componentPropertyDefinitions: {
+            'Size': {
+              type: 'VARIANT',
+              defaultValue: 'Medium',
+              variantOptions: ['Small', 'Medium', 'Large'],
+            },
+          },
+          children: [],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const button = result.items.find(c => c.name === 'Button');
+      expect(button).toBeDefined();
+      expect(button!.metadata.tags).not.toContain('numeric-variant-values');
+    });
+  });
+
+  describe('nested component set detection', () => {
+    it('detects COMPONENT_SET nodes nested inside other COMPONENT_SET nodes (anti-pattern)', async () => {
+      const file = createFigmaFile([
+        {
+          id: '72:1',
+          name: 'OuterButton',
+          type: 'COMPONENT_SET',
+          children: [
+            {
+              id: '72:2',
+              name: 'Size=Small',
+              type: 'COMPONENT',
+            },
+            {
+              id: '72:3',
+              name: 'InnerIconSet',
+              type: 'COMPONENT_SET',  // Nested COMPONENT_SET - anti-pattern!
+              children: [
+                { id: '72:4', name: 'Icon=Star', type: 'COMPONENT' },
+                { id: '72:5', name: 'Icon=Heart', type: 'COMPONENT' },
+              ],
+            },
+          ],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const innerSet = result.items.find(c => c.name === 'InnerIconSet');
+      expect(innerSet).toBeDefined();
+      // Should detect that this is a nested component set (anti-pattern)
+      expect(innerSet!.metadata.tags).toContain('nested-component-set');
+    });
+
+    it('does not flag top-level component sets', async () => {
+      const file = createFigmaFile([
+        {
+          id: '73:1',
+          name: 'Button',
+          type: 'COMPONENT_SET',
+          children: [
+            { id: '73:2', name: 'Size=Small', type: 'COMPONENT' },
+            { id: '73:3', name: 'Size=Large', type: 'COMPONENT' },
+          ],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const button = result.items.find(c => c.name === 'Button');
+      expect(button).toBeDefined();
+      expect(button!.metadata.tags).not.toContain('nested-component-set');
+    });
+  });
+
+  describe('semantic variant naming detection', () => {
+    it('detects semantic state variant naming patterns (success/warning/error)', async () => {
+      const file = createFigmaFile([
+        {
+          id: '74:1',
+          name: 'Alert',
+          type: 'COMPONENT_SET',
+          componentPropertyDefinitions: {
+            'Status': {
+              type: 'VARIANT',
+              defaultValue: 'Info',
+              variantOptions: ['Success', 'Warning', 'Error', 'Info'],
+            },
+          },
+          children: [],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const alert = result.items.find(c => c.name === 'Alert');
+      expect(alert).toBeDefined();
+      // Should detect semantic state pattern
+      expect(alert!.metadata.tags).toContain('semantic-state-variants');
+    });
+
+    it('detects semantic hierarchy variant naming patterns (primary/secondary/tertiary)', async () => {
+      const file = createFigmaFile([
+        {
+          id: '75:1',
+          name: 'Button',
+          type: 'COMPONENT_SET',
+          componentPropertyDefinitions: {
+            'Variant': {
+              type: 'VARIANT',
+              defaultValue: 'Primary',
+              variantOptions: ['Primary', 'Secondary', 'Tertiary'],
+            },
+          },
+          children: [],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const button = result.items.find(c => c.name === 'Button');
+      expect(button).toBeDefined();
+      // Should detect semantic hierarchy pattern
+      expect(button!.metadata.tags).toContain('semantic-hierarchy-variants');
+    });
+  });
+
+  describe('component containment tracking', () => {
+    it('tracks parent component set ID for child components', async () => {
+      const file = createFigmaFile([
+        {
+          id: '76:1',
+          name: 'Button',
+          type: 'COMPONENT_SET',
+          children: [
+            { id: '76:2', name: 'Size=Small', type: 'COMPONENT' },
+            { id: '76:3', name: 'Size=Large', type: 'COMPONENT' },
+          ],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      // Find the child components (not the component set itself)
+      const childComponents = result.items.filter(
+        c => c.name !== 'Button' && !c.metadata.tags?.includes('component-set')
+      );
+
+      // Each child should have a tag indicating its parent component set
+      for (const child of childComponents) {
+        expect(child.metadata.tags).toContainEqual(expect.stringMatching(/^parent-component-set:/));
+      }
+    });
+  });
+
+  describe('variant value special character detection', () => {
+    it('detects variant values with problematic special characters', async () => {
+      const file = createFigmaFile([
+        {
+          id: '77:1',
+          name: 'Component',
+          type: 'COMPONENT_SET',
+          componentPropertyDefinitions: {
+            'Type': {
+              type: 'VARIANT',
+              defaultValue: 'Default',
+              variantOptions: ['Default', 'Type/Subtype', 'Type:Alt', 'Type@Special'],  // Problematic chars
+            },
+          },
+          children: [],
+        },
+      ]);
+      mockClient.getFile.mockResolvedValue(file);
+
+      const scanner = createScanner();
+      const result = await scanner.scan();
+
+      const component = result.items.find(c => c.name === 'Component');
+      expect(component).toBeDefined();
+      // Should detect special characters in variant values
+      expect(component!.metadata.tags).toContain('special-char-variant-values');
+    });
+  });
 });
