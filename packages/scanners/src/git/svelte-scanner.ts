@@ -371,6 +371,36 @@ export class SvelteComponentScanner extends Scanner<
           if (props.length === 0) {
             props.push(...svelte5Props);
           }
+
+          // Look for type annotation after the destructuring: }: TypeName = $props()
+          // This extracts additional type info from interface/type alias definitions
+          const afterBrace = scriptContent.substring(
+            braceStartIdx + propsContent.length + 2,
+          );
+          const typeAnnotationMatch = afterBrace.match(/^\s*:\s*(\w+)\s*=\s*\$props\(\)/);
+          if (typeAnnotationMatch && typeAnnotationMatch[1]) {
+            const typeName = typeAnnotationMatch[1];
+            const allScript = moduleScriptContent + "\n" + scriptContent;
+            const typeProps = this.extractPropsFromTypeDefinition(
+              allScript,
+              typeName,
+            );
+
+            // Merge type information from type definition into our props
+            if (typeProps.length > 0) {
+              const typeMap = new Map(typeProps.map((p) => [p.name, p]));
+              for (const prop of props) {
+                const typeDef = typeMap.get(prop.name);
+                if (typeDef && prop.type === "unknown") {
+                  prop.type = typeDef.type;
+                  // Also update required status if type definition says optional
+                  if (!typeDef.required && prop.required) {
+                    prop.required = false;
+                  }
+                }
+              }
+            }
+          }
         }
       } else {
         // Check for non-destructured $props() pattern (Skeleton pattern):
@@ -380,13 +410,13 @@ export class SvelteComponentScanner extends Scanner<
         );
         if (nonDestructuredMatch && nonDestructuredMatch[3] && props.length === 0) {
           const typeName = nonDestructuredMatch[3];
-          // Try to find the interface definition in both scripts
+          // Try to find the interface/type definition in both scripts
           const allScript = moduleScriptContent + "\n" + scriptContent;
-          const interfaceProps = this.extractPropsFromInterface(
+          const typeProps = this.extractPropsFromTypeDefinition(
             allScript,
             typeName,
           );
-          props.push(...interfaceProps);
+          props.push(...typeProps);
         }
       }
     }
@@ -401,11 +431,11 @@ export class SvelteComponentScanner extends Scanner<
       if (propsTypeMatch && propsTypeMatch[1]) {
         const typeName = propsTypeMatch[1];
         const allScript = moduleScriptContent + "\n" + scriptContent;
-        const interfaceProps = this.extractPropsFromInterface(
+        const typeProps = this.extractPropsFromTypeDefinition(
           allScript,
           typeName,
         );
-        props.push(...interfaceProps);
+        props.push(...typeProps);
       }
     }
 
@@ -451,6 +481,74 @@ export class SvelteComponentScanner extends Scanner<
       }
     }
 
+    return props;
+  }
+
+  /**
+   * Extract props from a TypeScript type alias definition.
+   * Handles: type Props = { name?: type; name: type; }
+   * Handles: type Props = BaseType & { name?: type; }
+   */
+  private extractPropsFromTypeAlias(
+    content: string,
+    typeName: string,
+  ): PropDefinition[] {
+    const props: PropDefinition[] = [];
+
+    // Find the type alias start
+    const typeStartRegex = new RegExp(`type\\s+${typeName}\\s*=\\s*`);
+    const typeStartMatch = content.match(typeStartRegex);
+    if (!typeStartMatch || typeStartMatch.index === undefined) return props;
+
+    const afterEquals = content.substring(
+      typeStartMatch.index + typeStartMatch[0].length,
+    );
+
+    // Find the inline object type (the { ... } part)
+    // This could be at the start: { prop: type }
+    // Or after intersection: BaseType & { prop: type }
+    const braceStart = afterEquals.indexOf("{");
+    if (braceStart === -1) return props;
+
+    // Extract the balanced braces content
+    const objectTypeContent = extractBalancedBraces(afterEquals, braceStart);
+    if (!objectTypeContent) return props;
+
+    // Match prop definitions: propName?: Type; or propName: Type;
+    const propRegex = /(\w+)(\?)?:\s*([^;]+);/g;
+    let propMatch;
+
+    while ((propMatch = propRegex.exec(objectTypeContent)) !== null) {
+      const propName = propMatch[1];
+      const isOptional = propMatch[2] === "?";
+      const propType = propMatch[3]?.trim() || "unknown";
+
+      if (propName) {
+        props.push({
+          name: propName,
+          type: propType,
+          required: !isOptional,
+          defaultValue: undefined,
+        });
+      }
+    }
+
+    return props;
+  }
+
+  /**
+   * Extract props from either interface or type alias.
+   */
+  private extractPropsFromTypeDefinition(
+    content: string,
+    typeName: string,
+  ): PropDefinition[] {
+    // First try interface
+    let props = this.extractPropsFromInterface(content, typeName);
+    if (props.length > 0) return props;
+
+    // Then try type alias
+    props = this.extractPropsFromTypeAlias(content, typeName);
     return props;
   }
 

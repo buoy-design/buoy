@@ -15,6 +15,8 @@ import {
   SVELTE5_PROPS_ID_COMPONENT,
   SVELTE5_DERIVED_DESTRUCTURING,
   SVELTE5_INLINE_INTERFACE_PROPS,
+  SVELTE5_TYPE_ALIAS_PROPS,
+  SVELTE5_SIMPLE_TYPE_ALIAS_PROPS,
 } from '../__tests__/fixtures/svelte-components.js';
 import { SvelteComponentScanner } from './svelte-scanner.js';
 
@@ -389,6 +391,75 @@ describe('SvelteComponentScanner', () => {
       const disabledProp = result.items[0]!.props.find(p => p.name === 'disabled');
       expect(disabledProp).toBeDefined();
       expect(disabledProp!.required).toBe(false);
+    });
+
+    it('extracts props from type alias with intersection (shadcn-svelte pattern)', async () => {
+      vol.fromJSON({
+        '/project/src/Button.svelte': SVELTE5_TYPE_ALIAS_PROPS,
+      });
+
+      const scanner = new SvelteComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.svelte'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      // Should extract props from destructuring AND recognize type alias
+      expect(result.items[0]!.props.length).toBeGreaterThanOrEqual(3);
+
+      // className should be extracted from class: className rename
+      const classNameProp = result.items[0]!.props.find(p => p.name === 'className');
+      expect(classNameProp).toBeDefined();
+
+      // variant with default value
+      const variantProp = result.items[0]!.props.find(p => p.name === 'variant');
+      expect(variantProp).toBeDefined();
+      expect(variantProp!.required).toBe(false);
+      expect(variantProp!.defaultValue).toContain('default');
+
+      // size with default value
+      const sizeProp = result.items[0]!.props.find(p => p.name === 'size');
+      expect(sizeProp).toBeDefined();
+      expect(sizeProp!.required).toBe(false);
+    });
+
+    it('extracts props from simple type alias in module script', async () => {
+      vol.fromJSON({
+        '/project/src/Card.svelte': SVELTE5_SIMPLE_TYPE_ALIAS_PROPS,
+      });
+
+      const scanner = new SvelteComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.svelte'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      // Should extract props from both destructuring and type alias definition
+      expect(result.items[0]!.props.length).toBeGreaterThanOrEqual(2);
+
+      // title is required (no default and no optional marker in type)
+      const titleProp = result.items[0]!.props.find(p => p.name === 'title');
+      expect(titleProp).toBeDefined();
+      expect(titleProp!.required).toBe(true);
+      // Type should be extracted from type alias - this is the key test!
+      expect(titleProp!.type).toBe('string');
+
+      // description is optional (has ? in type)
+      const descriptionProp = result.items[0]!.props.find(p => p.name === 'description');
+      expect(descriptionProp).toBeDefined();
+      // Type should be string from type alias
+      expect(descriptionProp!.type).toBe('string');
+
+      // variant has default value
+      const variantProp = result.items[0]!.props.find(p => p.name === 'variant');
+      expect(variantProp).toBeDefined();
+      expect(variantProp!.required).toBe(false);
+      // Type should be the union type from type alias
+      expect(variantProp!.type).toContain('default');
     });
   });
 

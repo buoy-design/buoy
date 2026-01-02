@@ -248,3 +248,54 @@ export const SVELTE5_INLINE_INTERFACE_PROPS = `
   {@render children?.()}
 </button>
 `;
+
+// Svelte 5 with type alias in module script (real shadcn-svelte pattern)
+// Uses: export type ButtonProps = BaseType & { prop?: type; }
+export const SVELTE5_TYPE_ALIAS_PROPS = `
+<script lang="ts" module>
+  import type { WithElementRef } from "$lib/utils.js";
+  import type { HTMLButtonAttributes } from "svelte/elements";
+
+  export type ButtonProps = WithElementRef<HTMLButtonAttributes> & {
+    variant?: 'default' | 'outline';
+    size?: 'sm' | 'md' | 'lg';
+  };
+</script>
+
+<script lang="ts">
+  let {
+    class: className,
+    variant = "default",
+    size = "default",
+    ref = $bindable(null),
+    children,
+    ...restProps
+  }: ButtonProps = $props();
+</script>
+
+<button bind:this={ref} class={className} {...restProps}>
+  {@render children?.()}
+</button>
+`;
+
+// Svelte 5 with simple type alias (no intersection, just inline object)
+export const SVELTE5_SIMPLE_TYPE_ALIAS_PROPS = `
+<script lang="ts" module>
+  export type CardProps = {
+    title: string;
+    description?: string;
+    variant?: 'default' | 'outline';
+  };
+</script>
+
+<script lang="ts">
+  let { title, description, variant = "default" }: CardProps = $props();
+</script>
+
+<div class="card card-{variant}">
+  <h2>{title}</h2>
+  {#if description}
+    <p>{description}</p>
+  {/if}
+</div>
+`;
