@@ -1307,3 +1307,165 @@ describe('render prop className patterns', () => {
     });
   });
 });
+
+// ============================================================================
+// Extended Short-Form Data Pattern Tests (Form Validation States)
+// ============================================================================
+
+describe('extended short-form data patterns', () => {
+  describe('form validation states', () => {
+    it('extracts data-invalid: patterns for form validation', () => {
+      const content = `
+        className="data-invalid:border-destructive data-invalid:ring-destructive/20"
+      `;
+      const result = extractShortFormDataPatterns(content);
+
+      expect(result.some((r: { state: string }) => r.state === 'invalid')).toBe(true);
+    });
+
+    it('extracts data-valid: patterns for form validation', () => {
+      const content = `
+        className="data-valid:border-green-500 data-valid:ring-green-500/20"
+      `;
+      const result = extractShortFormDataPatterns(content);
+
+      expect(result.some((r: { state: string }) => r.state === 'valid')).toBe(true);
+    });
+
+    it('extracts peer-data-invalid: patterns for form validation', () => {
+      const content = `
+        className="peer-data-invalid:border-destructive peer-data-invalid:text-destructive"
+      `;
+      const result = extractShortFormDataPatterns(content);
+
+      expect(result.some((r: { state: string; peerVariant: boolean }) =>
+        r.state === 'invalid' && r.peerVariant
+      )).toBe(true);
+    });
+
+    it('extracts data-indeterminate: patterns for checkboxes', () => {
+      const content = `
+        className="data-indeterminate:bg-primary/50 data-indeterminate:opacity-80"
+      `;
+      const result = extractShortFormDataPatterns(content);
+
+      expect(result.some((r: { state: string }) => r.state === 'indeterminate')).toBe(true);
+    });
+  });
+});
+
+// ============================================================================
+// Extended Data Attribute Selector Tests (Child Selectors)
+// ============================================================================
+
+describe('extended data attribute selectors', () => {
+  describe('child selector patterns (*:data-[*])', () => {
+    it('extracts *:data-[slot=*] child selector patterns', () => {
+      const content = `
+        className="*:data-[slot=card-action]:first:mt-auto *:data-[slot=avatar]:rounded-full"
+      `;
+      const result = extractDataAttributePatterns(content);
+
+      expect(result.some(r =>
+        r.attribute === 'slot' && r.value === 'card-action' && r.variantPrefix === '*:data'
+      )).toBe(true);
+      expect(result.some(r =>
+        r.attribute === 'slot' && r.value === 'avatar' && r.variantPrefix === '*:data'
+      )).toBe(true);
+    });
+
+    it('extracts *:data-[state=*] child selector patterns', () => {
+      const content = `
+        className="*:data-[state=checked]:bg-primary *:data-[state=unchecked]:bg-muted"
+      `;
+      const result = extractDataAttributePatterns(content);
+
+      expect(result.filter(r =>
+        r.attribute === 'state' && r.variantPrefix === '*:data'
+      ).length).toBe(2);
+    });
+  });
+
+  describe('has-data-[*] patterns', () => {
+    it('extracts has-data-[slot=*] parent selector patterns', () => {
+      const content = `
+        className="has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=description]:gap-2"
+      `;
+      const result = extractDataAttributePatterns(content);
+
+      expect(result.some(r =>
+        r.attribute === 'slot' && r.value === 'card-action' && r.variantPrefix === 'has-data'
+      )).toBe(true);
+      expect(result.some(r =>
+        r.attribute === 'slot' && r.value === 'description' && r.variantPrefix === 'has-data'
+      )).toBe(true);
+    });
+  });
+});
+
+// ============================================================================
+// Extended BEM Parsing Tests (Compound Modifiers)
+// ============================================================================
+
+describe('extended BEM parsing', () => {
+  describe('compound modifier detection', () => {
+    it('parses layout modifiers correctly in compound classes', () => {
+      const content = `
+        className="cn-card-header-layout-vertical cn-card-header-layout-horizontal"
+      `;
+      const result = extractBemSemanticClasses(content);
+
+      const verticalMatch = result.find((r: { fullClass: string }) => r.fullClass === 'cn-card-header-layout-vertical');
+      expect(verticalMatch).toBeDefined();
+      expect(verticalMatch!.modifier).toBe('layout-vertical');
+
+      const horizontalMatch = result.find((r: { fullClass: string }) => r.fullClass === 'cn-card-header-layout-horizontal');
+      expect(horizontalMatch).toBeDefined();
+      expect(horizontalMatch!.modifier).toBe('layout-horizontal');
+    });
+
+    it('parses state modifiers correctly in compound classes', () => {
+      const content = `
+        className="cn-button-state-loading cn-button-state-success cn-button-state-error"
+      `;
+      const result = extractBemSemanticClasses(content);
+
+      expect(result.some((r: { fullClass: string; modifier?: string }) =>
+        r.fullClass === 'cn-button-state-loading' && r.modifier === 'state-loading'
+      )).toBe(true);
+    });
+
+    it('parses mode modifiers correctly in compound classes', () => {
+      const content = `
+        className="cn-sidebar-mode-icon cn-sidebar-mode-expanded"
+      `;
+      const result = extractBemSemanticClasses(content);
+
+      expect(result.some((r: { fullClass: string; modifier?: string }) =>
+        r.fullClass === 'cn-sidebar-mode-icon' && r.modifier === 'mode-icon'
+      )).toBe(true);
+    });
+
+    it('parses theme modifiers correctly in compound classes', () => {
+      const content = `
+        className="cn-chart-theme-dark cn-chart-theme-light"
+      `;
+      const result = extractBemSemanticClasses(content);
+
+      expect(result.some((r: { fullClass: string; modifier?: string }) =>
+        r.fullClass === 'cn-chart-theme-dark' && r.modifier === 'theme-dark'
+      )).toBe(true);
+    });
+
+    it('parses color modifiers correctly in compound classes', () => {
+      const content = `
+        className="cn-badge-color-destructive cn-badge-color-success"
+      `;
+      const result = extractBemSemanticClasses(content);
+
+      expect(result.some((r: { fullClass: string; modifier?: string }) =>
+        r.fullClass === 'cn-badge-color-destructive' && r.modifier === 'color-destructive'
+      )).toBe(true);
+    });
+  });
+});

@@ -979,6 +979,7 @@ const KNOWN_MODIFIER_PREFIXES = [
   'color',
   'theme',
   'mode',
+  'layout',
 ];
 
 /**
@@ -1225,6 +1226,7 @@ const DATA_ATTRIBUTE_CATEGORIES: Record<string, DataAttributePattern['semanticCa
  *   - data-[attr=value]:utility
  *   - group-data-[attr=value]/name:utility
  *   - has-data-[attr=value]:utility
+ *   - *:data-[attr=value]:utility (child selector with data attribute)
  */
 export function extractDataAttributePatterns(content: string): DataAttributePattern[] {
   const results: DataAttributePattern[] = [];
@@ -1236,8 +1238,8 @@ export function extractDataAttributePatterns(content: string): DataAttributePatt
   // - group-data-[attr=value]:utility or group-data-[attr=value]/name:utility
   // - has-data-[attr=value]:utility
   // - group-has-data-[attr=value]/name:utility
-  // - *:data-[attr=value]:utility
-  const dataPatternRegex = /(\*:|group-has-data-|group-data-|has-data-|data-)\[([a-zA-Z][\w-]*)(?:=([^\]]+))?\](?:\/([a-zA-Z][\w-]*))?:/g;
+  // - *:data-[attr=value]:utility (Tailwind child selector pattern)
+  const dataPatternRegex = /(\*:data-|group-has-data-|group-data-|has-data-|data-)\[([a-zA-Z][\w-]*)(?:=([^\]]+))?\](?:\/([a-zA-Z][\w-]*))?:/g;
 
   for (let lineNum = 0; lineNum < lines.length; lineNum++) {
     const line = lines[lineNum]!;
@@ -1251,13 +1253,13 @@ export function extractDataAttributePatterns(content: string): DataAttributePatt
       const groupName = match[4];
 
       // Create a unique key for deduplication
-      const key = `${attribute}:${value || ''}:${groupName || ''}`;
+      const key = `${prefix}:${attribute}:${value || ''}:${groupName || ''}`;
       if (seen.has(key)) continue;
       seen.add(key);
 
       // Determine the variant prefix type
       let variantPrefix: DataAttributePattern['variantPrefix'];
-      if (prefix === '*:') {
+      if (prefix === '*:data-') {
         variantPrefix = '*:data';
       } else if (prefix === 'group-has-data-') {
         variantPrefix = 'group-has-data';
@@ -1678,6 +1680,11 @@ const SHORT_FORM_DATA_STATES = [
   // Side/alignment (Radix)
   'side',
   'align',
+  // Form validation states
+  'invalid',
+  'valid',
+  // Checkbox indeterminate state
+  'indeterminate',
 ];
 
 /**
