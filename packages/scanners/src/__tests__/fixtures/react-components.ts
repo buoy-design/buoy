@@ -758,3 +758,48 @@ export const TrackedCard = withTracking(
   ))
 );
 `;
+
+// Inner/local components inside factory functions should NOT be detected
+// This pattern is common in Chakra UI's createSlotRecipeContext
+export const FACTORY_WITH_INNER_COMPONENTS = `
+"use client"
+
+import { forwardRef } from "react"
+
+// Factory function that creates components internally
+export const createRecipeContext = (options) => {
+  // These are LOCAL components - should NOT be detected as top-level components
+  const StyledComponent = (inProps) => {
+    return <div {...inProps} />;
+  };
+
+  const withProvider = (Component, slot) => {
+    // Another inner component - also should NOT be detected
+    const ProviderComponent = forwardRef((props, ref) => {
+      return <Component ref={ref} {...props} />;
+    });
+
+    ProviderComponent.displayName = Component.displayName;
+    return ProviderComponent;
+  };
+
+  const withContext = (Component, slot) => {
+    // Yet another inner component
+    const ContextComponent = forwardRef((props, ref) => {
+      return <Component ref={ref} {...props} />;
+    });
+
+    ContextComponent.displayName = Component.displayName;
+    return ContextComponent;
+  };
+
+  return { withProvider, withContext };
+};
+
+// This IS a real exported component - should be detected
+export const Button = forwardRef((props, ref) => {
+  return <button ref={ref} {...props} />;
+});
+
+Button.displayName = "Button";
+`;

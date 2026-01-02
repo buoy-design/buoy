@@ -34,6 +34,7 @@ import {
   CHAKRA_ELEMENT_STYLE,
   NESTED_HOC_PATTERN,
   REACT_LAZY_COMPONENT,
+  FACTORY_WITH_INNER_COMPONENTS,
 } from '../__tests__/fixtures/react-components.js';
 import { ReactComponentScanner } from './react-scanner.js';
 
@@ -706,6 +707,33 @@ describe('ReactComponentScanner', () => {
       expect(componentNames).toContain('LazyButton');
       expect(componentNames).toContain('LazyCard');
       expect(componentNames).toContain('LazyModal');
+    });
+  });
+
+  describe('inner component false positive prevention', () => {
+    it('does not detect components defined inside factory functions', async () => {
+      vol.fromJSON({
+        '/project/src/Factory.tsx': FACTORY_WITH_INNER_COMPONENTS,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+      const componentNames = result.items.map(c => c.name);
+
+      // Should ONLY detect the top-level exported Button component
+      expect(componentNames).toContain('Button');
+
+      // Should NOT detect inner components defined inside createRecipeContext, withProvider, or withContext
+      expect(componentNames).not.toContain('StyledComponent');
+      expect(componentNames).not.toContain('ProviderComponent');
+      expect(componentNames).not.toContain('ContextComponent');
+
+      // Should only have 1 component
+      expect(result.items).toHaveLength(1);
     });
   });
 });

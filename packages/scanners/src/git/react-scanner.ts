@@ -84,6 +84,31 @@ export class ReactComponentScanner extends Scanner<
     return "react";
   }
 
+  /**
+   * Check if a node is at module scope (direct child of SourceFile)
+   * This prevents detecting inner components defined inside factory functions
+   */
+  private isAtModuleScope(node: ts.Node): boolean {
+    let current = node.parent;
+    while (current) {
+      // If we hit a function (arrow, expression, or declaration), we're not at module scope
+      if (
+        ts.isFunctionDeclaration(current) ||
+        ts.isFunctionExpression(current) ||
+        ts.isArrowFunction(current) ||
+        ts.isMethodDeclaration(current)
+      ) {
+        return false;
+      }
+      // If we hit the source file directly, we're at module scope
+      if (ts.isSourceFile(current)) {
+        return true;
+      }
+      current = current.parent;
+    }
+    return false;
+  }
+
   private async parseFile(filePath: string): Promise<Component[]> {
     const content = await readFile(filePath, "utf-8");
     const sourceFile = ts.createSourceFile(
@@ -104,8 +129,9 @@ export class ReactComponentScanner extends Scanner<
 
     const visit = (node: ts.Node) => {
       // Function declarations: function Button() {}
+      // Only detect at module scope to avoid inner components in factories
       if (ts.isFunctionDeclaration(node) && node.name) {
-        if (this.isReactComponent(node, sourceFile)) {
+        if (this.isAtModuleScope(node) && this.isReactComponent(node, sourceFile)) {
           const comp = this.extractFunctionComponent(
             node,
             sourceFile,
@@ -119,7 +145,8 @@ export class ReactComponentScanner extends Scanner<
       }
 
       // Variable declarations: const Button = () => {} or const Button = function() {}
-      if (ts.isVariableStatement(node)) {
+      // Only detect at module scope to avoid inner components in factories
+      if (ts.isVariableStatement(node) && this.isAtModuleScope(node)) {
         for (const decl of node.declarationList.declarations) {
           if (ts.isIdentifier(decl.name) && decl.initializer) {
 
