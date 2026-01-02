@@ -836,3 +836,259 @@ export function parseChakraStyleProps(code: string): ChakraStylePropsResult {
 
   return result;
 }
+
+/**
+ * Options that can be passed to HOCs like withContext, withProvider, withRootProvider.
+ */
+export interface HOCOptions {
+  forwardAsChild?: boolean;
+  defaultProps?: Record<string, unknown>;
+}
+
+/**
+ * Extract options object from HOC calls.
+ * Handles patterns like:
+ * - withContext<A, B>(Component, "slot", { forwardAsChild: true })
+ * - withRootProvider<A>(Component, { defaultProps: { ... } })
+ *
+ * @param code The code string to search
+ * @returns The parsed options object, or null if no options found
+ */
+export function extractHOCOptions(code: string): HOCOptions | null {
+  // First, find the HOC pattern
+  const hocMatch = code.match(/with(?:Context|Provider|RootProvider)\s*<[^>]+>\s*\(/s);
+  if (!hocMatch) {
+    return null;
+  }
+
+  // Find the opening parenthesis position
+  const parenStart = code.indexOf("(", hocMatch.index! + hocMatch[0].length - 1);
+  if (parenStart === -1) {
+    return null;
+  }
+
+  // Find the last { in the call which should be the options object
+  // We need to find the last { before the closing )
+  const callContent = code.substring(parenStart);
+
+  // Find if there's an options object - look for pattern like ", {" at the end
+  const optionsMatch = callContent.match(/,\s*\{/);
+  if (!optionsMatch) {
+    return null;
+  }
+
+  // Get the content starting from the {
+  const optionsStart = parenStart + optionsMatch.index! + optionsMatch[0].length - 1;
+  const optionsContent = extractBalancedBraces(code, optionsStart);
+
+  if (!optionsContent) {
+    return null;
+  }
+
+  const options: HOCOptions = {};
+
+  // Parse forwardAsChild: true
+  const forwardAsChildMatch = optionsContent.match(/forwardAsChild\s*:\s*(true|false)/);
+  if (forwardAsChildMatch?.[1]) {
+    options.forwardAsChild = forwardAsChildMatch[1] === "true";
+  }
+
+  // Parse defaultProps: { ... } - need to use balanced brace extraction
+  const defaultPropsIndex = optionsContent.indexOf("defaultProps");
+  if (defaultPropsIndex !== -1) {
+    // Find the { after defaultProps:
+    const afterDefaultProps = optionsContent.substring(defaultPropsIndex);
+    const braceIndex = afterDefaultProps.indexOf("{");
+    if (braceIndex !== -1) {
+      const propsContent = extractBalancedBraces(
+        afterDefaultProps,
+        braceIndex,
+      );
+      if (propsContent) {
+        const defaultProps: Record<string, unknown> = {};
+
+        // Parse individual props
+        const propPattern = /(\w+)\s*:\s*(true|false|"[^"]+"|'[^']+'|\d+)/g;
+        let propMatch;
+        while ((propMatch = propPattern.exec(propsContent)) !== null) {
+          const [, propName, propValue] = propMatch;
+          if (propName && propValue) {
+            if (propValue === "true") {
+              defaultProps[propName] = true;
+            } else if (propValue === "false") {
+              defaultProps[propName] = false;
+            } else if (/^\d+$/.test(propValue)) {
+              defaultProps[propName] = parseInt(propValue, 10);
+            } else {
+              // String value - remove quotes
+              defaultProps[propName] = propValue.slice(1, -1);
+            }
+          }
+        }
+
+        if (Object.keys(defaultProps).length > 0) {
+          options.defaultProps = defaultProps;
+        }
+      }
+    }
+  }
+
+  // Only return if we found any options
+  return Object.keys(options).length > 0 ? options : null;
+}
+
+/**
+ * Extract type parameters from the Assign<A, B> utility type pattern.
+ * Used in Chakra UI v3+ for combining Ark UI types with recipe props.
+ *
+ * @param code The code string to search
+ * @returns Array of the two type parameters, or empty array if not found
+ */
+export function extractAssignTypeParams(code: string): string[] {
+  // Find Assign<
+  const assignIndex = code.indexOf("Assign<");
+  if (assignIndex === -1) {
+    return [];
+  }
+
+  // Find the opening < and use parseGenericTypeParams to get balanced content
+  const startIndex = assignIndex + "Assign".length;
+  const genericContent = code.substring(startIndex);
+  return parseGenericTypeParams(genericContent);
+}
+
+/**
+ * Extract generic type parameters that span multiple lines.
+ * Handles patterns like:
+ * ```
+ * withContext<
+ *   HTMLDivElement,
+ *   DialogContentProps
+ * >(...)
+ * ```
+ *
+ * @param code The code string to search
+ * @param functionName The function name to look for
+ * @returns Array of type parameter strings
+ */
+export function extractMultilineGenericParams(
+  code: string,
+  functionName: string,
+): string[] {
+  // Match function name followed by < and capture until closing >
+  // Use [^] to match any character including newlines
+  const pattern = new RegExp(`${functionName}\\s*<([^]*?)>\\s*\\(`);
+  const match = code.match(pattern);
+
+  if (!match || !match[1]) {
+    return [];
+  }
+
+  // Normalize whitespace and split
+  const normalized = match[1].replace(/\s+/g, " ").trim();
+  return splitTopLevelArgs(normalized);
+}
+
+/**
+ * Represents a parsed interface declaration.
+ */
+export interface InterfaceDeclaration {
+  name: string;
+  extends: string[];
+  isExported: boolean;
+}
+
+/**
+ * Parse an interface declaration to extract name and extended types.
+ * Handles multi-line interface declarations with multiple extends.
+ *
+ * @param code The code string containing an interface declaration
+ * @returns Parsed interface info, or null if not an interface
+ */
+export function parseInterfaceDeclaration(code: string): InterfaceDeclaration | null {
+  // Match interface declaration, potentially multi-line
+  const interfacePattern =
+    /(export\s+)?interface\s+(\w+)(?:\s+extends\s+([^{]+))?\s*\{/s;
+  const match = code.match(interfacePattern);
+
+  if (!match) {
+    return null;
+  }
+
+  const [, exportKeyword, name, extendsClause] = match;
+
+  const result: InterfaceDeclaration = {
+    name: name || "",
+    extends: [],
+    isExported: !!exportKeyword,
+  };
+
+  if (!name) {
+    return null;
+  }
+
+  if (extendsClause) {
+    // Split extends by comma at top level
+    result.extends = splitTopLevelArgs(extendsClause.trim());
+  }
+
+  return result;
+}
+
+/**
+ * Represents an exported constant declaration.
+ */
+export interface ExportedConstant {
+  name: string;
+  pattern: string;
+  genericParams?: string[];
+}
+
+/**
+ * Extract all exported constant declarations from code.
+ * Useful for batch processing component declarations.
+ *
+ * @param code The code string to search
+ * @returns Array of exported constants with their patterns
+ */
+export function extractExportedConstants(code: string): ExportedConstant[] {
+  const constants: ExportedConstant[] = [];
+
+  // Match export const Name = pattern
+  // Use a multiline-aware pattern to capture the initializer
+  const exportPattern = /export\s+const\s+([A-Z][a-zA-Z0-9_]*)\s*=\s*/g;
+
+  let match;
+  while ((match = exportPattern.exec(code)) !== null) {
+    const name = match[1];
+    if (!name) continue;
+
+    // Find what follows the = sign
+    const startIndex = match.index + match[0].length;
+    const remaining = code.substring(startIndex);
+
+    // Find the pattern (function name or first identifier)
+    const patternMatch = remaining.match(/^([a-zA-Z_$][a-zA-Z0-9_$.<>]*)/);
+    if (patternMatch?.[1]) {
+      const pattern = patternMatch[1];
+
+      // Try to extract generic params if present
+      let genericParams: string[] | undefined;
+      const functionName = pattern.replace(/<.*$/, "");
+      if (functionName) {
+        const params = extractMultilineGenericParams(remaining, functionName);
+        if (params.length > 0) {
+          genericParams = params;
+        }
+      }
+
+      constants.push({
+        name,
+        pattern,
+        genericParams,
+      });
+    }
+  }
+
+  return constants;
+}

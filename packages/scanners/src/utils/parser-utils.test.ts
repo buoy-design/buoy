@@ -16,6 +16,11 @@ import {
   extractArkUIWrappedComponent,
   isSemanticTokenValue,
   parseChakraStyleProps,
+  extractHOCOptions,
+  extractAssignTypeParams,
+  extractMultilineGenericParams,
+  parseInterfaceDeclaration,
+  extractExportedConstants,
 } from "./parser-utils.js";
 
 describe("parser-utils", () => {
@@ -448,6 +453,162 @@ describe("parser-utils", () => {
       const code = '{ css: [result.styles, props.css] }';
       const result = parseChakraStyleProps(code);
       expect(result.hasCssProp).toBe(true);
+    });
+  });
+
+  describe("extractHOCOptions", () => {
+    it("should extract options from withContext with 3 arguments", () => {
+      const code = 'withContext<HTMLButtonElement, DialogTriggerProps>(ArkDialog.Trigger, "trigger", { forwardAsChild: true })';
+      const result = extractHOCOptions(code);
+      expect(result).not.toBeNull();
+      expect(result?.forwardAsChild).toBe(true);
+    });
+
+    it("should extract options from withRootProvider with defaultProps", () => {
+      const code = `withRootProvider<DialogRootProps>(ArkDialog.Root, {
+        defaultProps: { unmountOnExit: true, lazyMount: true },
+      })`;
+      const result = extractHOCOptions(code);
+      expect(result).not.toBeNull();
+      expect(result?.defaultProps).toBeDefined();
+      expect(result?.defaultProps?.unmountOnExit).toBe(true);
+      expect(result?.defaultProps?.lazyMount).toBe(true);
+    });
+
+    it("should return null when no options", () => {
+      const code = 'withContext<HTMLInputElement, InputProps>(ArkField.Input)';
+      const result = extractHOCOptions(code);
+      expect(result).toBeNull();
+    });
+
+    it("should handle withContext with element and slot only", () => {
+      const code = 'withContext<HTMLDivElement, CardBodyProps>("div", "body")';
+      const result = extractHOCOptions(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractAssignTypeParams", () => {
+    it("should extract types from Assign<A, B>", () => {
+      const code = 'Assign<ArkDialog.RootProps, SlotRecipeProps<"dialog">>';
+      const result = extractAssignTypeParams(code);
+      expect(result).toEqual(["ArkDialog.RootProps", 'SlotRecipeProps<"dialog">']);
+    });
+
+    it("should handle nested generics in Assign", () => {
+      const code = 'Assign<ArkDialog.RootProviderProps, SlotRecipeProps<"dialog">>';
+      const result = extractAssignTypeParams(code);
+      expect(result).toEqual(["ArkDialog.RootProviderProps", 'SlotRecipeProps<"dialog">']);
+    });
+
+    it("should return empty array when no Assign", () => {
+      const code = 'interface ButtonProps extends RecipeProps<"button">';
+      const result = extractAssignTypeParams(code);
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe("extractMultilineGenericParams", () => {
+    it("should extract generic params split across lines", () => {
+      const code = `withContext<
+  HTMLDivElement,
+  DialogContentProps
+>(ArkDialog.Content, "content")`;
+      const result = extractMultilineGenericParams(code, "withContext");
+      expect(result).toEqual(["HTMLDivElement", "DialogContentProps"]);
+    });
+
+    it("should handle single line generics", () => {
+      const code = "withContext<HTMLDivElement, CardBodyProps>(";
+      const result = extractMultilineGenericParams(code, "withContext");
+      expect(result).toEqual(["HTMLDivElement", "CardBodyProps"]);
+    });
+
+    it("should handle complex nested types across lines", () => {
+      const code = `forwardRef<
+  HTMLButtonElement,
+  { children: React.ReactNode; onClick?: () => void }
+>(function Button(props, ref) {`;
+      const result = extractMultilineGenericParams(code, "forwardRef");
+      expect(result).toEqual(["HTMLButtonElement", "{ children: React.ReactNode; onClick?: () => void }"]);
+    });
+  });
+
+  describe("parseInterfaceDeclaration", () => {
+    it("should parse interface with extends", () => {
+      const code = 'export interface ButtonProps extends HTMLChakraProps<"button", ButtonBaseProps> {}';
+      const result = parseInterfaceDeclaration(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("ButtonProps");
+      expect(result?.extends).toContain('HTMLChakraProps<"button", ButtonBaseProps>');
+    });
+
+    it("should parse interface extending multiple types", () => {
+      const code = `export interface CardRootBaseProps
+  extends SlotRecipeProps<"card">,
+    UnstyledProp {}`;
+      const result = parseInterfaceDeclaration(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("CardRootBaseProps");
+      expect(result?.extends).toContain('SlotRecipeProps<"card">');
+      expect(result?.extends).toContain("UnstyledProp");
+    });
+
+    it("should parse interface with Assign type", () => {
+      const code = `export interface DialogRootBaseProps
+  extends Assign<ArkDialog.RootProps, SlotRecipeProps<"dialog">>,
+    UnstyledProp {}`;
+      const result = parseInterfaceDeclaration(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("DialogRootBaseProps");
+      expect(result?.extends).toContainEqual(expect.stringContaining("Assign"));
+    });
+
+    it("should return null for non-interface", () => {
+      const code = "const Button = forwardRef()";
+      const result = parseInterfaceDeclaration(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractExportedConstants", () => {
+    it("should extract multiple exported constants", () => {
+      const code = `
+        export const CardRoot = withProvider<HTMLDivElement, CardRootProps>("div", "root")
+        export const CardBody = withContext<HTMLDivElement, CardBodyProps>("div", "body")
+        export const CardHeader = withContext<HTMLDivElement, CardHeaderProps>("div", "header")
+      `;
+      const result = extractExportedConstants(code);
+      expect(result).toHaveLength(3);
+      expect(result.map(c => c.name)).toEqual(["CardRoot", "CardBody", "CardHeader"]);
+    });
+
+    it("should extract component name and initializer pattern", () => {
+      const code = 'export const Input = withContext<HTMLInputElement, InputProps>(ArkField.Input)';
+      const result = extractExportedConstants(code);
+      expect(result).toHaveLength(1);
+      expect(result[0]?.name).toBe("Input");
+      expect(result[0]?.pattern).toContain("withContext");
+    });
+
+    it("should handle forwardRef with function", () => {
+      const code = `export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  function Button(inProps, ref) {
+    return <chakra.button ref={ref} {...rest} />
+  }
+)`;
+      const result = extractExportedConstants(code);
+      expect(result).toHaveLength(1);
+      expect(result[0]?.name).toBe("Button");
+      expect(result[0]?.pattern).toContain("forwardRef");
+    });
+
+    it("should handle chakra styled factory", () => {
+      const code = 'export const Center = chakra("div", { baseStyle: {} })';
+      const result = extractExportedConstants(code);
+      expect(result).toHaveLength(1);
+      expect(result[0]?.name).toBe("Center");
+      expect(result[0]?.pattern).toContain("chakra");
     });
   });
 });
