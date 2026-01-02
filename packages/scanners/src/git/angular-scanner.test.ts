@@ -27,6 +27,9 @@ import {
   COMPLEX_TRANSFORM_ANGULAR,
   OUTPUTS_IN_DECORATOR,
   EXTENDED_DEPRECATION_ANGULAR,
+  INLINE_ARROW_TRANSFORM_ANGULAR,
+  INFERRED_TYPE_FROM_TRANSFORM_ANGULAR,
+  SIGNAL_INPUT_INLINE_TRANSFORM_NO_TYPE_ANGULAR,
 } from '../__tests__/fixtures/angular-components.js';
 import { AngularComponentScanner } from './angular-scanner.js';
 
@@ -1086,6 +1089,171 @@ describe('AngularComponentScanner', () => {
       // Regular inputs should still be detected
       const appearanceProp = result.items[0]!.props.find(p => p.name === 'appearance');
       expect(appearanceProp).toBeDefined();
+    });
+  });
+
+  describe('inline arrow function transforms', () => {
+    it('detects @Input with inline arrow function transform (CDK pattern)', async () => {
+      vol.fromJSON({
+        '/project/src/listbox.ts': INLINE_ARROW_TRANSFORM_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+
+      // Should detect the getter input with inline arrow transform
+      const enabledTabIndexProp = result.items[0]!.props.find(p => p.name === 'enabledTabIndex');
+      expect(enabledTabIndexProp).toBeDefined();
+      // The alias should be captured
+      expect(enabledTabIndexProp!.description).toContain('tabindex');
+    });
+
+    it('detects signal input with InputSignalWithTransform and inline arrow function (PrimeNG pattern)', async () => {
+      vol.fromJSON({
+        '/project/src/accordion.ts': INLINE_ARROW_TRANSFORM_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      // Should detect the signal input with inline transform
+      const disabledProp = result.items[0]!.props.find(p => p.name === 'disabled');
+      expect(disabledProp).toBeDefined();
+      // Type should reflect the InputSignalWithTransform type (first generic param)
+      expect(disabledProp!.type).toContain('Signal');
+    });
+
+    it('detects signal input with inline arrow function using numberAttribute', async () => {
+      vol.fromJSON({
+        '/project/src/timepicker.ts': INLINE_ARROW_TRANSFORM_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      // Should detect the signal input with inline transform
+      const intervalProp = result.items[0]!.props.find(p => p.name === 'interval');
+      expect(intervalProp).toBeDefined();
+      // When inline arrow contains numberAttribute call, type should be inferred as number
+      expect(intervalProp!.type).toBe('number');
+    });
+  });
+
+  describe('type inference from inline arrow transforms', () => {
+    it('infers boolean type from inline booleanAttribute transform', async () => {
+      vol.fromJSON({
+        '/project/src/menu.ts': INFERRED_TYPE_FROM_TRANSFORM_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+
+      // Should detect hasBackdrop and infer boolean type from booleanAttribute call in transform
+      const hasBackdropProp = result.items[0]!.props.find(p => p.name === 'hasBackdrop');
+      expect(hasBackdropProp).toBeDefined();
+      // Even with inline arrow, should recognize booleanAttribute and set type to boolean
+      expect(hasBackdropProp!.type).toBe('boolean');
+    });
+
+    it('infers number type from inline numberAttribute transform', async () => {
+      vol.fromJSON({
+        '/project/src/slide-toggle.ts': INFERRED_TYPE_FROM_TRANSFORM_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      // Should detect tabIndex and infer number type from numberAttribute call
+      const tabIndexProp = result.items[0]!.props.find(p => p.name === 'tabIndex');
+      expect(tabIndexProp).toBeDefined();
+      expect(tabIndexProp!.type).toBe('number');
+
+      // Should also work for customTabIndex
+      const customTabIndexProp = result.items[0]!.props.find(p => p.name === 'customTabIndex');
+      expect(customTabIndexProp).toBeDefined();
+      expect(customTabIndexProp!.type).toBe('number');
+    });
+
+    it('infers type from signal input inline booleanAttribute transform (no type annotation)', async () => {
+      vol.fromJSON({
+        '/project/src/signal-inline.ts': SIGNAL_INPUT_INLINE_TRANSFORM_NO_TYPE_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+
+      // Should detect hasBackdrop and infer boolean type from inline booleanAttribute
+      const hasBackdropProp = result.items[0]!.props.find(p => p.name === 'hasBackdrop');
+      expect(hasBackdropProp).toBeDefined();
+      // Without type annotation, should infer from transform
+      expect(hasBackdropProp!.type).toBe('boolean');
+    });
+
+    it('infers type from signal input inline numberAttribute transform (no type annotation)', async () => {
+      vol.fromJSON({
+        '/project/src/signal-inline.ts': SIGNAL_INPUT_INLINE_TRANSFORM_NO_TYPE_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      // Should detect tabIndex and infer number type from inline numberAttribute
+      const tabIndexProp = result.items[0]!.props.find(p => p.name === 'tabIndex');
+      expect(tabIndexProp).toBeDefined();
+      // Without type annotation, should infer from transform
+      expect(tabIndexProp!.type).toBe('number');
+    });
+
+    it('extracts alias from signal input with inline transform', async () => {
+      vol.fromJSON({
+        '/project/src/signal-inline.ts': SIGNAL_INPUT_INLINE_TRANSFORM_NO_TYPE_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      // Should detect ariaLabel with alias
+      const ariaLabelProp = result.items[0]!.props.find(p => p.name === 'ariaLabel');
+      expect(ariaLabelProp).toBeDefined();
+      expect(ariaLabelProp!.description).toContain('aria-label');
     });
   });
 });

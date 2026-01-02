@@ -491,8 +491,19 @@ export class AngularComponentScanner extends Scanner<
           } else if (propName === "required") {
             result.required =
               prop.initializer.kind === ts.SyntaxKind.TrueKeyword;
-          } else if (propName === "transform" && ts.isIdentifier(prop.initializer)) {
-            result.transform = prop.initializer.getText(sourceFile);
+          } else if (propName === "transform") {
+            if (ts.isIdentifier(prop.initializer)) {
+              result.transform = prop.initializer.getText(sourceFile);
+            } else if (ts.isArrowFunction(prop.initializer)) {
+              // For arrow functions, try to detect booleanAttribute/numberAttribute calls
+              const inferredTransform = this.inferTransformFromArrowFunction(
+                prop.initializer,
+                sourceFile,
+              );
+              if (inferredTransform) {
+                result.transform = inferredTransform;
+              }
+            }
           }
         }
       }
@@ -773,6 +784,15 @@ export class AngularComponentScanner extends Scanner<
             } else if (propName === "transform") {
               if (ts.isIdentifier(prop.initializer)) {
                 result.transform = prop.initializer.getText(sourceFile);
+              } else if (ts.isArrowFunction(prop.initializer)) {
+                // For arrow functions, try to detect booleanAttribute/numberAttribute calls
+                const inferredTransform = this.inferTransformFromArrowFunction(
+                  prop.initializer,
+                  sourceFile,
+                );
+                if (inferredTransform) {
+                  result.transform = inferredTransform;
+                }
               }
             }
           }
@@ -781,6 +801,38 @@ export class AngularComponentScanner extends Scanner<
     }
 
     return result;
+  }
+
+  /**
+   * Analyze an arrow function to detect if it calls booleanAttribute or numberAttribute
+   * Returns the inferred transform type if found
+   */
+  private inferTransformFromArrowFunction(
+    arrow: ts.ArrowFunction,
+    _sourceFile: ts.SourceFile,
+  ): string | undefined {
+    let foundTransform: string | undefined;
+
+    const visit = (node: ts.Node) => {
+      // Look for call expressions to booleanAttribute or numberAttribute
+      if (ts.isCallExpression(node)) {
+        const expr = node.expression;
+        if (ts.isIdentifier(expr)) {
+          if (expr.text === "booleanAttribute") {
+            foundTransform = "booleanAttribute";
+          } else if (expr.text === "numberAttribute") {
+            foundTransform = "numberAttribute";
+          }
+        }
+      }
+
+      if (!foundTransform) {
+        ts.forEachChild(node, visit);
+      }
+    };
+
+    visit(arrow.body);
+    return foundTransform;
   }
 
   private extractOutputs(

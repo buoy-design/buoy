@@ -504,3 +504,83 @@ export class IconField {
   @Input() styleClass: string = '';
 }
 `;
+
+// Inline arrow function transforms (Angular 16+ / Angular Material CDK pattern)
+export const INLINE_ARROW_TRANSFORM_ANGULAR = `
+import { Component, Input, input, InputSignalWithTransform, numberAttribute, booleanAttribute } from '@angular/core';
+
+function transformToBoolean(v: any): boolean {
+  return !!v;
+}
+
+@Component({
+  selector: 'test-inline-transforms',
+  template: '<div></div>'
+})
+export class InlineTransformComponent {
+  // @Input with inline arrow function transform and alias (CDK listbox pattern)
+  @Input({
+    alias: 'tabindex',
+    transform: (value: unknown) => (value == null ? undefined : numberAttribute(value)),
+  })
+  get enabledTabIndex(): number | undefined {
+    return this._enabledTabIndex;
+  }
+  set enabledTabIndex(value: any) {
+    this._enabledTabIndex = value;
+  }
+  private _enabledTabIndex: number | undefined;
+
+  // Signal input with InputSignalWithTransform type and inline arrow function (PrimeNG accordion pattern)
+  disabled: InputSignalWithTransform<any, boolean> = input(false, { transform: (v: any) => transformToBoolean(v) });
+
+  // Signal input with inline arrow function returning numberAttribute
+  interval: InputSignalWithTransform<number | null, number | string | null> = input(
+    null,
+    { transform: (value: unknown) => value == null ? null : numberAttribute(value) }
+  );
+}
+`;
+
+// Inline arrow transform that should infer type from booleanAttribute/numberAttribute calls
+export const INFERRED_TYPE_FROM_TRANSFORM_ANGULAR = `
+import { Component, Input, booleanAttribute, numberAttribute } from '@angular/core';
+
+@Component({
+  selector: 'test-inferred-transforms',
+  template: '<div></div>'
+})
+export class InferredTransformComponent {
+  // Inline arrow function using booleanAttribute - should infer boolean type
+  @Input({transform: (value: any) => (value == null ? null : booleanAttribute(value))})
+  hasBackdrop?: boolean;
+
+  // Inline arrow function using numberAttribute - should infer number type
+  @Input({transform: (value: unknown) => (value == null ? 0 : numberAttribute(value))})
+  tabIndex: number = 0;
+
+  // Inline arrow function using numberAttribute with nullable return
+  @Input({transform: (value: unknown) => (value == null ? undefined : numberAttribute(value))})
+  customTabIndex?: number;
+}
+`;
+
+// Signal inputs with inline arrow transforms WITHOUT explicit type annotations
+export const SIGNAL_INPUT_INLINE_TRANSFORM_NO_TYPE_ANGULAR = `
+import { Component, input, booleanAttribute, numberAttribute } from '@angular/core';
+
+@Component({
+  selector: 'test-signal-inline-transforms',
+  template: '<div></div>'
+})
+export class SignalInlineTransformComponent {
+  // Signal input with inline booleanAttribute transform - no explicit type
+  readonly hasBackdrop = input(false, { transform: (v: any) => booleanAttribute(v) });
+
+  // Signal input with inline numberAttribute transform - no explicit type
+  readonly tabIndex = input(0, { transform: (v: unknown) => numberAttribute(v) });
+
+  // Signal input with alias AND inline transform
+  readonly ariaLabel = input('', { alias: 'aria-label', transform: (v: any) => String(v) });
+}
+`;
