@@ -600,23 +600,39 @@ function shouldSkipDynamicValue(value: string): boolean {
     const cssFunction = /^(calc|var|rgb|rgba|hsl|hsla|url|linear-gradient|radial-gradient|conic-gradient|min|max|clamp)\s*\(/i;
     // Allow transform functions
     const transformFunction = /^(rotate|rotateX|rotateY|rotateZ|rotate3d|scale|scaleX|scaleY|scaleZ|scale3d|translate|translateX|translateY|translateZ|translate3d|skew|skewX|skewY|matrix|matrix3d|perspective)\s*\(/i;
+    // Allow CSS filter functions
+    const filterFunction = /^(blur|brightness|contrast|drop-shadow|grayscale|hue-rotate|invert|opacity|saturate|sepia)\s*\(/i;
+    // Allow CSS shape/clip functions
+    const shapeFunction = /^(circle|ellipse|inset|polygon|path)\s*\(/i;
+    // Allow CSS grid/repeat functions
+    const gridFunction = /^(repeat|minmax|fit-content)\s*\(/i;
     // Allow UI library helpers like rem(), em(), px() from Mantine, Chakra, etc.
     const uiHelperFunction = /^(rem|em|px)\s*\(/i;
 
     // Check if value starts with an allowed function
     const valueWithoutSpaces = value.replace(/\s+/g, ' ');
 
+    // Helper to check if a value matches any allowed function
+    const isAllowedFunction = (v: string): boolean => {
+      return cssFunction.test(v) ||
+        transformFunction.test(v) ||
+        filterFunction.test(v) ||
+        shapeFunction.test(v) ||
+        gridFunction.test(v) ||
+        uiHelperFunction.test(v);
+    };
+
     // Handle values that are entirely a function call
-    if (cssFunction.test(valueWithoutSpaces) || transformFunction.test(valueWithoutSpaces) || uiHelperFunction.test(valueWithoutSpaces)) {
+    if (isAllowedFunction(valueWithoutSpaces)) {
       return false;
     }
 
-    // Handle values that contain multiple transform functions like "rotate(45deg) scale(1.5)"
+    // Handle values that contain multiple functions like "rotate(45deg) scale(1.5)" or "blur(4px) brightness(0.8)"
     // Split on space and check each part
     const parts = valueWithoutSpaces.split(' ').filter(Boolean);
     const allPartsAreAllowed = parts.every(part => {
       if (!/\([^)]*\)/.test(part)) return true; // No function call in this part
-      return cssFunction.test(part) || transformFunction.test(part) || uiHelperFunction.test(part);
+      return isAllowedFunction(part);
     });
 
     if (!allPartsAreAllowed) {

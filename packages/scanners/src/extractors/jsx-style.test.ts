@@ -769,4 +769,125 @@ line2
       expect(result[0]!.css).toContain('fill:');
     });
   });
+
+  describe('CSS filter functions', () => {
+    it('extracts filter with blur()', () => {
+      const content = `<div style={{ filter: 'blur(4px)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('filter: blur(4px)');
+    });
+
+    it('extracts filter with grayscale()', () => {
+      const content = `<div style={{ filter: 'grayscale(100%)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('filter: grayscale(100%)');
+    });
+
+    it('extracts filter with brightness()', () => {
+      const content = `<div style={{ filter: 'brightness(0.5)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('filter: brightness(0.5)');
+    });
+
+    it('extracts filter with contrast()', () => {
+      const content = `<div style={{ filter: 'contrast(1.2)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('filter: contrast(1.2)');
+    });
+
+    it('extracts filter with saturate()', () => {
+      const content = `<div style={{ filter: 'saturate(2)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('filter: saturate(2)');
+    });
+
+    it('extracts filter with sepia()', () => {
+      const content = `<div style={{ filter: 'sepia(50%)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('filter: sepia(50%)');
+    });
+
+    it('extracts filter with hue-rotate()', () => {
+      const content = `<div style={{ filter: 'hue-rotate(90deg)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('filter: hue-rotate(90deg)');
+    });
+
+    it('extracts filter with invert()', () => {
+      const content = `<div style={{ filter: 'invert(100%)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('filter: invert(100%)');
+    });
+
+    it('extracts filter with opacity()', () => {
+      const content = `<div style={{ filter: 'opacity(50%)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('filter: opacity(50%)');
+    });
+
+    it('extracts filter with drop-shadow()', () => {
+      const content = `<div style={{ filter: 'drop-shadow(2px 4px 6px black)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('filter: drop-shadow(2px 4px 6px black)');
+    });
+
+    it('extracts backdrop-filter with blur()', () => {
+      const content = `<div style={{ backdropFilter: 'blur(10px)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('backdrop-filter: blur(10px)');
+    });
+
+    it('extracts combined filter values', () => {
+      const content = `<div style={{ filter: 'blur(4px) brightness(0.8)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('filter: blur(4px) brightness(0.8)');
+    });
+
+    it('extracts clip-path with circle()', () => {
+      const content = `<div style={{ clipPath: 'circle(50%)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('clip-path: circle(50%)');
+    });
+
+    it('extracts clip-path with polygon()', () => {
+      const content = `<div style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)');
+    });
+
+    it('extracts clip-path with inset()', () => {
+      const content = `<div style={{ clipPath: 'inset(10px 20px 30px 40px)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('clip-path: inset(10px 20px 30px 40px)');
+    });
+
+    it('extracts clip-path with ellipse()', () => {
+      const content = `<div style={{ clipPath: 'ellipse(50% 30% at 50% 50%)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('clip-path: ellipse(50% 30% at 50% 50%)');
+    });
+
+    it('extracts shape-outside with circle()', () => {
+      const content = `<div style={{ shapeOutside: 'circle(50%)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('shape-outside: circle(50%)');
+    });
+  });
 });
