@@ -162,6 +162,7 @@ export class TailwindScanner {
 
         // For v4 CSS configs, supplement with additional theme variant tokens
         // that the config-parser may not extract (e.g., [data-theme="dark"], .theme-*)
+        // and also extract token references from var() usage
         if (parsed.version === 4 && parsed.configPath) {
           const additionalTokens = await this.extractAdditionalThemeVariants(parsed.configPath);
           if (additionalTokens.length > 0) {
@@ -170,6 +171,24 @@ export class TailwindScanner {
             const newTokens = additionalTokens.filter(t => !existingIds.has(t.id));
             result.tokens.push(...newTokens);
             result.stats.tokensExtracted = result.tokens.length;
+          }
+
+          // Also extract token references from var() usage (Tailwind v4 implicit tokens)
+          const fullPath = resolve(this.config.projectRoot, parsed.configPath);
+          try {
+            const content = readFileSync(fullPath, 'utf-8');
+            const relativePath = parsed.configPath;
+            const source: TokenSource = { type: 'css', path: relativePath };
+            const tokenReferences = this.extractTokenReferences(content, source);
+            if (tokenReferences.length > 0) {
+              // Add token references that don't already exist (by id)
+              const existingIds = new Set(result.tokens.map(t => t.id));
+              const newReferenceTokens = tokenReferences.filter(t => !existingIds.has(t.id));
+              result.tokens.push(...newReferenceTokens);
+              result.stats.tokensExtracted = result.tokens.length;
+            }
+          } catch {
+            // Ignore read errors
           }
         }
       } else {
@@ -620,6 +639,10 @@ export class TailwindScanner {
     const layerTokens = this.extractLayerVariables(content, source);
     tokens.push(...layerTokens);
 
+    // Extract token references from var() usage (Tailwind v4 implicit tokens)
+    const tokenReferences = this.extractTokenReferences(content, source);
+    tokens.push(...tokenReferences);
+
     return tokens;
   }
 
@@ -826,6 +849,85 @@ export class TailwindScanner {
     }
 
     return tokens;
+  }
+
+  /**
+   * Extract token references from var() usage in CSS content.
+   * This detects Tailwind v4 implicit tokens (like --color-gray-200, --spacing-4, etc.)
+   * that are referenced via var() but not explicitly defined in the CSS file.
+   */
+  private extractTokenReferences(content: string, source: TokenSource): DesignToken[] {
+    const tokens: DesignToken[] = [];
+    const seenTokens = new Set<string>();
+
+    // Match all var(--token-name) or var(--token-name, fallback) patterns
+    const varRefRegex = /var\(\s*--([a-zA-Z][a-zA-Z0-9-]*)/g;
+    let match;
+
+    while ((match = varRefRegex.exec(content)) !== null) {
+      const tokenName = match[1]!;
+
+      // Skip if we've already seen this token
+      if (seenTokens.has(tokenName)) continue;
+      seenTokens.add(tokenName);
+
+      // Check if this looks like a Tailwind implicit token
+      if (this.isTailwindImplicitToken(tokenName)) {
+        const category = this.categorizeToken(tokenName);
+        const tags = ['tailwind', 'v4', 'reference', 'implicit'];
+
+        tokens.push({
+          id: createTokenId(source, `tw-${tokenName}`),
+          name: `tw-${tokenName}`,
+          category,
+          value: { type: 'raw', value: `var(--${tokenName})` },
+          source,
+          aliases: [tokenName],
+          usedBy: [],
+          metadata: { tags },
+          scannedAt: new Date(),
+        });
+      }
+    }
+
+    return tokens;
+  }
+
+  /**
+   * Check if a token name looks like a Tailwind v4 implicit token.
+   * Tailwind v4 provides implicit tokens for colors, spacing, font, radius, shadow, etc.
+   */
+  private isTailwindImplicitToken(name: string): boolean {
+    // Tailwind v4 implicit color tokens: --color-{color}-{shade}
+    const colorPattern = /^color-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|black|white)-?\d*$/;
+    if (colorPattern.test(name)) return true;
+
+    // Tailwind v4 spacing tokens: --spacing-{size}
+    if (/^spacing-\d+(\.\d+)?$/.test(name)) return true;
+    if (/^spacing-(px|full)$/.test(name)) return true;
+
+    // Tailwind v4 font tokens: --font-{family}
+    if (/^font-(sans|serif|mono)$/.test(name)) return true;
+
+    // Tailwind v4 radius tokens: --radius-{size}
+    if (/^radius-(none|sm|md|lg|xl|2xl|3xl|full)$/.test(name)) return true;
+
+    // Tailwind v4 shadow tokens: --shadow-{size}
+    if (/^shadow-(none|sm|md|lg|xl|2xl|inner)$/.test(name)) return true;
+
+    // Tailwind v4 text size tokens: --text-{size}
+    if (/^text-(xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl)$/.test(name)) return true;
+
+    // Tailwind v4 width/height/size tokens
+    if (/^(width|height|size)-\d+$/.test(name)) return true;
+
+    // Tailwind v4 opacity tokens
+    if (/^opacity-\d+$/.test(name)) return true;
+
+    // Tailwind v4 z-index tokens
+    if (/^z-\d+$/.test(name)) return true;
+
+    return false;
   }
 
   /**

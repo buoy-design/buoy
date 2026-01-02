@@ -1072,6 +1072,170 @@ const buttonVariants = cva(
     });
   });
 
+  describe('token reference extraction from var() usage', () => {
+    it('extracts Tailwind v4 implicit token references from var() calls', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(glob.glob).mockResolvedValue(['/test/project/src/styles.css']);
+
+      // Real headlessui pattern - references --color-gray-200 which is a Tailwind implicit token
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+@import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+      `);
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+      });
+
+      const result = await scanner.scan();
+
+      // Should detect --color-gray-200 as a token reference
+      expect(result.tokens.length).toBeGreaterThan(0);
+      const grayToken = result.tokens.find(t => t.name.includes('color-gray-200'));
+      expect(grayToken).toBeDefined();
+      expect(grayToken!.category).toBe('color');
+    });
+
+    it('extracts multiple token references from var() calls in various locations', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(glob.glob).mockResolvedValue(['/test/project/src/styles.css']);
+
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+@import 'tailwindcss';
+
+@layer base {
+  :root {
+    --custom-bg: var(--color-blue-50);
+    --custom-border: var(--color-slate-200);
+    --custom-text: var(--color-gray-900);
+  }
+
+  body {
+    background-color: var(--spacing-4);
+    color: var(--color-zinc-800);
+  }
+}
+
+.custom-component {
+  padding: var(--spacing-2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+      `);
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+      });
+
+      const result = await scanner.scan();
+
+      // Should extract Tailwind implicit token references
+      const tokenNames = result.tokens.map(t => t.name);
+
+      // Color references
+      expect(tokenNames.some(n => n.includes('color-blue-50'))).toBe(true);
+      expect(tokenNames.some(n => n.includes('color-slate-200'))).toBe(true);
+      expect(tokenNames.some(n => n.includes('color-gray-900'))).toBe(true);
+      expect(tokenNames.some(n => n.includes('color-zinc-800'))).toBe(true);
+
+      // Spacing references
+      expect(tokenNames.some(n => n.includes('spacing-4') || n.includes('spacing-2'))).toBe(true);
+    });
+
+    it('does not duplicate tokens that are both defined and referenced', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(glob.glob).mockResolvedValue(['/test/project/src/styles.css']);
+
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+@import 'tailwindcss';
+
+:root {
+  --primary: #0066cc;
+  --background: var(--primary);
+}
+      `);
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+      });
+
+      const result = await scanner.scan();
+
+      // --primary is both defined and referenced - should only appear once
+      const primaryTokens = result.tokens.filter(t => t.name.includes('primary'));
+      expect(primaryTokens.length).toBe(1);
+    });
+
+    it('categorizes token references correctly based on naming conventions', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(glob.glob).mockResolvedValue(['/test/project/src/styles.css']);
+
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+@import 'tailwindcss';
+
+.component {
+  color: var(--color-red-500);
+  padding: var(--spacing-4);
+  font-family: var(--font-sans);
+  border-radius: var(--radius-md);
+}
+      `);
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+      });
+
+      const result = await scanner.scan();
+
+      // Check categorization
+      const colorToken = result.tokens.find(t => t.name.includes('color-red-500'));
+      expect(colorToken?.category).toBe('color');
+
+      const spacingToken = result.tokens.find(t => t.name.includes('spacing-4'));
+      expect(spacingToken?.category).toBe('spacing');
+
+      const fontToken = result.tokens.find(t => t.name.includes('font-sans'));
+      expect(fontToken?.category).toBe('typography');
+
+      const radiusToken = result.tokens.find(t => t.name.includes('radius-md'));
+      expect(radiusToken?.category).toBe('border');
+    });
+
+    it('marks token references with appropriate metadata', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(glob.glob).mockResolvedValue(['/test/project/src/styles.css']);
+
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+@import 'tailwindcss';
+
+.btn {
+  background: var(--color-indigo-600);
+}
+      `);
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+      });
+
+      const result = await scanner.scan();
+
+      const indigoToken = result.tokens.find(t => t.name.includes('color-indigo-600'));
+      expect(indigoToken).toBeDefined();
+      expect(indigoToken!.metadata?.tags).toContain('reference');
+      expect(indigoToken!.metadata?.tags).toContain('tailwind');
+    });
+  });
+
   describe('scan orchestration', () => {
     it('combines theme tokens and arbitrary value detection', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
