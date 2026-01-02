@@ -186,6 +186,17 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
       this.findFastComposeDefines(sourceFile, fastComposeDefines);
     }
 
+    // Track anonymous class expressions in customElements.define()
+    const anonymousDefines = isLit || !isStencil && !isFast
+      ? this.findAnonymousCustomElementsDefines(sourceFile)
+      : [];
+
+    // Process anonymous class expressions first
+    for (const { tagName, classExpr } of anonymousDefines) {
+      const comp = this.extractLitComponentFromClassExpression(classExpr, sourceFile, relativePath, tagName);
+      if (comp) components.push(comp);
+    }
+
     const visit = (node: ts.Node) => {
       if (ts.isClassDeclaration(node) && node.name) {
         if (isFast) {
@@ -268,6 +279,133 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
       ts.forEachChild(node, visit);
     };
     ts.forEachChild(sourceFile, visit);
+  }
+
+  /**
+   * Find customElements.define() calls with inline class expressions
+   * E.g., customElements.define('tag-name', class extends LitElement { ... })
+   */
+  private findAnonymousCustomElementsDefines(
+    sourceFile: ts.SourceFile
+  ): Array<{ tagName: string; classExpr: ts.ClassExpression }> {
+    const results: Array<{ tagName: string; classExpr: ts.ClassExpression }> = [];
+
+    const visit = (node: ts.Node) => {
+      // Look for customElements.define('tag-name', class extends ... { ... })
+      if (ts.isCallExpression(node)) {
+        const expr = node.expression;
+        if (ts.isPropertyAccessExpression(expr)) {
+          const obj = expr.expression;
+          const prop = expr.name;
+          if (ts.isIdentifier(obj) && obj.text === 'customElements' && prop.text === 'define') {
+            const args = node.arguments;
+            if (args.length >= 2) {
+              const tagNameArg = args[0];
+              const classArg = args[1];
+              if (tagNameArg && ts.isStringLiteral(tagNameArg) && classArg && ts.isClassExpression(classArg)) {
+                results.push({ tagName: tagNameArg.text, classExpr: classArg });
+              }
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(sourceFile, visit);
+    return results;
+  }
+
+  /**
+   * Extract a Lit component from an anonymous class expression
+   * E.g., customElements.define('tag-name', class extends LitElement { ... })
+   */
+  private extractLitComponentFromClassExpression(
+    classExpr: ts.ClassExpression,
+    sourceFile: ts.SourceFile,
+    relativePath: string,
+    tagName: string
+  ): Component | null {
+    // Check if extends LitElement or any class ending in Element
+    const extendsLit = classExpr.heritageClauses?.some(clause => {
+      return clause.types.some(type => {
+        const text = type.expression.getText(sourceFile);
+        return text === 'LitElement' || text.endsWith('Element');
+      });
+    });
+
+    if (!extendsLit) return null;
+
+    // Use tag name converted to PascalCase as the component name
+    const className = classExpr.name?.getText(sourceFile) || this.toPascalCase(tagName);
+    const line = sourceFile.getLineAndCharacterOfPosition(classExpr.getStart(sourceFile)).line + 1;
+
+    const source: WebComponentSource = {
+      type: 'lit',
+      path: relativePath,
+      exportName: className,
+      tagName,
+      line,
+    };
+
+    // Extract properties from decorators
+    const props = this.extractLitDecoratorPropertiesFromExpression(classExpr, sourceFile);
+
+    const metadata: ComponentMetadataExtended = {
+      deprecated: false,
+      tags: [],
+    };
+
+    return {
+      id: createComponentId(source as any, className),
+      name: className,
+      source: source as any,
+      props,
+      variants: [],
+      tokens: [],
+      dependencies: [],
+      metadata: metadata as any,
+      scannedAt: new Date(),
+    };
+  }
+
+  /**
+   * Extract decorated properties from a class expression (similar to extractLitDecoratorProperties but for ClassExpression)
+   */
+  private extractLitDecoratorPropertiesFromExpression(
+    node: ts.ClassExpression,
+    sourceFile: ts.SourceFile
+  ): PropDefinition[] {
+    const props: PropDefinition[] = [];
+
+    for (const member of node.members) {
+      if (!ts.isPropertyDeclaration(member)) continue;
+      if (!member.name || !ts.isIdentifier(member.name)) continue;
+
+      const decorators = ts.getDecorators(member);
+      if (!decorators) continue;
+
+      for (const decorator of decorators) {
+        if (!ts.isCallExpression(decorator.expression)) continue;
+        const expr = decorator.expression.expression;
+        if (!ts.isIdentifier(expr)) continue;
+
+        const decoratorName = expr.text;
+        // Support @property, @state, and legacy @internalProperty
+        if (decoratorName === 'property' || decoratorName === 'state' || decoratorName === 'internalProperty') {
+          const propName = member.name.getText(sourceFile);
+          const propType = this.extractLitPropertyType(decorator, member, sourceFile);
+
+          props.push({
+            name: propName,
+            type: propType,
+            required: !member.initializer && !member.questionToken,
+            defaultValue: member.initializer?.getText(sourceFile),
+          });
+        }
+      }
+    }
+
+    return props;
   }
 
   private extractLitComponent(

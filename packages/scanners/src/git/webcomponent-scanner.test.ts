@@ -43,6 +43,7 @@ import {
   STENCIL_JSDOC_METADATA,
   VANILLA_JSDOC_METADATA,
   LIT_FIRES_VARIANTS,
+  LIT_CLASS_EXPRESSION,
 } from '../__tests__/fixtures/webcomponent-components.js';
 import { WebComponentScanner } from './webcomponent-scanner.js';
 
@@ -1315,6 +1316,29 @@ describe('WebComponentScanner', () => {
         expect(result.items[0]!.metadata.cssProperties).toHaveLength(2);
         expect(result.items[0]!.metadata.cssParts).toHaveLength(2);
       });
+    });
+  });
+
+  describe('anonymous class expressions', () => {
+    it('detects Lit components defined with inline class expression in customElements.define()', async () => {
+      vol.fromJSON({
+        '/project/src/anonymous.ts': LIT_CLASS_EXPRESSION,
+      });
+
+      const scanner = new WebComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]!.source.tagName).toBe('anonymous-element');
+      expect(result.items[0]!.source.type).toBe('lit');
+      // Should extract props from the anonymous class
+      expect(result.items[0]!.props).toContainEqual(
+        expect.objectContaining({ name: 'message' })
+      );
     });
   });
 });
