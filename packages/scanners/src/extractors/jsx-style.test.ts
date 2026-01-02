@@ -701,4 +701,72 @@ line2
       expect(result[0]!.css).toBe('flex-shrink: 0');
     });
   });
+
+  describe('ternary expressions in style values', () => {
+    it('extracts ternary with transform rotate', () => {
+      const content = `<div style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      // Should capture both possible values as conditional
+      expect(result[0]!.css).toContain('transform:');
+    });
+
+    it('extracts ternary with display block/none', () => {
+      const content = `<div style={{ display: opened ? 'block' : 'none' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('display:');
+    });
+
+    it('extracts ternary with color values', () => {
+      const content = `<button style={{ color: copied ? 'teal' : 'blue' }}></button>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('color:');
+    });
+
+    it('extracts ternary with background', () => {
+      const content = `<div style={{ background: focused ? 'orange' : 'cyan' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('background:');
+    });
+
+    it('extracts ternary with transitionDuration', () => {
+      const content = `<div style={{ transitionDuration: reduceMotion ? '0ms' : '200ms' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('transition-duration:');
+    });
+
+    it('extracts multiple ternary values in same style object', () => {
+      const content = `<div style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', color: active ? 'blue' : 'gray' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('transform:');
+      expect(result[0]!.css).toContain('color:');
+    });
+
+    it('extracts ternary with undefined/none values', () => {
+      const content = `<div style={{ display: value ? undefined : 'none' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('display:');
+    });
+
+    it('extracts ternary mixed with static values', () => {
+      const content = `<div style={{ padding: 40, background: focused ? 'orange' : 'cyan' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('padding: 40px');
+      expect(result[0]!.css).toContain('background:');
+    });
+
+    it('extracts ternary with fill from Mantine', () => {
+      const content = `<svg style={{ fill: variant === 'ui.mantine.dev' ? 'var(--mantine-logo-fill)' : undefined }}></svg>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('fill:');
+    });
+  });
 });

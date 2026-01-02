@@ -212,6 +212,115 @@ function extractValueAfterColon(content: string): string | null {
 }
 
 /**
+ * Extract CSS values from a ternary expression
+ * "expanded ? 'rotate(180deg)' : 'rotate(0deg)'" → ['rotate(180deg)', 'rotate(0deg)']
+ * Returns null if not a ternary expression
+ */
+function extractTernaryValues(value: string): string[] | null {
+  // Check if this looks like a ternary expression
+  // Pattern: condition ? trueValue : falseValue
+  if (!value.includes('?') || !value.includes(':')) {
+    return null;
+  }
+
+  // Find the ? and : positions, handling nested ternaries and strings
+  let questionMarkIndex = -1;
+  let colonIndex = -1;
+  let inString: string | null = null;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i]!;
+    const prevChar = i > 0 ? value[i - 1] : '';
+
+    // Handle string escapes
+    if (prevChar === '\\' && inString) continue;
+
+    // Track string state
+    if ((char === '"' || char === "'" || char === '`') && !inString) {
+      inString = char;
+      continue;
+    }
+    if (inString && char === inString) {
+      inString = null;
+      continue;
+    }
+    if (inString) continue;
+
+    // Track nesting
+    if (char === '(') parenDepth++;
+    else if (char === ')') parenDepth--;
+    else if (char === '[') bracketDepth++;
+    else if (char === ']') bracketDepth--;
+
+    // Only match ? and : at top level
+    if (parenDepth === 0 && bracketDepth === 0) {
+      if (char === '?' && questionMarkIndex === -1) {
+        questionMarkIndex = i;
+      } else if (char === ':' && questionMarkIndex !== -1 && colonIndex === -1) {
+        colonIndex = i;
+      }
+    }
+  }
+
+  if (questionMarkIndex === -1 || colonIndex === -1) {
+    return null;
+  }
+
+  // Extract the true and false values
+  const trueValue = value.slice(questionMarkIndex + 1, colonIndex).trim();
+  const falseValue = value.slice(colonIndex + 1).trim();
+
+  // Extract the actual CSS values from quotes if present
+  const results: string[] = [];
+
+  const extractQuotedValue = (v: string): string | null => {
+    // Handle quoted strings
+    const quotedMatch = v.match(/^['"`](.*)['"`]$/);
+    if (quotedMatch) {
+      return quotedMatch[1]!;
+    }
+    // Handle undefined/null (JavaScript keyword)
+    if (v === 'undefined' || v === 'null') {
+      return null;
+    }
+    // Handle var() and other CSS functions
+    if (/^(var|calc|rgba?|hsla?|url)\s*\(/.test(v)) {
+      return v;
+    }
+    return null;
+  };
+
+  const trueExtracted = extractQuotedValue(trueValue);
+  const falseExtracted = extractQuotedValue(falseValue);
+
+  if (trueExtracted) results.push(trueExtracted);
+  if (falseExtracted) results.push(falseExtracted);
+
+  return results.length > 0 ? results : null;
+}
+
+/**
+ * Clean and format a single CSS value, applying units as needed
+ */
+function cleanAndFormatValue(value: string, prop: string): string | null {
+  // Remove quotes
+  let cleaned = value.replace(/^['"`]|['"`]$/g, '').trim();
+
+  if (!cleaned) return null;
+
+  // Add px to numeric values for appropriate properties
+  if (/^-?\d+(\.\d+)?$/.test(cleaned)) {
+    if (shouldAddPxUnit(prop)) {
+      cleaned = `${cleaned}px`;
+    }
+  }
+
+  return cleaned;
+}
+
+/**
  * Convert JavaScript object notation to CSS-like text
  * { color: 'red', padding: 16 } → "color: red; padding: 16px"
  */
@@ -237,6 +346,20 @@ function jsObjectToCss(objectContent: string): string {
 
     // Convert camelCase to kebab-case
     prop = camelToKebab(prop);
+
+    // Check if this is a ternary expression and extract CSS values from it
+    const ternaryValues = extractTernaryValues(value);
+    if (ternaryValues) {
+      // Format as conditional: "value1 | value2" to indicate both possibilities
+      const formattedValues = ternaryValues
+        .map(v => cleanAndFormatValue(v, prop))
+        .filter(Boolean)
+        .join(' | ');
+      if (formattedValues) {
+        cssProps.push(`${prop}: ${formattedValues}`);
+      }
+      continue;
+    }
 
     // Clean value
     value = cleanValue(value);
@@ -511,10 +634,8 @@ function shouldSkipDynamicValue(value: string): boolean {
     return true;
   }
 
-  // Skip ternary expressions
-  if (value.includes(' ? ') || value.includes(' : ')) {
-    return true;
-  }
+  // Ternary expressions should NOT be skipped - they contain valid CSS values
+  // They will be processed by extractTernaryValues to get actual CSS values
 
   return false;
 }
