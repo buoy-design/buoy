@@ -525,35 +525,112 @@ function shouldSkipDynamicValue(value: string): boolean {
 function isValidCssKeyword(value: string): boolean {
   const lower = value.toLowerCase();
 
-  // CSS keywords
+  // CSS keywords - comprehensive list
   const keywords = [
-    // Generic
-    'auto', 'inherit', 'initial', 'unset', 'revert', 'none',
-    // Display
-    'block', 'inline', 'flex', 'grid', 'inline-block', 'inline-flex',
-    // Position
+    // Generic global values
+    'auto', 'inherit', 'initial', 'unset', 'revert', 'none', 'all',
+    // Display values
+    'block', 'inline', 'flex', 'grid', 'inline-block', 'inline-flex', 'inline-grid',
+    'contents', 'table', 'table-row', 'table-cell', 'table-column', 'table-caption',
+    'table-row-group', 'table-column-group', 'table-header-group', 'table-footer-group',
+    'flow-root', 'list-item', 'run-in', 'ruby', 'ruby-base', 'ruby-text',
+    // Position values
     'static', 'relative', 'absolute', 'fixed', 'sticky',
     // Visibility
     'visible', 'hidden', 'collapse',
-    // Text
-    'left', 'right', 'center', 'justify', 'start', 'end',
+    // Text alignment
+    'left', 'right', 'center', 'justify', 'start', 'end', 'match-parent',
     // Overflow
-    'scroll', 'clip',
+    'scroll', 'clip', 'overlay',
     // Box sizing
     'border-box', 'content-box',
     // Cursor
-    'pointer', 'default', 'move', 'text', 'wait', 'help', 'crosshair',
-    // White space
-    'nowrap', 'pre', 'normal', 'break-spaces',
+    'pointer', 'default', 'move', 'text', 'wait', 'help', 'crosshair', 'grab', 'grabbing',
+    'not-allowed', 'no-drop', 'copy', 'alias', 'context-menu', 'cell', 'vertical-text',
+    'col-resize', 'row-resize', 'n-resize', 's-resize', 'e-resize', 'w-resize',
+    'ne-resize', 'nw-resize', 'se-resize', 'sw-resize', 'ew-resize', 'ns-resize',
+    'nesw-resize', 'nwse-resize', 'zoom-in', 'zoom-out', 'progress',
+    // White space / text
+    'nowrap', 'pre', 'pre-wrap', 'pre-line', 'normal', 'break-spaces',
+    'break-all', 'break-word', 'keep-all', 'anywhere',
     // Flexbox
-    'row', 'column', 'wrap', 'wrap-reverse', 'space-between', 'space-around', 'space-evenly', 'stretch', 'baseline',
+    'row', 'column', 'row-reverse', 'column-reverse',
+    'wrap', 'wrap-reverse', 'nowrap',
+    'space-between', 'space-around', 'space-evenly', 'stretch', 'baseline',
+    'flex-start', 'flex-end', 'self-start', 'self-end',
+    // Grid
+    'dense', 'span', 'subgrid', 'masonry',
+    // Object-fit / object-position
+    'cover', 'contain', 'fill', 'scale-down',
+    // Background
+    'repeat', 'no-repeat', 'repeat-x', 'repeat-y', 'space', 'round',
+    'local', 'padding-box', 'content-box', 'border-box', 'text',
+    // Pointer events
+    'visiblePainted', 'visibleFill', 'visibleStroke', 'painted', 'stroke',
+    // Resize
+    'both', 'horizontal', 'vertical',
+    // User select
+    'text', 'contain', 'all',
+    // Appearance
+    'menulist-button', 'textfield', 'button', 'searchfield', 'textarea', 'listbox',
+    'menulist', 'meter', 'progress-bar', 'checkbox', 'radio', 'listitem',
+    // Touch action
+    'pan-x', 'pan-left', 'pan-right', 'pan-y', 'pan-up', 'pan-down',
+    'pinch-zoom', 'manipulation',
+    // Scroll behavior / snap
+    'smooth', 'instant',
+    'mandatory', 'proximity',
+    // Font
+    'bold', 'bolder', 'lighter',
+    'italic', 'oblique',
+    'small-caps', 'all-small-caps', 'petite-caps', 'all-petite-caps', 'unicase', 'titling-caps',
+    'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif',
+    'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'emoji', 'math', 'fangsong',
+    // List style
+    'disc', 'circle', 'square', 'decimal', 'decimal-leading-zero',
+    'lower-roman', 'upper-roman', 'lower-greek', 'lower-latin', 'upper-latin',
+    'armenian', 'georgian', 'lower-alpha', 'upper-alpha', 'inside', 'outside',
+    // Border style
+    'solid', 'dashed', 'dotted', 'double', 'groove', 'ridge', 'inset', 'outset',
+    // Text decoration
+    'underline', 'overline', 'line-through', 'wavy', 'from-font',
+    // Text transform
+    'capitalize', 'uppercase', 'lowercase', 'full-width', 'full-size-kana',
+    // Color scheme / appearance
+    'light', 'dark', 'only',
+    // Animation
+    'running', 'paused', 'infinite', 'forwards', 'backwards', 'alternate',
+    'alternate-reverse', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'linear', 'step-start', 'step-end',
+    // Transition
+    'allow-discrete',
+    // SVG fill
+    'evenodd', 'nonzero',
+    // Mix blend mode / isolation
+    'isolate', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge',
+    'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion', 'hue', 'saturation', 'luminosity',
+    // Content
+    'open-quote', 'close-quote', 'no-open-quote', 'no-close-quote',
+    // Will change
+    'scroll-position', 'transform', 'opacity',
+    // Writing mode
+    'horizontal-tb', 'vertical-rl', 'vertical-lr', 'sideways-rl', 'sideways-lr',
+    // Direction
+    'ltr', 'rtl',
+    // Hyphens
+    'manual',
+    // Overflow wrap
+    'break-word', 'anywhere',
+    // Aspect ratio
+    'square', 'portrait', 'landscape',
+    // Image rendering
+    'crisp-edges', 'pixelated', 'optimizeSpeed', 'optimizeQuality',
   ];
 
   // CSS color names (extended list)
   const colorNames = [
     'red', 'blue', 'green', 'black', 'white', 'gray', 'grey',
     'yellow', 'orange', 'purple', 'pink', 'brown', 'cyan', 'magenta',
-    'transparent', 'currentColor', 'aliceblue', 'antiquewhite', 'aqua',
+    'transparent', 'currentcolor', 'aliceblue', 'antiquewhite', 'aqua',
     'aquamarine', 'azure', 'beige', 'bisque', 'blanchedalmond', 'blueviolet',
     'burlywood', 'cadetblue', 'chartreuse', 'chocolate', 'coral', 'cornflowerblue',
     'cornsilk', 'crimson', 'darkblue', 'darkcyan', 'darkgoldenrod', 'darkgray',

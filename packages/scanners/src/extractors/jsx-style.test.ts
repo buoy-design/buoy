@@ -491,4 +491,214 @@ line2
       expect(result[0]!.css).toBe('margin: 8px');
     });
   });
+
+  describe('spread operator handling', () => {
+    it('extracts properties when spread is at the start', () => {
+      const content = `<div style={{ ...style, colorScheme: 'light' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('color-scheme: light');
+    });
+
+    it('extracts properties when spread is at the end', () => {
+      const content = `<div style={{ colorScheme: 'light', ...style }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('color-scheme: light');
+    });
+
+    it('extracts multiple properties with spread in middle', () => {
+      const content = `<div style={{ padding: 16, ...baseStyle, margin: 8 }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('padding: 16px');
+      expect(result[0]!.css).toContain('margin: 8px');
+    });
+
+    it('extracts properties with multiple spreads', () => {
+      const content = `<div style={{ ...styleA, padding: 16, ...styleB, margin: 8 }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('padding: 16px');
+      expect(result[0]!.css).toContain('margin: 8px');
+    });
+
+    it('extracts properties with rest spread', () => {
+      const content = `<div style={{ ...rest.style, padding: 16 }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('padding: 16px');
+    });
+  });
+
+  describe('pointer-events and other CSS keywords', () => {
+    it('extracts pointerEvents with all value', () => {
+      const content = `<div style={{ pointerEvents: 'all' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('pointer-events: all');
+    });
+
+    it('extracts pointerEvents with none value', () => {
+      const content = `<div style={{ pointerEvents: 'none' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('pointer-events: none');
+    });
+
+    it('extracts resize property', () => {
+      const content = `<div style={{ resize: 'both' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('resize: both');
+    });
+
+    it('extracts userSelect property', () => {
+      const content = `<div style={{ userSelect: 'none' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('user-select: none');
+    });
+
+    it('extracts appearance property', () => {
+      const content = `<div style={{ appearance: 'none' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('appearance: none');
+    });
+
+    it('extracts touchAction property', () => {
+      const content = `<div style={{ touchAction: 'pan-x' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('touch-action: pan-x');
+    });
+
+    it('extracts scrollBehavior property', () => {
+      const content = `<div style={{ scrollBehavior: 'smooth' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('scroll-behavior: smooth');
+    });
+
+    it('extracts objectFit property', () => {
+      const content = `<img style={{ objectFit: 'cover' }}></img>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('object-fit: cover');
+    });
+
+    it('extracts objectPosition property', () => {
+      const content = `<img style={{ objectPosition: 'center' }}></img>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('object-position: center');
+    });
+  });
+
+  describe('calc expressions with CSS variables', () => {
+    it('extracts calc with CSS variable', () => {
+      const content = `<div style={{ height: 'calc(100vh - var(--drawer-offset) * 2)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('height: calc(100vh - var(--drawer-offset) * 2)');
+    });
+
+    it('extracts calc with multiple operations', () => {
+      const content = `<div style={{ width: 'calc(100% - 20px + 5rem)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('width: calc(100% - 20px + 5rem)');
+    });
+
+    it('extracts nested calc expressions', () => {
+      const content = `<div style={{ padding: 'calc(var(--spacing) * 2)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('padding: calc(var(--spacing) * 2)');
+    });
+  });
+
+  describe('display property values', () => {
+    it('extracts display: contents', () => {
+      const content = `<div style={{ display: 'contents' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('display: contents');
+    });
+
+    it('extracts display: table', () => {
+      const content = `<div style={{ display: 'table' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('display: table');
+    });
+
+    it('extracts display: table-cell', () => {
+      const content = `<div style={{ display: 'table-cell' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('display: table-cell');
+    });
+
+    it('extracts display: flow-root', () => {
+      const content = `<div style={{ display: 'flow-root' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('display: flow-root');
+    });
+  });
+
+  describe('complex real-world patterns from chakra/mantine', () => {
+    it('extracts OpenGraph image complex style', () => {
+      const content = `<div style={{
+        display: "flex",
+        width: 1200,
+        height: 630,
+        padding: "53px 98px",
+      }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('display: flex');
+      expect(result[0]!.css).toContain('width: 1200px');
+      expect(result[0]!.css).toContain('height: 630px');
+      expect(result[0]!.css).toContain('padding: 53px 98px');
+    });
+
+    it('extracts chakra theme style with spread', () => {
+      const content = `<div style={{ ...style, colorScheme: appearance }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      // Should at least not crash, colorScheme: appearance is dynamic
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('extracts mantine drawer style with calc and var', () => {
+      const content = `<div style={{ height: 'calc(100vh - var(--drawer-offset) * 2)' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('height: calc(100vh - var(--drawer-offset) * 2)');
+    });
+
+    it('extracts fill and fillOpacity for SVG', () => {
+      const content = `<div style={{ fill: "teal", fillOpacity: 0.1 }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('fill: teal');
+      expect(result[0]!.css).toContain('fill-opacity: 0.1');
+    });
+
+    it('extracts animation property', () => {
+      const content = `<div style={{ animation: "spin 1s infinite" }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('animation: spin 1s infinite');
+    });
+
+    it('extracts flexShrink: 0', () => {
+      const content = `<LuFolder style={{ flexShrink: 0 }} />`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('flex-shrink: 0');
+    });
+  });
 });
