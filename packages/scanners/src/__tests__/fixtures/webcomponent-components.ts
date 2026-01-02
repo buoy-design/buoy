@@ -1102,3 +1102,161 @@ export class MyFormControl {
   }
 }
 `;
+
+// Lit component with JSDoc metadata (@fires, @slot, @cssProperty, @cssPart)
+export const LIT_JSDOC_METADATA = `
+import { LitElement, html, css } from 'lit';
+import { customElement, property } from 'lit/decorators.js';
+
+/**
+ * A card component with rich metadata.
+ *
+ * @summary A versatile card component
+ * @fires card-click - Fired when the card is clicked
+ * @fires card-expand {CustomEvent<boolean>} - Fired when the card expands/collapses
+ * @slot - The default slot for card content
+ * @slot header - Slot for header content
+ * @slot footer - Slot for footer actions
+ * @cssProperty --card-background - Background color of the card
+ * @cssProp --card-padding - Padding inside the card
+ * @cssPart container - The card container element
+ * @cssPart header - The card header section
+ */
+@customElement('my-card')
+export class MyCard extends LitElement {
+  static override styles = css\`
+    :host {
+      display: block;
+      background: var(--card-background, white);
+      padding: var(--card-padding, 16px);
+    }
+  \`;
+
+  @property({ type: String })
+  title = '';
+
+  @property({ type: Boolean })
+  expanded = false;
+
+  override render() {
+    return html\`
+      <div part="container">
+        <header part="header">
+          <slot name="header">\${this.title}</slot>
+        </header>
+        <slot></slot>
+        <footer>
+          <slot name="footer"></slot>
+        </footer>
+      </div>
+    \`;
+  }
+}
+`;
+
+// Stencil component with JSDoc metadata
+export const STENCIL_JSDOC_METADATA = `
+import { Component, Prop, Event, EventEmitter, h } from '@stencil/core';
+
+/**
+ * An alert dialog component.
+ *
+ * @summary Display important messages
+ * @fires alert-dismiss - Fired when alert is dismissed
+ * @fires alert-action - Fired when action button is clicked
+ * @slot - Alert message content
+ * @slot icon - Custom icon slot
+ * @cssProperty --alert-color - Text color based on severity
+ * @cssPart alert - The alert container
+ * @cssPart icon - The icon wrapper
+ * @cssPart message - The message text
+ */
+@Component({
+  tag: 'my-alert',
+  shadow: true,
+})
+export class MyAlert {
+  @Prop() severity: 'info' | 'warning' | 'error' = 'info';
+  @Prop() dismissible = false;
+
+  @Event() alertDismiss: EventEmitter<void>;
+  @Event() alertAction: EventEmitter<string>;
+
+  render() {
+    return (
+      <div class={\`alert \${this.severity}\`} part="alert">
+        <span part="icon"><slot name="icon"></slot></span>
+        <span part="message"><slot></slot></span>
+        {this.dismissible && <button onClick={() => this.alertDismiss.emit()}>×</button>}
+      </div>
+    );
+  }
+}
+`;
+
+// Vanilla web component with JSDoc metadata
+export const VANILLA_JSDOC_METADATA = `
+/**
+ * A tooltip component.
+ *
+ * @summary Displays contextual information
+ * @fires tooltip-show - Fired when tooltip becomes visible
+ * @fires tooltip-hide - Fired when tooltip is hidden
+ * @slot - Content to show inside tooltip
+ * @cssProperty --tooltip-background - Background color
+ * @cssProperty --tooltip-arrow-size - Size of the arrow
+ * @cssPart tooltip - The tooltip container
+ * @cssPart arrow - The arrow element
+ */
+class MyTooltip extends HTMLElement {
+  static get observedAttributes() {
+    return ['position', 'visible'];
+  }
+
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+  }
+
+  connectedCallback() {
+    this.render();
+  }
+
+  render() {
+    if (this.shadowRoot) {
+      this.shadowRoot.innerHTML = \`
+        <div part="tooltip">
+          <slot></slot>
+          <span part="arrow"></span>
+        </div>
+      \`;
+    }
+  }
+}
+
+customElements.define('my-tooltip', MyTooltip);
+`;
+
+// Lit component with @fires using hyphenated event name format
+export const LIT_FIRES_VARIANTS = `
+import { LitElement, html } from 'lit';
+import { customElement, property } from 'lit/decorators.js';
+
+/**
+ * Component demonstrating different @fires formats.
+ *
+ * @fires my-event - Simple event
+ * @fires change - Native-like event
+ * @fires update:value - Vue-like event name with colon
+ * @fires {CustomEvent<string>} typed-event - Event with explicit type
+ * @fires complex-data {CustomEvent<{id: number, name: string}>} - Event with complex payload
+ */
+@customElement('event-variants')
+export class EventVariants extends LitElement {
+  @property() value = '';
+
+  override render() {
+    return html\`<input .value=\${this.value} />\`;
+  }
+}
+`;

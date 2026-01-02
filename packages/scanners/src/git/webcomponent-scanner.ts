@@ -18,6 +18,29 @@ interface WebComponentSource {
   line: number;
 }
 
+interface JsDocEvent {
+  name: string;
+  type?: string;
+  description?: string;
+}
+
+interface JsDocSlot {
+  name: string;
+  description?: string;
+}
+
+interface JsDocCssProperty {
+  name: string;
+  description?: string;
+  default?: string;
+  syntax?: string;
+}
+
+interface JsDocCssPart {
+  name: string;
+  description?: string;
+}
+
 interface ComponentMetadataExtended {
   deprecated?: boolean;
   tags: string[];
@@ -30,6 +53,12 @@ interface ComponentMetadataExtended {
   assetsDirs?: string[];
   styleUrls?: string | Record<string, string>;
   controllers?: string[];
+  // JSDoc metadata
+  summary?: string;
+  events?: JsDocEvent[];
+  slots?: JsDocSlot[];
+  cssProperties?: JsDocCssProperty[];
+  cssParts?: JsDocCssPart[];
 }
 
 interface ExtendedPropDefinition extends PropDefinition {
@@ -278,10 +307,14 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
     // Detect reactive controllers used in the component
     const controllers = this.extractLitControllers(node, sourceFile);
 
+    // Extract JSDoc metadata
+    const jsDocMetadata = this.extractJsDocMetadata(node);
+
     const metadata: ComponentMetadataExtended = {
       deprecated: this.hasDeprecatedTag(node),
       tags: [],
       controllers: controllers.length > 0 ? controllers : undefined,
+      ...jsDocMetadata,
     };
 
     return {
@@ -472,6 +505,9 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
     const assetsDirs = this.extractStencilAssetsDirs(componentDecorator, sourceFile);
     const styleUrls = this.extractStencilStyleUrls(componentDecorator, sourceFile);
 
+    // Extract JSDoc metadata
+    const jsDocMetadata = this.extractJsDocMetadata(node);
+
     const metadata: ComponentMetadataExtended = {
       deprecated: this.hasDeprecatedTag(node),
       tags: [],
@@ -483,6 +519,7 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
       shadowMode,
       assetsDirs: assetsDirs.length > 0 ? assetsDirs : undefined,
       styleUrls: styleUrls || undefined,
+      ...jsDocMetadata,
     };
 
     return {
@@ -1016,6 +1053,9 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
     // Extract observedAttributes as props
     const props = this.extractVanillaObservedAttributes(node, sourceFile);
 
+    // Extract JSDoc metadata
+    const jsDocMetadata = this.extractJsDocMetadata(node);
+
     return {
       id: createComponentId(source as any, className),
       name: className,
@@ -1027,6 +1067,7 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
       metadata: {
         deprecated: this.hasDeprecatedTag(node),
         tags: [],
+        ...jsDocMetadata,
       },
       scannedAt: new Date(),
     };
@@ -1658,5 +1699,269 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
       .split('-')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join('');
+  }
+
+  // ============================================
+  // JSDoc Metadata Extraction
+  // ============================================
+
+  private extractJsDocMetadata(node: ts.ClassDeclaration): Partial<ComponentMetadataExtended> {
+    const jsDocComments = ts.getJSDocCommentsAndTags(node);
+    const result: Partial<ComponentMetadataExtended> = {};
+
+    for (const comment of jsDocComments) {
+      if (ts.isJSDoc(comment)) {
+        // Process JSDoc tags
+        if (comment.tags) {
+          for (const tag of comment.tags) {
+            const tagName = tag.tagName.text.toLowerCase();
+            const tagComment = this.getTagComment(tag);
+
+            switch (tagName) {
+              case 'summary':
+                result.summary = tagComment;
+                break;
+              case 'fires': {
+                const event = this.parseFiresTag(tagComment);
+                if (event) {
+                  if (!result.events) result.events = [];
+                  result.events.push(event);
+                }
+                break;
+              }
+              case 'slot': {
+                const slot = this.parseSlotTag(tagComment);
+                if (slot) {
+                  if (!result.slots) result.slots = [];
+                  result.slots.push(slot);
+                }
+                break;
+              }
+              case 'cssproperty':
+              case 'cssprop':
+              case 'css-property': {
+                const cssProp = this.parseCssPropertyTag(tagComment);
+                if (cssProp) {
+                  if (!result.cssProperties) result.cssProperties = [];
+                  result.cssProperties.push(cssProp);
+                }
+                break;
+              }
+              case 'csspart':
+              case 'css-part': {
+                const cssPart = this.parseCssPartTag(tagComment);
+                if (cssPart) {
+                  if (!result.cssParts) result.cssParts = [];
+                  result.cssParts.push(cssPart);
+                }
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  private getTagComment(tag: ts.JSDocTag): string {
+    if (!tag.comment) return '';
+
+    if (typeof tag.comment === 'string') {
+      return tag.comment.trim();
+    }
+
+    // Handle JSDocComment (array of JSDocText/JSDocLink nodes)
+    return tag.comment
+      .map(node => {
+        // JSDocText nodes have a 'text' property
+        if ('text' in node && typeof node.text === 'string') {
+          return node.text;
+        }
+        return '';
+      })
+      .join('')
+      .trim();
+  }
+
+  /**
+   * Parse @fires tag
+   * Formats:
+   * - @fires event-name - Description
+   * - @fires event-name {CustomEvent<Type>} - Description
+   * - @fires {CustomEvent<Type>} event-name - Description
+   */
+  private parseFiresTag(text: string): JsDocEvent | null {
+    if (!text) return null;
+
+    let name: string | undefined;
+    let type: string | undefined;
+    let description: string | undefined;
+
+    // Try format: {Type} event-name - Description (type first)
+    // Use a more permissive regex that handles nested braces
+    const typeFirstMatch = text.match(/^(\{.+?\})\s+(\S+)(?:\s+-\s+(.*))?$/);
+    if (typeFirstMatch) {
+      // Extract the type without the outer braces
+      const typeWithBraces = typeFirstMatch[1]!;
+      type = typeWithBraces.slice(1, -1);
+      name = typeFirstMatch[2]!;
+      description = typeFirstMatch[3]?.trim();
+    }
+    // Try format: event-name {Type} - Description (name first, type second)
+    // Need to find the type section which starts with { and ends at the last }
+    else {
+      const nameTypeMatch = text.match(/^(\S+)\s+(\{.+\})(?:\s+-\s+(.*))?$/);
+      if (nameTypeMatch) {
+        // Extract the type without the outer braces
+        const typeWithBraces = nameTypeMatch[2]!;
+        type = typeWithBraces.slice(1, -1);
+        name = nameTypeMatch[1]!;
+        description = nameTypeMatch[3]?.trim();
+      }
+      // Try format: event-name - Description (using " - " as separator)
+      else {
+        const dashMatch = text.match(/^(\S+)\s+-\s+(.*)$/);
+        if (dashMatch) {
+          name = dashMatch[1]!;
+          description = dashMatch[2]?.trim();
+        }
+        // Simple format: just event-name (no description)
+        else {
+          const simpleMatch = text.match(/^(\S+)$/);
+          if (simpleMatch) {
+            name = simpleMatch[1]!;
+          }
+        }
+      }
+    }
+
+    // Validate the event name - must be a valid identifier or kebab-case name
+    // Skip if name ends with punctuation (likely parsed from comment text)
+    if (!name || /[.!?,;:]$/.test(name)) {
+      return null;
+    }
+
+    return { name, type, description };
+  }
+
+  /**
+   * Parse @slot tag
+   * Formats:
+   * - @slot - Description (default slot)
+   * - @slot slot-name - Description
+   * - @slot slot-name Description (without dash)
+   */
+  private parseSlotTag(text: string): JsDocSlot | null {
+    if (!text && text !== '') return null;
+
+    // Default slot: starts with "- " or is empty
+    if (text === '' || text.startsWith('- ')) {
+      return {
+        name: '',
+        description: text.startsWith('- ') ? text.slice(2).trim() : undefined,
+      };
+    }
+
+    // Named slot with dash separator: slot-name - Description
+    const dashMatch = text.match(/^(\S+)\s+-\s+(.*)$/);
+    if (dashMatch) {
+      return {
+        name: dashMatch[1]!,
+        description: dashMatch[2]?.trim(),
+      };
+    }
+
+    // Named slot without dash separator: slot-name Description
+    const spaceMatch = text.match(/^(\S+)(?:\s+(.*))?$/);
+    if (spaceMatch) {
+      return {
+        name: spaceMatch[1]!,
+        description: spaceMatch[2]?.trim(),
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Parse @cssProperty/@cssProp tag
+   * Formats:
+   * - @cssProperty --name - Description
+   * - @cssProperty [--name=default] - Description
+   * - @cssProperty {<syntax>} --name - Description
+   */
+  private parseCssPropertyTag(text: string): JsDocCssProperty | null {
+    if (!text) return null;
+
+    // Try format with syntax: {<syntax>} --name - Description
+    const syntaxMatch = text.match(/^\{([^}]+)\}\s+(--\S+)(?:\s+-\s+(.*))?$/);
+    if (syntaxMatch) {
+      return {
+        name: syntaxMatch[2]!,
+        syntax: syntaxMatch[1],
+        description: syntaxMatch[3]?.trim(),
+      };
+    }
+
+    // Try format with default: [--name=default] - Description
+    const defaultMatch = text.match(/^\[(--[^=\]]+)(?:=([^\]]*))?\](?:\s+-\s+(.*))?$/);
+    if (defaultMatch) {
+      return {
+        name: defaultMatch[1]!,
+        default: defaultMatch[2],
+        description: defaultMatch[3]?.trim(),
+      };
+    }
+
+    // Try simple format: --name - Description (with " - " separator)
+    const dashMatch = text.match(/^(--\S+)\s+-\s+(.*)$/);
+    if (dashMatch) {
+      return {
+        name: dashMatch[1]!,
+        description: dashMatch[2]?.trim(),
+      };
+    }
+
+    // Simple format: just --name (no description)
+    const simpleMatch = text.match(/^(--\S+)$/);
+    if (simpleMatch) {
+      return {
+        name: simpleMatch[1]!,
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Parse @cssPart tag
+   * Formats:
+   * - @cssPart name - Description
+   * - @cssPart name Description (without dash)
+   */
+  private parseCssPartTag(text: string): JsDocCssPart | null {
+    if (!text) return null;
+
+    // With dash separator: name - Description
+    const dashMatch = text.match(/^(\S+)\s+-\s+(.*)$/);
+    if (dashMatch) {
+      return {
+        name: dashMatch[1]!,
+        description: dashMatch[2]?.trim(),
+      };
+    }
+
+    // Without dash separator: name Description
+    const spaceMatch = text.match(/^(\S+)(?:\s+(.*))?$/);
+    if (spaceMatch) {
+      return {
+        name: spaceMatch[1]!,
+        description: spaceMatch[2]?.trim(),
+      };
+    }
+
+    return null;
   }
 }

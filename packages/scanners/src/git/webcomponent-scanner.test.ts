@@ -39,6 +39,10 @@ import {
   SHOELACE_STYLE_COMPONENT,
   HAUNTED_COMPONENT,
   HYBRIDS_COMPONENT,
+  LIT_JSDOC_METADATA,
+  STENCIL_JSDOC_METADATA,
+  VANILLA_JSDOC_METADATA,
+  LIT_FIRES_VARIANTS,
 } from '../__tests__/fixtures/webcomponent-components.js';
 import { WebComponentScanner } from './webcomponent-scanner.js';
 
@@ -1066,6 +1070,213 @@ describe('WebComponentScanner', () => {
       expect(result.items[0]!.props).toContainEqual(
         expect.objectContaining({ name: 'count' })
       );
+    });
+  });
+
+  describe('JSDoc metadata extraction', () => {
+    describe('Lit components', () => {
+      it('extracts @summary from JSDoc', async () => {
+        vol.fromJSON({
+          '/project/src/my-card.ts': LIT_JSDOC_METADATA,
+        });
+
+        const scanner = new WebComponentScanner({
+          projectRoot: '/project',
+          include: ['src/**/*.ts'],
+        });
+
+        const result = await scanner.scan();
+
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0]!.metadata.summary).toBe('A versatile card component');
+      });
+
+      it('extracts @fires events from JSDoc', async () => {
+        vol.fromJSON({
+          '/project/src/my-card.ts': LIT_JSDOC_METADATA,
+        });
+
+        const scanner = new WebComponentScanner({
+          projectRoot: '/project',
+          include: ['src/**/*.ts'],
+        });
+
+        const result = await scanner.scan();
+        const events = result.items[0]!.metadata.events;
+
+        expect(events).toBeDefined();
+        expect(events).toHaveLength(2);
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            name: 'card-click',
+            description: 'Fired when the card is clicked',
+          })
+        );
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            name: 'card-expand',
+            type: 'CustomEvent<boolean>',
+          })
+        );
+      });
+
+      it('extracts @slot definitions from JSDoc', async () => {
+        vol.fromJSON({
+          '/project/src/my-card.ts': LIT_JSDOC_METADATA,
+        });
+
+        const scanner = new WebComponentScanner({
+          projectRoot: '/project',
+          include: ['src/**/*.ts'],
+        });
+
+        const result = await scanner.scan();
+        const slots = result.items[0]!.metadata.slots;
+
+        expect(slots).toBeDefined();
+        expect(slots).toHaveLength(3);
+        expect(slots).toContainEqual(
+          expect.objectContaining({
+            name: '',
+            description: 'The default slot for card content',
+          })
+        );
+        expect(slots).toContainEqual(
+          expect.objectContaining({
+            name: 'header',
+            description: 'Slot for header content',
+          })
+        );
+      });
+
+      it('extracts @cssProperty and @cssProp from JSDoc', async () => {
+        vol.fromJSON({
+          '/project/src/my-card.ts': LIT_JSDOC_METADATA,
+        });
+
+        const scanner = new WebComponentScanner({
+          projectRoot: '/project',
+          include: ['src/**/*.ts'],
+        });
+
+        const result = await scanner.scan();
+        const cssProperties = result.items[0]!.metadata.cssProperties;
+
+        expect(cssProperties).toBeDefined();
+        expect(cssProperties).toHaveLength(2);
+        expect(cssProperties).toContainEqual(
+          expect.objectContaining({
+            name: '--card-background',
+            description: 'Background color of the card',
+          })
+        );
+        expect(cssProperties).toContainEqual(
+          expect.objectContaining({
+            name: '--card-padding',
+            description: 'Padding inside the card',
+          })
+        );
+      });
+
+      it('extracts @cssPart from JSDoc', async () => {
+        vol.fromJSON({
+          '/project/src/my-card.ts': LIT_JSDOC_METADATA,
+        });
+
+        const scanner = new WebComponentScanner({
+          projectRoot: '/project',
+          include: ['src/**/*.ts'],
+        });
+
+        const result = await scanner.scan();
+        const cssParts = result.items[0]!.metadata.cssParts;
+
+        expect(cssParts).toBeDefined();
+        expect(cssParts).toHaveLength(2);
+        expect(cssParts).toContainEqual(
+          expect.objectContaining({
+            name: 'container',
+            description: 'The card container element',
+          })
+        );
+        expect(cssParts).toContainEqual(
+          expect.objectContaining({
+            name: 'header',
+            description: 'The card header section',
+          })
+        );
+      });
+
+      it('handles various @fires formats', async () => {
+        vol.fromJSON({
+          '/project/src/event-variants.ts': LIT_FIRES_VARIANTS,
+        });
+
+        const scanner = new WebComponentScanner({
+          projectRoot: '/project',
+          include: ['src/**/*.ts'],
+        });
+
+        const result = await scanner.scan();
+        const events = result.items[0]!.metadata.events;
+
+        expect(events).toBeDefined();
+        expect(events).toHaveLength(5);
+        expect(events!.map(e => e.name)).toContain('my-event');
+        expect(events!.map(e => e.name)).toContain('change');
+        expect(events!.map(e => e.name)).toContain('update:value');
+        expect(events!.map(e => e.name)).toContain('typed-event');
+        expect(events!.map(e => e.name)).toContain('complex-data');
+      });
+    });
+
+    describe('Stencil components', () => {
+      it('extracts JSDoc metadata from Stencil components', async () => {
+        vol.fromJSON({
+          '/project/src/my-alert.tsx': STENCIL_JSDOC_METADATA,
+        });
+
+        const scanner = new WebComponentScanner({
+          projectRoot: '/project',
+          include: ['src/**/*.tsx'],
+        });
+
+        const result = await scanner.scan();
+
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0]!.metadata.summary).toBe('Display important messages');
+        expect(result.items[0]!.metadata.events).toContainEqual(
+          expect.objectContaining({ name: 'alert-dismiss' })
+        );
+        expect(result.items[0]!.metadata.slots).toContainEqual(
+          expect.objectContaining({ name: 'icon' })
+        );
+        expect(result.items[0]!.metadata.cssParts).toContainEqual(
+          expect.objectContaining({ name: 'alert' })
+        );
+      });
+    });
+
+    describe('Vanilla web components', () => {
+      it('extracts JSDoc metadata from vanilla web components', async () => {
+        vol.fromJSON({
+          '/project/src/my-tooltip.ts': VANILLA_JSDOC_METADATA,
+        });
+
+        const scanner = new WebComponentScanner({
+          projectRoot: '/project',
+          include: ['src/**/*.ts'],
+        });
+
+        const result = await scanner.scan();
+
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0]!.metadata.summary).toBe('Displays contextual information');
+        expect(result.items[0]!.metadata.events).toHaveLength(2);
+        expect(result.items[0]!.metadata.slots).toHaveLength(1);
+        expect(result.items[0]!.metadata.cssProperties).toHaveLength(2);
+        expect(result.items[0]!.metadata.cssParts).toHaveLength(2);
+      });
     });
   });
 });
