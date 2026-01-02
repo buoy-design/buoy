@@ -33,6 +33,7 @@ import {
   ARK_UI_WRAPPED_COMPONENT_PATTERN,
   CHAKRA_ELEMENT_STYLE,
   NESTED_HOC_PATTERN,
+  REACT_LAZY_COMPONENT,
 } from '../__tests__/fixtures/react-components.js';
 import { ReactComponentScanner } from './react-scanner.js';
 
@@ -684,6 +685,27 @@ describe('ReactComponentScanner', () => {
       // Should detect ComplexButton (memo + forwardRef + as assertion)
       expect(componentNames).toContain('ComplexButton');
       // TrackedCard uses a custom HOC which may or may not be detected depending on analysis depth
+    });
+  });
+
+  describe('React.lazy component detection', () => {
+    it('detects React.lazy() wrapped components for code splitting', async () => {
+      vol.fromJSON({
+        '/project/src/Lazy.tsx': REACT_LAZY_COMPONENT,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+      const componentNames = result.items.map(c => c.name);
+
+      // Should detect lazy-loaded components
+      expect(componentNames).toContain('LazyButton');
+      expect(componentNames).toContain('LazyCard');
+      expect(componentNames).toContain('LazyModal');
     });
   });
 });

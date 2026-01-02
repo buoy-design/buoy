@@ -713,6 +713,21 @@ export const Button = forwardRef<HTMLButtonElement>((props, ref) => {
 Button.displayName = "Button"
 `;
 
+// React.lazy pattern for code splitting
+export const REACT_LAZY_COMPONENT = `
+import { lazy } from 'react';
+
+// Dynamic import with lazy loading
+export const LazyButton = lazy(() => import('./Button'));
+
+// React.lazy shorthand
+export const LazyCard = React.lazy(() => import('./Card'));
+
+// Named export with lazy
+const LazyModal = lazy(() => import('./Modal').then(m => ({ default: m.Modal })));
+export { LazyModal };
+`;
+
 // Complex nested HOC patterns - stacking multiple wrappers
 export const NESTED_HOC_PATTERN = `
 import React, { memo, forwardRef } from 'react';

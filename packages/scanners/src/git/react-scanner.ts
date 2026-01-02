@@ -367,6 +367,11 @@ export class ReactComponentScanner extends Scanner<
       if (callText === "cva") {
         return true;
       }
+
+      // React.lazy() for code splitting
+      if (callText === "lazy" || callText === "React.lazy") {
+        return true;
+      }
     }
 
     return false;
