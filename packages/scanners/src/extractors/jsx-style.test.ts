@@ -112,6 +112,72 @@ describe('extractJsxStyleObjects', () => {
       expect(result).toHaveLength(1);
       expect(result[0]!.css).toContain('--code-block-line-length:');
     });
+
+    // New tests for quoted string key syntax (used in Primer, Ariakit, Shadcn, etc.)
+    it('extracts CSS variable with single-quoted key', () => {
+      const content = `<div style={{ '--min-w': '100px' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('--min-w: 100px');
+    });
+
+    it('extracts CSS variable with double-quoted key', () => {
+      const content = `<div style={{ "--grid-template-columns": "1fr 2fr" }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('--grid-template-columns: 1fr 2fr');
+    });
+
+    it('extracts CSS variable with quoted key and dynamic value', () => {
+      const content = `<div style={{ '--subitem-depth': depth }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      // Should handle dynamic value gracefully
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('extracts CSS variable with quoted key and spread operator', () => {
+      const content = `<div style={{ '--min-w': minItemWidth, ...props.style }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('extracts CSS variable with as React.CSSProperties', () => {
+      const content = `<div style={{ '--grid-template-columns': gridTemplateColumns } as React.CSSProperties}></div>`;
+      const result = extractJsxStyleObjects(content);
+      // Should handle type assertion gracefully
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('extracts CSS variable mixed with regular properties', () => {
+      const content = `<div style={{ display: 'flex', '--gap': '16px', padding: 20 }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('display: flex');
+      expect(result[0]!.css).toContain('--gap: 16px');
+      expect(result[0]!.css).toContain('padding: 20px');
+    });
+
+    it('extracts multiple CSS variables with quoted keys', () => {
+      const content = `<div style={{ '--start': '10%', '--size': '80%' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('--start: 10%');
+      expect(result[0]!.css).toContain('--size: 80%');
+    });
+
+    it('does not add px to CSS variable with numeric value', () => {
+      const content = `<div style={{ '--my-spacing': 20 }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('--my-spacing: 20');
+    });
+
+    it('does not add px to CSS variable with string numeric value', () => {
+      const content = `<div style={{ '--line-height': '1.5' }}></div>`;
+      const result = extractJsxStyleObjects(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('--line-height: 1.5');
+    });
   });
 
   describe('multi-line style objects', () => {

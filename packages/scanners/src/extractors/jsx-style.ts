@@ -344,8 +344,10 @@ function jsObjectToCss(objectContent: string): string {
     // Skip spread operators
     if (prop === 'rest' || value.startsWith('...')) continue;
 
-    // Convert camelCase to kebab-case
-    prop = camelToKebab(prop);
+    // Convert camelCase to kebab-case, but preserve CSS custom properties (--var-name)
+    if (!prop.startsWith('--')) {
+      prop = camelToKebab(prop);
+    }
 
     // Check if this is a ternary expression and extract CSS values from it
     const ternaryValues = extractTernaryValues(value);
@@ -421,10 +423,27 @@ function parseObjectProperties(content: string): Array<{ prop: string; value: st
       continue;
     }
 
-    // Read property name (identifier)
-    const propStart = i;
-    while (i < content.length && /[a-zA-Z0-9_$]/.test(content[i]!)) i++;
-    const prop = content.slice(propStart, i);
+    // Handle quoted property names (CSS variables like '--var-name')
+    let prop: string;
+    if (content[i] === '"' || content[i] === "'") {
+      const quote = content[i]!;
+      i++; // Skip opening quote
+      const propStart = i;
+      while (i < content.length && content[i] !== quote) {
+        if (content[i] === '\\' && i + 1 < content.length) {
+          i += 2; // Skip escaped character
+          continue;
+        }
+        i++;
+      }
+      prop = content.slice(propStart, i);
+      if (content[i] === quote) i++; // Skip closing quote
+    } else {
+      // Read property name (identifier)
+      const propStart = i;
+      while (i < content.length && /[a-zA-Z0-9_$]/.test(content[i]!)) i++;
+      prop = content.slice(propStart, i);
+    }
 
     if (!prop) {
       i++;
@@ -831,6 +850,11 @@ function shouldAddPxUnit(prop: string): boolean {
     'scale', 'rotate', // rotate can be unitless for turns, but typically uses deg
     'aspect-ratio', 'aspectRatio',
   ];
+
+  // CSS custom properties (--var-name) should not have units added
+  if (prop.startsWith('--')) {
+    return false;
+  }
 
   // Check both kebab and camelCase versions
   return !unitlessProps.includes(prop) && !unitlessProps.includes(camelToKebab(prop));
