@@ -11,7 +11,7 @@ export interface WebComponentScannerConfig extends ScannerConfig {
 }
 
 interface WebComponentSource {
-  type: 'lit' | 'stencil' | 'vanilla' | 'fast' | 'stencil-functional';
+  type: 'lit' | 'stencil' | 'vanilla' | 'fast' | 'stencil-functional' | 'haunted' | 'hybrids';
   path: string;
   exportName: string;
   tagName: string;
@@ -29,6 +29,17 @@ interface ComponentMetadataExtended {
   shadowMode?: 'shadow' | 'scoped' | 'none';
   assetsDirs?: string[];
   styleUrls?: string | Record<string, string>;
+  controllers?: string[];
+}
+
+interface ExtendedPropDefinition extends PropDefinition {
+  mutable?: boolean;
+  reflect?: boolean;
+  attribute?: string;
+  eventName?: string;
+  bubbles?: boolean;
+  composed?: boolean;
+  cancelable?: boolean;
 }
 
 export class WebComponentScanner extends Scanner<Component, WebComponentScannerConfig> {
@@ -107,10 +118,24 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
     const isLit = content.includes('lit') || content.includes('LitElement');
     const isStencil = content.includes('@stencil/core');
     const isFast = content.includes('@microsoft/fast-element');
+    const isHaunted = content.includes('haunted');
+    const isHybrids = content.includes('hybrids');
 
     // Track customElements.define() calls for non-decorator Lit patterns and vanilla components
     const customElementsDefines = new Map<string, string>();
     this.findCustomElementsDefines(sourceFile, customElementsDefines);
+
+    // Track Haunted component() calls
+    const hauntedComponents = new Map<string, string>();
+    if (isHaunted) {
+      this.findHauntedComponents(sourceFile, hauntedComponents);
+    }
+
+    // Track Hybrids define() calls
+    const hybridsDefines = new Map<string, { tagName: string; props: string[] }>();
+    if (isHybrids) {
+      this.findHybridsDefines(sourceFile, hybridsDefines);
+    }
 
     // Track interfaces for Stencil functional components
     const interfaces = new Map<string, ts.InterfaceDeclaration>();
@@ -144,6 +169,18 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
       if (isStencil) {
         const funcComp = this.extractStencilFunctionalComponent(node, sourceFile, relativePath, interfaces);
         if (funcComp) components.push(funcComp);
+      }
+
+      // Detect Haunted functional components
+      if (isHaunted) {
+        const hauntedComp = this.extractHauntedComponent(node, sourceFile, relativePath, hauntedComponents);
+        if (hauntedComp) components.push(hauntedComp);
+      }
+
+      // Detect Hybrids components
+      if (isHybrids) {
+        const hybridsComp = this.extractHybridsComponent(node, sourceFile, relativePath, hybridsDefines);
+        if (hybridsComp) components.push(hybridsComp);
       }
 
       ts.forEachChild(node, visit);
@@ -238,6 +275,15 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
     const staticProps = this.extractLitStaticProperties(node, sourceFile);
     const props = [...decoratorProps, ...staticProps];
 
+    // Detect reactive controllers used in the component
+    const controllers = this.extractLitControllers(node, sourceFile);
+
+    const metadata: ComponentMetadataExtended = {
+      deprecated: this.hasDeprecatedTag(node),
+      tags: [],
+      controllers: controllers.length > 0 ? controllers : undefined,
+    };
+
     return {
       id: createComponentId(source as any, className),
       name: className,
@@ -246,10 +292,7 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
       variants: [],
       tokens: [],
       dependencies: [],
-      metadata: {
-        deprecated: this.hasDeprecatedTag(node),
-        tags: [],
-      },
+      metadata: metadata as any,
       scannedAt: new Date(),
     };
   }
@@ -302,7 +345,8 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
         if (!ts.isIdentifier(expr)) continue;
 
         const decoratorName = expr.text;
-        if (decoratorName === 'property' || decoratorName === 'state') {
+        // Support @property, @state, and legacy @internalProperty (Lit 2.x)
+        if (decoratorName === 'property' || decoratorName === 'state' || decoratorName === 'internalProperty') {
           const propName = member.name.getText(sourceFile);
           const propType = this.extractLitPropertyType(decorator, member, sourceFile);
 
@@ -642,8 +686,8 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
     return undefined;
   }
 
-  private extractStencilProps(node: ts.ClassDeclaration, sourceFile: ts.SourceFile): PropDefinition[] {
-    const props: PropDefinition[] = [];
+  private extractStencilProps(node: ts.ClassDeclaration, sourceFile: ts.SourceFile): ExtendedPropDefinition[] {
+    const props: ExtendedPropDefinition[] = [];
 
     for (const member of node.members) {
       if (!ts.isPropertyDeclaration(member)) continue;
@@ -652,7 +696,8 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
       const decorators = ts.getDecorators(member);
       if (!decorators) continue;
 
-      const hasProp = decorators.some(d => {
+      // Find the @Prop decorator
+      const propDecorator = decorators.find(d => {
         if (ts.isCallExpression(d.expression)) {
           const expr = d.expression.expression;
           return ts.isIdentifier(expr) && expr.text === 'Prop';
@@ -663,20 +708,59 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
         return false;
       });
 
-      if (hasProp) {
+      if (propDecorator) {
         const propName = member.name.getText(sourceFile);
         const propType = member.type ? member.type.getText(sourceFile) : 'unknown';
 
-        props.push({
+        // Extract @Prop options: mutable, reflect, attribute
+        const options = this.extractStencilPropOptions(propDecorator);
+
+        const prop: ExtendedPropDefinition = {
           name: propName,
           type: propType,
           required: !member.initializer && !member.questionToken,
           defaultValue: member.initializer?.getText(sourceFile),
-        });
+        };
+
+        // Add options if present
+        if (options.mutable !== undefined) prop.mutable = options.mutable;
+        if (options.reflect !== undefined) prop.reflect = options.reflect;
+        if (options.attribute !== undefined) prop.attribute = options.attribute;
+
+        props.push(prop);
       }
     }
 
     return props;
+  }
+
+  private extractStencilPropOptions(decorator: ts.Decorator): { mutable?: boolean; reflect?: boolean; attribute?: string } {
+    const options: { mutable?: boolean; reflect?: boolean; attribute?: string } = {};
+
+    if (!ts.isCallExpression(decorator.expression)) return options;
+
+    const args = decorator.expression.arguments;
+    if (args.length === 0) return options;
+
+    const config = args[0];
+    if (!config || !ts.isObjectLiteralExpression(config)) return options;
+
+    for (const prop of config.properties) {
+      if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) continue;
+
+      const propName = prop.name.text;
+      if (propName === 'mutable' && prop.initializer.kind === ts.SyntaxKind.TrueKeyword) {
+        options.mutable = true;
+      }
+      if (propName === 'reflect' && prop.initializer.kind === ts.SyntaxKind.TrueKeyword) {
+        options.reflect = true;
+      }
+      if (propName === 'attribute' && ts.isStringLiteral(prop.initializer)) {
+        options.attribute = prop.initializer.text;
+      }
+    }
+
+    return options;
   }
 
   private extractStencilStates(node: ts.ClassDeclaration, sourceFile: ts.SourceFile): PropDefinition[] {
@@ -717,8 +801,8 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
     return states;
   }
 
-  private extractStencilEvents(node: ts.ClassDeclaration, sourceFile: ts.SourceFile): PropDefinition[] {
-    const events: PropDefinition[] = [];
+  private extractStencilEvents(node: ts.ClassDeclaration, sourceFile: ts.SourceFile): ExtendedPropDefinition[] {
+    const events: ExtendedPropDefinition[] = [];
 
     for (const member of node.members) {
       if (!ts.isPropertyDeclaration(member)) continue;
@@ -727,7 +811,8 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
       const decorators = ts.getDecorators(member);
       if (!decorators) continue;
 
-      const hasEvent = decorators.some(d => {
+      // Find the @Event decorator
+      const eventDecorator = decorators.find(d => {
         if (ts.isCallExpression(d.expression)) {
           const expr = d.expression.expression;
           return ts.isIdentifier(expr) && expr.text === 'Event';
@@ -738,19 +823,66 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
         return false;
       });
 
-      if (hasEvent) {
+      if (eventDecorator) {
         const propName = member.name.getText(sourceFile);
 
-        events.push({
+        // Extract @Event options: eventName, bubbles, composed, cancelable
+        const options = this.extractStencilEventOptions(eventDecorator);
+
+        const event: ExtendedPropDefinition = {
           name: propName,
           type: 'EventEmitter',
           required: false,
           description: 'Stencil event',
-        });
+        };
+
+        // Add options if present
+        if (options.eventName !== undefined) event.eventName = options.eventName;
+        if (options.bubbles !== undefined) event.bubbles = options.bubbles;
+        if (options.composed !== undefined) event.composed = options.composed;
+        if (options.cancelable !== undefined) event.cancelable = options.cancelable;
+
+        events.push(event);
       }
     }
 
     return events;
+  }
+
+  private extractStencilEventOptions(decorator: ts.Decorator): { eventName?: string; bubbles?: boolean; composed?: boolean; cancelable?: boolean } {
+    const options: { eventName?: string; bubbles?: boolean; composed?: boolean; cancelable?: boolean } = {};
+
+    if (!ts.isCallExpression(decorator.expression)) return options;
+
+    const args = decorator.expression.arguments;
+    if (args.length === 0) return options;
+
+    const config = args[0];
+    if (!config || !ts.isObjectLiteralExpression(config)) return options;
+
+    for (const prop of config.properties) {
+      if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) continue;
+
+      const propName = prop.name.text;
+      if (propName === 'eventName' && ts.isStringLiteral(prop.initializer)) {
+        options.eventName = prop.initializer.text;
+      }
+      if (propName === 'bubbles') {
+        if (prop.initializer.kind === ts.SyntaxKind.TrueKeyword) {
+          options.bubbles = true;
+        } else if (prop.initializer.kind === ts.SyntaxKind.FalseKeyword) {
+          options.bubbles = false;
+        }
+      }
+      if (propName === 'composed' && prop.initializer.kind === ts.SyntaxKind.TrueKeyword) {
+        options.composed = true;
+      }
+      if (propName === 'cancelable' && prop.initializer.kind === ts.SyntaxKind.TrueKeyword) {
+        options.cancelable = true;
+      }
+    }
+
+    return options;
   }
 
   private extractStencilWatchers(node: ts.ClassDeclaration, _sourceFile: ts.SourceFile): string[] {
@@ -1261,5 +1393,270 @@ export class WebComponentScanner extends Scanner<Component, WebComponentScannerC
     }
 
     return props;
+  }
+
+  // ============================================
+  // Lit Reactive Controller Detection
+  // ============================================
+
+  private extractLitControllers(node: ts.ClassDeclaration, sourceFile: ts.SourceFile): string[] {
+    const controllers: string[] = [];
+
+    for (const member of node.members) {
+      if (!ts.isPropertyDeclaration(member)) continue;
+      if (!member.initializer) continue;
+
+      // Look for: new SomeController(this, ...)
+      if (ts.isNewExpression(member.initializer)) {
+        const expr = member.initializer.expression;
+        if (ts.isIdentifier(expr)) {
+          const controllerName = expr.getText(sourceFile);
+          // Controller classes typically end with 'Controller'
+          if (controllerName.endsWith('Controller')) {
+            controllers.push(controllerName);
+          }
+        }
+      }
+    }
+
+    return controllers;
+  }
+
+  // ============================================
+  // Haunted.js Component Detection
+  // ============================================
+
+  private findHauntedComponents(
+    sourceFile: ts.SourceFile,
+    hauntedComponents: Map<string, string>
+  ): void {
+    const visit = (node: ts.Node) => {
+      // Look for: customElements.define('tag-name', component(FunctionName))
+      if (ts.isCallExpression(node)) {
+        const expr = node.expression;
+        if (ts.isPropertyAccessExpression(expr)) {
+          const obj = expr.expression;
+          const prop = expr.name;
+          if (ts.isIdentifier(obj) && obj.text === 'customElements' && prop.text === 'define') {
+            const args = node.arguments;
+            if (args.length >= 2) {
+              const tagNameArg = args[0];
+              const componentArg = args[1];
+
+              if (tagNameArg && ts.isStringLiteral(tagNameArg)) {
+                // Check if second arg is component(FunctionName)
+                if (componentArg && ts.isCallExpression(componentArg)) {
+                  const componentCallExpr = componentArg.expression;
+                  if (ts.isIdentifier(componentCallExpr) && componentCallExpr.text === 'component') {
+                    const funcArg = componentArg.arguments[0];
+                    if (funcArg && ts.isIdentifier(funcArg)) {
+                      hauntedComponents.set(funcArg.text, tagNameArg.text);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(sourceFile, visit);
+  }
+
+  private extractHauntedComponent(
+    node: ts.Node,
+    sourceFile: ts.SourceFile,
+    relativePath: string,
+    hauntedComponents: Map<string, string>
+  ): Component | null {
+    // Look for function declarations that are registered with component()
+    if (!ts.isFunctionDeclaration(node)) return null;
+    if (!node.name) return null;
+
+    const funcName = node.name.getText(sourceFile);
+    if (!hauntedComponents.has(funcName)) return null;
+
+    const tagName = hauntedComponents.get(funcName)!;
+    const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+
+    const source: WebComponentSource = {
+      type: 'haunted',
+      path: relativePath,
+      exportName: funcName,
+      tagName,
+      line,
+    };
+
+    // Extract props from function parameters if destructured
+    const props = this.extractHauntedProps(node, sourceFile);
+
+    return {
+      id: createComponentId(source as any, funcName),
+      name: funcName,
+      source: source as any,
+      props,
+      variants: [],
+      tokens: [],
+      dependencies: [],
+      metadata: {
+        deprecated: false,
+        tags: [],
+      },
+      scannedAt: new Date(),
+    };
+  }
+
+  private extractHauntedProps(node: ts.FunctionDeclaration, sourceFile: ts.SourceFile): PropDefinition[] {
+    const props: PropDefinition[] = [];
+
+    // Check first parameter for destructured props
+    if (node.parameters.length > 0) {
+      const firstParam = node.parameters[0];
+      if (firstParam && ts.isObjectBindingPattern(firstParam.name)) {
+        for (const element of firstParam.name.elements) {
+          if (ts.isBindingElement(element) && ts.isIdentifier(element.name)) {
+            const propName = element.name.getText(sourceFile);
+            props.push({
+              name: propName,
+              type: 'unknown',
+              required: !element.initializer,
+            });
+          }
+        }
+      }
+    }
+
+    return props;
+  }
+
+  // ============================================
+  // Hybrids.js Component Detection
+  // ============================================
+
+  private findHybridsDefines(
+    sourceFile: ts.SourceFile,
+    hybridsDefines: Map<string, { tagName: string; props: string[] }>
+  ): void {
+    const visit = (node: ts.Node) => {
+      // Look for: define({ tag: 'tag-name', prop1: value1, ... })
+      // or: export default define<Interface>({ tag: 'tag-name', ... })
+      if (ts.isCallExpression(node)) {
+        const expr = node.expression;
+        let isDefine = false;
+
+        if (ts.isIdentifier(expr) && expr.text === 'define') {
+          isDefine = true;
+        }
+
+        if (isDefine && node.arguments.length > 0) {
+          const config = node.arguments[0];
+          if (config && ts.isObjectLiteralExpression(config)) {
+            let tagName: string | null = null;
+            const props: string[] = [];
+
+            for (const prop of config.properties) {
+              if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
+                const propName = prop.name.text;
+                if (propName === 'tag' && ts.isStringLiteral(prop.initializer)) {
+                  tagName = prop.initializer.text;
+                } else if (propName !== 'render' && propName !== 'tag') {
+                  // Non-render, non-tag properties are component props
+                  props.push(propName);
+                }
+              }
+            }
+
+            if (tagName) {
+              // Try to extract component name from interface type or use tag name
+              const componentName = this.extractHybridsComponentName(node, sourceFile) ||
+                                    this.toPascalCase(tagName);
+              hybridsDefines.set(componentName, { tagName, props });
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(sourceFile, visit);
+  }
+
+  private extractHybridsComponentName(callExpr: ts.CallExpression, _sourceFile: ts.SourceFile): string | null {
+    // Check for type argument: define<SimpleCounter>(...)
+    if (callExpr.typeArguments && callExpr.typeArguments.length > 0) {
+      const typeArg = callExpr.typeArguments[0];
+      if (typeArg && ts.isTypeReferenceNode(typeArg)) {
+        const typeName = typeArg.typeName;
+        if (ts.isIdentifier(typeName)) {
+          return typeName.text;
+        }
+      }
+    }
+    return null;
+  }
+
+  private extractHybridsComponent(
+    node: ts.Node,
+    sourceFile: ts.SourceFile,
+    relativePath: string,
+    hybridsDefines: Map<string, { tagName: string; props: string[] }>
+  ): Component | null {
+    // We need to find the define() call and extract component info
+    // This is called for each node, but we only want to process once
+    if (!ts.isExportAssignment(node) && !ts.isVariableStatement(node)) {
+      // Check if this is a define() call at top level
+      if (!ts.isExpressionStatement(node)) return null;
+      if (!ts.isCallExpression(node.expression)) return null;
+
+      const expr = node.expression.expression;
+      if (!ts.isIdentifier(expr) || expr.text !== 'define') return null;
+    }
+
+    // For export default define(...), we already processed in findHybridsDefines
+    // Return the first component found
+    for (const [name, info] of hybridsDefines) {
+      const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+
+      const source: WebComponentSource = {
+        type: 'hybrids',
+        path: relativePath,
+        exportName: name,
+        tagName: info.tagName,
+        line,
+      };
+
+      const props: PropDefinition[] = info.props.map(propName => ({
+        name: propName,
+        type: 'unknown',
+        required: false,
+      }));
+
+      // Remove from map so we don't process again
+      hybridsDefines.delete(name);
+
+      return {
+        id: createComponentId(source as any, name),
+        name,
+        source: source as any,
+        props,
+        variants: [],
+        tokens: [],
+        dependencies: [],
+        metadata: {
+          deprecated: false,
+          tags: [],
+        },
+        scannedAt: new Date(),
+      };
+    }
+
+    return null;
+  }
+
+  private toPascalCase(str: string): string {
+    return str
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join('');
   }
 }

@@ -844,3 +844,261 @@ export class ThemedButton {
   }
 }
 `;
+
+// Lit component with legacy @internalProperty decorator (Lit 2.x)
+export const LIT_INTERNAL_PROPERTY = `
+import { LitElement, html } from 'lit';
+import { customElement, property, internalProperty } from 'lit/decorators.js';
+
+@customElement('my-internal-component')
+export class MyInternalComponent extends LitElement {
+  @property({ type: String })
+  label = 'Hello';
+
+  @internalProperty()
+  private _internalState = 0;
+
+  @internalProperty()
+  protected _anotherInternal = false;
+
+  render() {
+    return html\`<div>\${this.label}: \${this._internalState}</div>\`;
+  }
+}
+`;
+
+// Stencil component with detailed @Prop options
+export const STENCIL_PROP_OPTIONS = `
+import { Component, Prop, h } from '@stencil/core';
+
+@Component({
+  tag: 'my-advanced-prop',
+  shadow: true,
+})
+export class MyAdvancedProp {
+  @Prop({ mutable: true }) mutableCount = 0;
+  @Prop({ reflect: true }) reflectedColor: string;
+  @Prop({ mutable: true, reflect: true }) activeState = false;
+  @Prop({ attribute: 'data-value' }) customAttrName: string;
+
+  render() {
+    return <div style={{ color: this.reflectedColor }}>{this.mutableCount}</div>;
+  }
+}
+`;
+
+// Stencil component with detailed @Event options
+export const STENCIL_EVENT_OPTIONS = `
+import { Component, Event, EventEmitter, Prop, h } from '@stencil/core';
+
+@Component({
+  tag: 'my-event-emitter',
+  shadow: true,
+})
+export class MyEventEmitter {
+  @Prop() value: string = '';
+
+  @Event() valueChange: EventEmitter<string>;
+
+  @Event({ eventName: 'custom-event', bubbles: true, composed: true, cancelable: true })
+  customEventEmitter: EventEmitter<{ data: string }>;
+
+  @Event({ bubbles: false })
+  localEvent: EventEmitter<void>;
+
+  handleClick() {
+    this.valueChange.emit(this.value);
+    this.customEventEmitter.emit({ data: this.value });
+  }
+
+  render() {
+    return <button onClick={() => this.handleClick()}>Emit</button>;
+  }
+}
+`;
+
+// Lit component with Reactive Controller pattern
+export const LIT_WITH_CONTROLLER = `
+import { LitElement, html, ReactiveControllerHost } from 'lit';
+import { customElement, property } from 'lit/decorators.js';
+
+class TimerController {
+  host: ReactiveControllerHost;
+  timeout: number;
+  _timerID?: number;
+
+  constructor(host: ReactiveControllerHost, timeout = 1000) {
+    this.host = host;
+    this.timeout = timeout;
+    host.addController(this);
+  }
+
+  hostConnected() {
+    this._timerID = window.setInterval(() => {
+      this.host.requestUpdate();
+    }, this.timeout);
+  }
+
+  hostDisconnected() {
+    clearInterval(this._timerID);
+  }
+}
+
+@customElement('timer-element')
+export class TimerElement extends LitElement {
+  private timer = new TimerController(this, 500);
+
+  @property({ type: Number })
+  count = 0;
+
+  render() {
+    return html\`<div>Timer count: \${this.count}</div>\`;
+  }
+}
+`;
+
+// Shoelace-style component with static register pattern
+export const SHOELACE_STYLE_COMPONENT = `
+import { html } from 'lit';
+import { customElement, property } from 'lit/decorators.js';
+import { ShoelaceElement } from './shoelace-element';
+
+@customElement('sl-button')
+export class SlButton extends ShoelaceElement {
+  static dependencies = {};
+
+  @property({ type: String })
+  variant: 'default' | 'primary' | 'success' | 'danger' = 'default';
+
+  @property({ type: Boolean, reflect: true })
+  disabled = false;
+
+  @property({ type: String })
+  size: 'small' | 'medium' | 'large' = 'medium';
+
+  render() {
+    return html\`<button class="button \${this.variant} \${this.size}" ?disabled=\${this.disabled}><slot></slot></button>\`;
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'sl-button': SlButton;
+  }
+}
+`;
+
+// Lit component using customElements.define with class expression
+export const LIT_CLASS_EXPRESSION = `
+import { LitElement, html } from 'lit';
+import { property } from 'lit/decorators.js';
+
+customElements.define('anonymous-element', class extends LitElement {
+  @property({ type: String })
+  message = 'Hello';
+
+  render() {
+    return html\`<div>\${this.message}</div>\`;
+  }
+});
+`;
+
+// Lit 3.x component with @property observer pattern
+export const LIT_PROPERTY_OBSERVER = `
+import { LitElement, html, PropertyValues } from 'lit';
+import { customElement, property } from 'lit/decorators.js';
+
+@customElement('observer-element')
+export class ObserverElement extends LitElement {
+  @property({ type: String })
+  name = '';
+
+  @property({ type: Number })
+  count = 0;
+
+  willUpdate(changedProperties: PropertyValues<this>) {
+    if (changedProperties.has('name')) {
+      console.log('Name changed to:', this.name);
+    }
+    if (changedProperties.has('count')) {
+      console.log('Count changed to:', this.count);
+    }
+  }
+
+  render() {
+    return html\`<div>\${this.name}: \${this.count}</div>\`;
+  }
+}
+`;
+
+// Haunted.js functional web component
+export const HAUNTED_COMPONENT = `
+import { html } from 'lit';
+import { component, useState, useEffect } from 'haunted';
+
+interface CounterProps {
+  initialCount?: number;
+}
+
+function Counter({ initialCount = 0 }: CounterProps) {
+  const [count, setCount] = useState(initialCount);
+
+  useEffect(() => {
+    console.log('Count is:', count);
+  }, [count]);
+
+  return html\`
+    <div>
+      <span>Count: \${count}</span>
+      <button @click=\${() => setCount(count + 1)}>+</button>
+    </div>
+  \`;
+}
+
+customElements.define('haunted-counter', component(Counter));
+`;
+
+// Hybrids.js component
+export const HYBRIDS_COMPONENT = `
+import { define, html } from 'hybrids';
+
+interface SimpleCounter extends HTMLElement {
+  count: number;
+}
+
+export default define<SimpleCounter>({
+  tag: 'simple-counter',
+  count: 0,
+  render: ({ count }) => html\`
+    <div>Count: \${count}</div>
+    <button onclick=\${(host: SimpleCounter) => { host.count += 1; }}>Increment</button>
+  \`,
+});
+`;
+
+// Stencil with @AttachInternals decorator
+export const STENCIL_ATTACH_INTERNALS = `
+import { Component, Prop, h, AttachInternals, Element } from '@stencil/core';
+
+@Component({
+  tag: 'my-form-control',
+  shadow: true,
+  formAssociated: true,
+})
+export class MyFormControl {
+  @Element() el!: HTMLElement;
+  @AttachInternals() internals!: ElementInternals;
+
+  @Prop() value: string = '';
+  @Prop() name: string;
+  @Prop() required = false;
+
+  componentWillLoad() {
+    this.internals.setFormValue(this.value);
+  }
+
+  render() {
+    return <input value={this.value} name={this.name} required={this.required} />;
+  }
+}
+`;

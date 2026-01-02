@@ -32,6 +32,13 @@ import {
   FAST_ELEMENT_DEFINE,
   LIT_WITH_MIXINS,
   STENCIL_MULTI_STYLES,
+  LIT_INTERNAL_PROPERTY,
+  STENCIL_PROP_OPTIONS,
+  STENCIL_EVENT_OPTIONS,
+  LIT_WITH_CONTROLLER,
+  SHOELACE_STYLE_COMPONENT,
+  HAUNTED_COMPONENT,
+  HYBRIDS_COMPONENT,
 } from '../__tests__/fixtures/webcomponent-components.js';
 import { WebComponentScanner } from './webcomponent-scanner.js';
 
@@ -877,6 +884,188 @@ describe('WebComponentScanner', () => {
       expect(result.items).toHaveLength(1);
       expect(result.items[0]!.name).toBe('MixedButton');
       expect(result.items[0]!.source.tagName).toBe('mixed-button');
+    });
+  });
+
+  describe('legacy Lit patterns', () => {
+    it('detects @internalProperty decorator (legacy Lit 2.x)', async () => {
+      vol.fromJSON({
+        '/project/src/internal.ts': LIT_INTERNAL_PROPERTY,
+      });
+
+      const scanner = new WebComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]!.name).toBe('MyInternalComponent');
+      const props = result.items[0]!.props;
+      // Should detect @internalProperty like @state
+      expect(props.some(p => p.name === '_internalState')).toBe(true);
+      expect(props.some(p => p.name === '_anotherInternal')).toBe(true);
+    });
+  });
+
+  describe('Stencil prop and event options', () => {
+    it('extracts @Prop mutable and reflect options in metadata', async () => {
+      vol.fromJSON({
+        '/project/src/advanced-prop.tsx': STENCIL_PROP_OPTIONS,
+      });
+
+      const scanner = new WebComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      const props = result.items[0]!.props;
+
+      // Should capture mutable props with metadata
+      const mutableProp = props.find(p => p.name === 'mutableCount');
+      expect(mutableProp).toBeDefined();
+      expect(mutableProp!.mutable).toBe(true);
+
+      // Should capture reflected props
+      const reflectedProp = props.find(p => p.name === 'reflectedColor');
+      expect(reflectedProp).toBeDefined();
+      expect(reflectedProp!.reflect).toBe(true);
+
+      // Should capture both
+      const bothProp = props.find(p => p.name === 'activeState');
+      expect(bothProp).toBeDefined();
+      expect(bothProp!.mutable).toBe(true);
+      expect(bothProp!.reflect).toBe(true);
+
+      // Should capture custom attribute name
+      const customAttrProp = props.find(p => p.name === 'customAttrName');
+      expect(customAttrProp).toBeDefined();
+      expect(customAttrProp!.attribute).toBe('data-value');
+    });
+
+    it('extracts @Event options (bubbles, composed, eventName) in metadata', async () => {
+      vol.fromJSON({
+        '/project/src/event-emitter.tsx': STENCIL_EVENT_OPTIONS,
+      });
+
+      const scanner = new WebComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      const props = result.items[0]!.props;
+
+      // Basic event - should have default options
+      const valueChange = props.find(p => p.name === 'valueChange');
+      expect(valueChange).toBeDefined();
+      expect(valueChange!.type).toBe('EventEmitter');
+
+      // Custom event with options
+      const customEvent = props.find(p => p.name === 'customEventEmitter');
+      expect(customEvent).toBeDefined();
+      expect(customEvent!.eventName).toBe('custom-event');
+      expect(customEvent!.bubbles).toBe(true);
+      expect(customEvent!.composed).toBe(true);
+      expect(customEvent!.cancelable).toBe(true);
+
+      // Local event with bubbles: false
+      const localEvent = props.find(p => p.name === 'localEvent');
+      expect(localEvent).toBeDefined();
+      expect(localEvent!.bubbles).toBe(false);
+    });
+  });
+
+  describe('Lit reactive controllers', () => {
+    it('detects components using reactive controller pattern', async () => {
+      vol.fromJSON({
+        '/project/src/timer.ts': LIT_WITH_CONTROLLER,
+      });
+
+      const scanner = new WebComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]!.name).toBe('TimerElement');
+      expect(result.items[0]!.source.tagName).toBe('timer-element');
+      // Should detect the component's controllers in metadata
+      expect(result.items[0]!.metadata.controllers).toContain('TimerController');
+    });
+  });
+
+  describe('Shoelace-style components', () => {
+    it('detects Shoelace-style components extending custom base', async () => {
+      vol.fromJSON({
+        '/project/src/sl-button.ts': SHOELACE_STYLE_COMPONENT,
+      });
+
+      const scanner = new WebComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]!.name).toBe('SlButton');
+      expect(result.items[0]!.source.tagName).toBe('sl-button');
+      const props = result.items[0]!.props;
+      expect(props).toContainEqual(expect.objectContaining({ name: 'variant' }));
+      expect(props).toContainEqual(expect.objectContaining({ name: 'disabled' }));
+      expect(props).toContainEqual(expect.objectContaining({ name: 'size' }));
+    });
+  });
+
+  describe('Haunted.js functional components', () => {
+    it('detects Haunted.js functional components', async () => {
+      vol.fromJSON({
+        '/project/src/counter.ts': HAUNTED_COMPONENT,
+      });
+
+      const scanner = new WebComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]!.name).toBe('Counter');
+      expect(result.items[0]!.source.tagName).toBe('haunted-counter');
+      expect(result.items[0]!.source.type).toBe('haunted');
+    });
+  });
+
+  describe('Hybrids.js components', () => {
+    it('detects Hybrids.js components using define()', async () => {
+      vol.fromJSON({
+        '/project/src/counter.ts': HYBRIDS_COMPONENT,
+      });
+
+      const scanner = new WebComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]!.name).toBe('SimpleCounter');
+      expect(result.items[0]!.source.tagName).toBe('simple-counter');
+      expect(result.items[0]!.source.type).toBe('hybrids');
+      expect(result.items[0]!.props).toContainEqual(
+        expect.objectContaining({ name: 'count' })
+      );
     });
   });
 });
