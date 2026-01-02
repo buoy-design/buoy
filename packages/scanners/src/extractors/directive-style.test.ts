@@ -528,4 +528,73 @@ describe('Vue advanced patterns from vuetifyjs/vuetify', () => {
       expect(result[0]!.css).toContain('boxSizing: border-box');
     });
   });
+
+  describe('direct variable/computed property bindings', () => {
+    it('extracts :style with direct variable reference', () => {
+      const content = `<div :style="style"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('[computed: style]');
+    });
+
+    it('extracts v-bind:style with direct variable reference', () => {
+      const content = `<div v-bind:style="computedStyle"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('[computed: computedStyle]');
+    });
+
+    it('extracts :style with camelCase computed property', () => {
+      const content = `<div :style="myComputedStyle"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('[computed: myComputedStyle]');
+    });
+
+    it('extracts :style with property access', () => {
+      const content = `<div :style="item.style"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('[computed: item.style]');
+    });
+
+    it('extracts :style with function call', () => {
+      const content = `<div :style="getStyle()"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('[computed: getStyle()]');
+    });
+  });
+
+  describe('string style bindings', () => {
+    it('extracts :style with string literal (single quotes)', () => {
+      const content = `<div :style="'color: red; padding: 16px'"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('color: red; padding: 16px');
+    });
+
+    it('extracts v-bind:style with string literal', () => {
+      const content = `<div v-bind:style="'font-size: 14px'"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toBe('font-size: 14px');
+    });
+  });
+
+  describe('ternary style bindings', () => {
+    it('extracts :style with ternary returning objects', () => {
+      const content = `<div :style="isActive ? { color: 'red' } : { color: 'blue' }"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('[ternary]');
+    });
+
+    it('extracts :style with ternary returning variables', () => {
+      const content = `<div :style="isActive ? activeStyle : inactiveStyle"></div>`;
+      const result = extractVueStyleBindings(content);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.css).toContain('[ternary]');
+    });
+  });
 });

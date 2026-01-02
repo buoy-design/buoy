@@ -200,11 +200,25 @@ export function extractNgStyleBindings(content: string): StyleMatch[] {
  * :style="`color: red`" (template literals)
  * :style="[{ color: 'red' }, styleObj]" (array bindings)
  * :style="{ opacity: isHovering ? 1 : 0 }" (dynamic values)
+ * :style="style" (direct variable/computed property binding)
+ * :style="'color: red'" (string literal binding)
+ * :style="isActive ? activeStyle : inactiveStyle" (ternary bindings)
  * Multi-line support
  */
 export function extractVueStyleBindings(content: string): StyleMatch[] {
   const matches: StyleMatch[] = [];
   let match;
+  // Track what we've already processed to avoid duplicates
+  const processedRanges: Array<{ start: number; end: number }> = [];
+
+  const isOverlapping = (start: number, end: number): boolean => {
+    return processedRanges.some(
+      (r) =>
+        (start >= r.start && start < r.end) ||
+        (end > r.start && end <= r.end) ||
+        (start <= r.start && end >= r.end)
+    );
+  };
 
   // Match :style="{ ... }" or v-bind:style="{ ... }" - including multi-line (double-quoted)
   const vueStyleObjectDoubleQuoteRegex =
@@ -219,6 +233,10 @@ export function extractVueStyleBindings(content: string): StyleMatch[] {
       const beforeMatch = content.slice(0, match.index);
       const lineNum = beforeMatch.split('\n').length;
 
+      processedRanges.push({
+        start: match.index,
+        end: match.index + match[0].length,
+      });
       matches.push({
         css,
         line: lineNum,
@@ -241,6 +259,10 @@ export function extractVueStyleBindings(content: string): StyleMatch[] {
       const beforeMatch = content.slice(0, match.index);
       const lineNum = beforeMatch.split('\n').length;
 
+      processedRanges.push({
+        start: match.index,
+        end: match.index + match[0].length,
+      });
       matches.push({
         css,
         line: lineNum,
@@ -257,6 +279,11 @@ export function extractVueStyleBindings(content: string): StyleMatch[] {
   while ((match = vueStyleArrayRegex.exec(content)) !== null) {
     const arrayContent = match[1];
     if (!arrayContent) continue;
+
+    processedRanges.push({
+      start: match.index,
+      end: match.index + match[0].length,
+    });
 
     // Extract all object literals from the array
     const objectMatches = arrayContent.match(/\{[^{}]*\}/g);
@@ -292,6 +319,10 @@ export function extractVueStyleBindings(content: string): StyleMatch[] {
     const beforeMatch = content.slice(0, match.index);
     const lineNum = beforeMatch.split('\n').length;
 
+    processedRanges.push({
+      start: match.index,
+      end: match.index + match[0].length,
+    });
     matches.push({
       css: templateContent.trim(),
       line: lineNum,
@@ -310,8 +341,112 @@ export function extractVueStyleBindings(content: string): StyleMatch[] {
     const beforeMatch = content.slice(0, match.index);
     const lineNum = beforeMatch.split('\n').length;
 
+    processedRanges.push({
+      start: match.index,
+      end: match.index + match[0].length,
+    });
     matches.push({
       css: templateContent.trim(),
+      line: lineNum,
+      column: 1,
+      context: 'inline',
+    });
+  }
+
+  // Match :style="'...'" or v-bind:style="'...'" (string literal bindings)
+  // The value is a CSS string wrapped in single quotes inside double quotes
+  const stringLiteralDoubleQuoteRegex =
+    /(?::|v-bind:)style\s*=\s*"'([^']+)'"/g;
+  while ((match = stringLiteralDoubleQuoteRegex.exec(content)) !== null) {
+    if (isOverlapping(match.index, match.index + match[0].length)) continue;
+
+    const cssString = match[1];
+    if (!cssString) continue;
+
+    const beforeMatch = content.slice(0, match.index);
+    const lineNum = beforeMatch.split('\n').length;
+
+    processedRanges.push({
+      start: match.index,
+      end: match.index + match[0].length,
+    });
+    matches.push({
+      css: cssString.trim(),
+      line: lineNum,
+      column: 1,
+      context: 'inline',
+    });
+  }
+
+  // Match :style='"..."' (string literal with double quotes inside single quotes)
+  const stringLiteralSingleQuoteRegex =
+    /(?::|v-bind:)style\s*=\s*'"([^"]+)"'/g;
+  while ((match = stringLiteralSingleQuoteRegex.exec(content)) !== null) {
+    if (isOverlapping(match.index, match.index + match[0].length)) continue;
+
+    const cssString = match[1];
+    if (!cssString) continue;
+
+    const beforeMatch = content.slice(0, match.index);
+    const lineNum = beforeMatch.split('\n').length;
+
+    processedRanges.push({
+      start: match.index,
+      end: match.index + match[0].length,
+    });
+    matches.push({
+      css: cssString.trim(),
+      line: lineNum,
+      column: 1,
+      context: 'inline',
+    });
+  }
+
+  // Match ternary expressions: :style="condition ? a : b"
+  // This captures the entire ternary for indication purposes
+  const ternaryStyleRegex =
+    /(?::|v-bind:)style\s*=\s*"([^"]*\?[^"]*:[^"]*)"/g;
+  while ((match = ternaryStyleRegex.exec(content)) !== null) {
+    if (isOverlapping(match.index, match.index + match[0].length)) continue;
+
+    const ternaryExpr = match[1];
+    if (!ternaryExpr) continue;
+
+    const beforeMatch = content.slice(0, match.index);
+    const lineNum = beforeMatch.split('\n').length;
+
+    processedRanges.push({
+      start: match.index,
+      end: match.index + match[0].length,
+    });
+    matches.push({
+      css: '[ternary]',
+      line: lineNum,
+      column: 1,
+      context: 'inline',
+    });
+  }
+
+  // Match direct variable/computed property bindings: :style="varName" or :style="obj.prop"
+  // Must NOT be an object literal, array, template literal, or string literal
+  // Pattern: starts with letter or _, may contain dots for property access, may end with ()
+  const computedStyleRegex =
+    /(?::|v-bind:)style\s*=\s*"([a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)*(?:\(\))?)"/g;
+  while ((match = computedStyleRegex.exec(content)) !== null) {
+    if (isOverlapping(match.index, match.index + match[0].length)) continue;
+
+    const varName = match[1];
+    if (!varName) continue;
+
+    const beforeMatch = content.slice(0, match.index);
+    const lineNum = beforeMatch.split('\n').length;
+
+    processedRanges.push({
+      start: match.index,
+      end: match.index + match[0].length,
+    });
+    matches.push({
+      css: `[computed: ${varName}]`,
       line: lineNum,
       column: 1,
       context: 'inline',
