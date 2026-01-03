@@ -7,12 +7,14 @@ import {
   GitHubClient,
   parseRepoString,
   formatPRComment,
+  formatAIPRComment,
 } from "../integrations/index.js";
 import {
   DriftAnalysisService,
   hasDriftsAboveThreshold,
   sortDriftsBySeverity,
 } from "../services/drift-analysis.js";
+import { AIAnalysisService } from "../services/ai-analysis.js";
 
 export interface CIOutput {
   version: string;
@@ -123,6 +125,14 @@ export function createCICommand(): Command {
       "--github-pr <number>",
       "PR number to comment on (or use GITHUB_PR_NUMBER env)",
     )
+    .option(
+      "--ai",
+      "Enable AI-powered analysis (requires ANTHROPIC_API_KEY env)",
+    )
+    .option(
+      "--no-ai",
+      "Disable AI analysis even if ANTHROPIC_API_KEY is set",
+    )
     .action(async (options) => {
       // Set JSON mode to ensure any reporter output goes to stderr
       // --json flag takes precedence, but --format also works
@@ -168,8 +178,6 @@ export function createCICommand(): Command {
         // Post to GitHub if configured (using pre-validated values)
         if (github.token && github.repo && github.pr) {
           try {
-            log("Posting to GitHub PR...");
-
             const { owner, repo: repoName } = parseRepoString(github.repo);
             const client = new GitHubClient({
               token: github.token,
@@ -178,30 +186,75 @@ export function createCICommand(): Command {
               prNumber: github.pr,
             });
 
-            const driftResult = {
-              signals: drifts.map((d) => ({
-                type: d.type,
-                severity: d.severity,
-                message: d.message,
-                component: d.source.entityName,
-                file: d.source.location?.split(":")[0],
-                line: d.source.location?.includes(":")
-                  ? parseInt(d.source.location.split(":")[1] || "0", 10)
-                  : undefined,
-                suggestion: d.details.suggestions?.[0],
-              })),
-              summary: {
-                total: drifts.length,
-                critical: drifts.filter((d) => d.severity === "critical")
-                  .length,
-                warning: drifts.filter((d) => d.severity === "warning").length,
-                info: drifts.filter((d) => d.severity === "info").length,
-              },
-            };
+            // Get PR info for context
+            let prAuthor: string | undefined;
+            let filesChanged: string[] | undefined;
+            try {
+              const prInfo = await client.getPRInfo();
+              prAuthor = prInfo.author;
+              filesChanged = prInfo.filesChanged.map((f) => f.filename);
+            } catch {
+              // PR info is optional, continue without it
+            }
 
-            const comment = formatPRComment(driftResult);
+            let comment: string;
+
+            // Use AI analysis if enabled
+            const useAI = options.ai !== false && process.env.ANTHROPIC_API_KEY;
+            if (useAI && drifts.length > 0) {
+              log("Running AI analysis...");
+              const aiService = new AIAnalysisService();
+              const analysis = await aiService.analyzePR(drifts, {
+                projectRoot: process.cwd(),
+                prNumber: github.pr,
+                prAuthor,
+                filesChanged,
+              });
+              log("Generating AI-powered PR comment...");
+              comment = formatAIPRComment(analysis, {
+                signals: drifts.map((d) => ({
+                  type: d.type,
+                  severity: d.severity,
+                  message: d.message,
+                  component: d.source.entityName,
+                  file: d.source.location?.split(":")[0],
+                  line: d.source.location?.includes(":")
+                    ? parseInt(d.source.location.split(":")[1] || "0", 10)
+                    : undefined,
+                  suggestion: d.details.suggestions?.[0],
+                })),
+                summary: {
+                  total: drifts.length,
+                  critical: drifts.filter((d) => d.severity === "critical").length,
+                  warning: drifts.filter((d) => d.severity === "warning").length,
+                  info: drifts.filter((d) => d.severity === "info").length,
+                },
+              });
+            } else {
+              log("Posting to GitHub PR...");
+              const driftResult = {
+                signals: drifts.map((d) => ({
+                  type: d.type,
+                  severity: d.severity,
+                  message: d.message,
+                  component: d.source.entityName,
+                  file: d.source.location?.split(":")[0],
+                  line: d.source.location?.includes(":")
+                    ? parseInt(d.source.location.split(":")[1] || "0", 10)
+                    : undefined,
+                  suggestion: d.details.suggestions?.[0],
+                })),
+                summary: {
+                  total: drifts.length,
+                  critical: drifts.filter((d) => d.severity === "critical").length,
+                  warning: drifts.filter((d) => d.severity === "warning").length,
+                  info: drifts.filter((d) => d.severity === "info").length,
+                },
+              };
+              comment = formatPRComment(driftResult);
+            }
+
             await client.createOrUpdateComment(comment);
-
             log("Posted PR comment");
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);

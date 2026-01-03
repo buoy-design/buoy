@@ -304,3 +304,181 @@ export function formatDriftSignalForInline(drift: DriftSignal, signalId: string)
     expectedValue: drift.details.expected as string | undefined,
   }, signalId);
 }
+
+/**
+ * AI Analysis types (imported from ai-analysis service)
+ */
+interface DriftAnalysis {
+  signal: { type: string; severity: 'critical' | 'warning' | 'info'; message: string; source: { entityName: string; location?: string } };
+  analysis: string;
+  isLikelyIntentional: boolean;
+  confidence: number;
+  suggestedAction: 'fix' | 'approve' | 'discuss';
+  relatedHistory: string[];
+}
+
+interface PRAnalysisSummary {
+  overview: string;
+  criticalIssues: DriftAnalysis[];
+  warnings: DriftAnalysis[];
+  recommendations: string[];
+  riskLevel: 'low' | 'medium' | 'high';
+}
+
+/**
+ * Format PR comment with AI-powered analysis (CodeRabbit style)
+ */
+export function formatAIPRComment(analysis: PRAnalysisSummary, results: DriftResult): string {
+  const lines: string[] = [COMMENT_MARKER];
+
+  // Header with AI badge
+  lines.push('## 🔱 Buoy Design Drift Report');
+  lines.push('');
+  lines.push('*🤖 AI-powered analysis enabled*');
+  lines.push('');
+
+  // AI Overview (the "walkthrough")
+  lines.push('### Walkthrough');
+  lines.push(analysis.overview);
+  lines.push('');
+
+  // Risk level badge
+  const riskIcon = analysis.riskLevel === 'high' ? '🔴' : analysis.riskLevel === 'medium' ? '🟡' : '🟢';
+  lines.push(`**Risk Level:** ${riskIcon} ${analysis.riskLevel.toUpperCase()}`);
+  lines.push('');
+
+  // Changes table
+  if (results.summary.total > 0) {
+    lines.push('### Changes');
+    lines.push('');
+    lines.push('| File | Drift Signals | Severity |');
+    lines.push('|------|---------------|----------|');
+
+    const byFile = groupByFile(results.signals);
+    for (const [file, signals] of Object.entries(byFile).slice(0, 15)) {
+      const maxSeverity = getMaxSeverity(signals);
+      const severityIcon = maxSeverity === 'critical' ? '🔴' : maxSeverity === 'warning' ? '🟡' : '🔵';
+      lines.push(`| \`${file}\` | ${signals.length} | ${severityIcon} ${maxSeverity} |`);
+    }
+    if (Object.keys(byFile).length > 15) {
+      lines.push(`| ... | *${Object.keys(byFile).length - 15} more files* | |`);
+    }
+    lines.push('');
+  }
+
+  // Pre-merge checks
+  lines.push('### Pre-merge checks');
+  lines.push('');
+  lines.push('| Check | Status | Details |');
+  lines.push('|-------|--------|---------|');
+
+  if (analysis.riskLevel === 'high') {
+    lines.push(`| Design System Compliance | ❌ Failed | ${results.summary.critical} critical issues require attention |`);
+  } else if (analysis.riskLevel === 'medium') {
+    lines.push(`| Design System Compliance | ⚠️ Warning | Review recommended before merge |`);
+  } else {
+    lines.push(`| Design System Compliance | ✅ Passed | Low risk, minor issues only |`);
+  }
+
+  // Check for intentional drift
+  const intentionalCount = [...analysis.criticalIssues, ...analysis.warnings].filter(a => a.isLikelyIntentional).length;
+  if (intentionalCount > 0) {
+    lines.push(`| Intentional Drift | ℹ️ Info | ${intentionalCount} issue${intentionalCount === 1 ? '' : 's'} appear intentional |`);
+  }
+  lines.push('');
+
+  // AI-Analyzed Issues
+  if (analysis.criticalIssues.length > 0) {
+    lines.push('### 📜 AI Analysis - Critical Issues');
+    lines.push('');
+
+    for (const issue of analysis.criticalIssues) {
+      lines.push(formatAIAnalyzedIssue(issue));
+      lines.push('');
+    }
+  }
+
+  if (analysis.warnings.length > 0) {
+    lines.push('<details>');
+    lines.push(`<summary>🟡 AI Analysis - Warnings (${analysis.warnings.length})</summary>`);
+    lines.push('');
+
+    for (const issue of analysis.warnings) {
+      lines.push(formatAIAnalyzedIssue(issue));
+      lines.push('');
+    }
+
+    lines.push('</details>');
+    lines.push('');
+  }
+
+  // Recommendations
+  if (analysis.recommendations.length > 0) {
+    lines.push('### 💡 Recommendations');
+    lines.push('');
+    for (const rec of analysis.recommendations) {
+      lines.push(`- ${rec}`);
+    }
+    lines.push('');
+  }
+
+  // Finishing touches
+  lines.push('### ✨ Finishing touches');
+  lines.push('');
+  lines.push('React to provide feedback:');
+  lines.push('- 👍 = Approve all flagged drift as intentional');
+  lines.push('- 👎 = Issues need fixing before merge');
+  lines.push('- 😕 = Need clarification on design system rules');
+  lines.push('');
+
+  // Footer
+  lines.push('---');
+  lines.push('<sub>🔱 <a href="https://github.com/dylantarre/buoy">Buoy</a> - AI-powered design drift detection</sub>');
+
+  return lines.join('\n');
+}
+
+function formatAIAnalyzedIssue(issue: DriftAnalysis): string {
+  const lines: string[] = [];
+  const icon = issue.signal.severity === 'critical' ? '🔴' : issue.signal.severity === 'warning' ? '🟡' : '🔵';
+  const typeLabel = issue.signal.type.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+  // Action badge
+  const actionBadge = issue.suggestedAction === 'fix'
+    ? '⚠️ **Needs Fix**'
+    : issue.suggestedAction === 'approve'
+    ? '✅ **Likely Intentional**'
+    : '💬 **Discuss**';
+
+  lines.push(`#### ${icon} ${typeLabel}`);
+
+  const location = issue.signal.source.location;
+  if (location) {
+    lines.push(`📍 \`${location}\``);
+  }
+  lines.push('');
+
+  lines.push(`> ${issue.signal.message}`);
+  lines.push('');
+
+  // AI Analysis
+  lines.push(`**🤖 AI Analysis:** ${issue.analysis}`);
+  lines.push('');
+  lines.push(`**Suggested Action:** ${actionBadge}`);
+
+  if (issue.isLikelyIntentional) {
+    lines.push('');
+    lines.push(`*Confidence: ${Math.round(issue.confidence * 100)}% - This drift appears intentional based on context.*`);
+  }
+
+  // Related history
+  if (issue.relatedHistory.length > 0) {
+    lines.push('');
+    lines.push('**Context:**');
+    for (const h of issue.relatedHistory) {
+      lines.push(`- ${h}`);
+    }
+  }
+
+  return lines.join('\n');
+}

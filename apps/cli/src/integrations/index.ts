@@ -16,4 +16,9 @@ export type {
   PRInfo,
   PRFile,
 } from './github.js';
-export { formatPRComment, formatInlineComment, formatDriftSignalForInline } from './github-formatter.js';
+export {
+  formatPRComment,
+  formatInlineComment,
+  formatDriftSignalForInline,
+  formatAIPRComment,
+} from './github-formatter.js';
