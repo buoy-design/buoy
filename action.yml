@@ -1,0 +1,90 @@
+name: 'Buoy Design Drift Detection'
+description: 'Detect design system drift in your codebase and optionally create design token PRs'
+author: 'Dylan Tarre'
+
+branding:
+  icon: 'life-buoy'
+  color: 'blue'
+
+inputs:
+  mode:
+    description: 'Mode to run: "ci" for drift check, "architect" for design system creation'
+    required: false
+    default: 'ci'
+  github-token:
+    description: 'GitHub token for posting comments and creating PRs'
+    required: true
+  anthropic-api-key:
+    description: 'Anthropic API key for AI-powered analysis (required for architect mode)'
+    required: false
+  fail-on-drift:
+    description: 'Fail the workflow if drift is detected'
+    required: false
+    default: 'false'
+  baseline:
+    description: 'Path to baseline file for tracking drift'
+    required: false
+    default: ''
+  config:
+    description: 'Path to buoy config file'
+    required: false
+    default: ''
+
+outputs:
+  drift-count:
+    description: 'Number of drift signals detected'
+  maturity-score:
+    description: 'Design system maturity score (architect mode only)'
+  pr-url:
+    description: 'URL of created PR (architect mode only)'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install Buoy
+      shell: bash
+      run: npm install -g @buoy-design/cli
+
+    - name: Run Buoy CI
+      if: inputs.mode == 'ci'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        ARGS="--github"
+
+        if [ "${{ inputs.fail-on-drift }}" = "true" ]; then
+          ARGS="$ARGS --fail-on-drift"
+        fi
+
+        if [ -n "${{ inputs.baseline }}" ]; then
+          ARGS="$ARGS --baseline ${{ inputs.baseline }}"
+        fi
+
+        if [ -n "${{ inputs.config }}" ]; then
+          ARGS="$ARGS --config ${{ inputs.config }}"
+        fi
+
+        buoy ci $ARGS
+
+    - name: Run Buoy Architect
+      if: inputs.mode == 'architect'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        ARGS="--github-token $GITHUB_TOKEN --github-repo $GITHUB_REPOSITORY"
+
+        if [ -z "$ANTHROPIC_API_KEY" ]; then
+          ARGS="$ARGS --no-ai"
+        fi
+
+        buoy architect $ARGS

@@ -1,6 +1,7 @@
 // Built-in integrations for Buoy CLI
 export {
   GitHubClient,
+  GitHubArchitectClient,
   parseRepoString,
   COMMENT_MARKER,
   INLINE_MARKER_PREFIX,
@@ -15,6 +16,8 @@ export type {
   ReviewComment,
   PRInfo,
   PRFile,
+  CreatePROptions,
+  CreatedPR,
 } from './github.js';
 export {
   formatPRComment,

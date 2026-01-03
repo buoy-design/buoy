@@ -277,3 +277,65 @@ export interface UsageInfo {
   }>;
   unusedSince?: Date;
 }
+
+// ============================================================================
+// Design System Diagnosis
+// ============================================================================
+
+export interface DesignSystemDiagnosis {
+  /** Overall maturity score 0-100 */
+  maturityScore: number;
+
+  /** Maturity level based on score */
+  maturityLevel: 'none' | 'emerging' | 'defined' | 'managed' | 'optimized';
+
+  /** CSS analysis results */
+  cssAnalysis: {
+    uniqueColors: number;
+    uniqueSpacing: number;
+    uniqueFonts: number;
+    tokenizationScore: number; // % of values using CSS variables
+    hardcodedValues: number;
+    suggestedPalette: string[];
+    suggestedSpacingScale: number[];
+  };
+
+  /** Team analysis */
+  teamAnalysis: {
+    totalContributors: number;
+    activeContributors: number; // Last 90 days
+    stylingContributors: number; // Who touch CSS files
+    avgCommitsPerContributor: number;
+  };
+
+  /** Codebase analysis */
+  codebaseAnalysis: {
+    totalFiles: number;
+    cssFiles: number;
+    componentFiles: number;
+    frameworksDetected: string[];
+  };
+
+  /** Recommendations based on analysis */
+  recommendations: DesignSystemRecommendation[];
+
+  /** Suggested design tokens to create */
+  suggestedTokens: SuggestedToken[];
+}
+
+export interface DesignSystemRecommendation {
+  priority: 'high' | 'medium' | 'low';
+  category: 'tokens' | 'components' | 'documentation' | 'tooling' | 'process';
+  title: string;
+  description: string;
+  effort: 'small' | 'medium' | 'large';
+  impact: 'small' | 'medium' | 'large';
+}
+
+export interface SuggestedToken {
+  name: string;
+  value: string;
+  category: 'color' | 'spacing' | 'font' | 'border' | 'shadow';
+  usageCount: number;
+  replaces: string[]; // Original values this would replace
+}

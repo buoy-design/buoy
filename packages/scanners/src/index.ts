@@ -18,5 +18,9 @@ export { StorybookScanner, type StorybookScannerConfig } from './storybook/index
 export { TailwindScanner, TailwindConfigParser, ArbitraryValueDetector } from './tailwind/index.js';
 export type { TailwindScannerConfig, TailwindScanResult, TailwindTheme, ArbitraryValue, SemanticToken } from './tailwind/index.js';
 
+// CSS analyzer
+export { CssScanner, analyzeCss, mergeAnalyses } from './css/index.js';
+export type { CssScannerOptions, CssScanResult, CssAnalysis, ColorValue, SpacingValue, FontValue } from './css/index.js';
+
 // Plugin adapter
 export { createPluginFromScanner } from './plugin-adapter.js';

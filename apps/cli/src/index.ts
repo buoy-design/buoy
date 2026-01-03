@@ -14,6 +14,7 @@ import {
   createCompareCommand,
   createAuditCommand,
   createGraphCommand,
+  createArchitectCommand,
 } from "./commands/index.js";
 
 export function createCli(): Command {
@@ -39,6 +40,7 @@ export function createCli(): Command {
   program.addCommand(createCompareCommand());
   program.addCommand(createAuditCommand());
   program.addCommand(createGraphCommand());
+  program.addCommand(createArchitectCommand());
 
   return program;
 }

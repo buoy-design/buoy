@@ -166,6 +166,7 @@ Component Alignment
 | Command | When to Use |
 |---------|-------------|
 | `buoy tokens` | Generate design tokens from your existing code |
+| `buoy architect` | AI-powered diagnosis + automatic PR with design tokens |
 | `buoy baseline` | Accept current drift, only flag NEW issues going forward |
 
 ## What It Detects
@@ -225,6 +226,78 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+## AI Design System Architect
+
+No design system yet? Let Buoy create one for you.
+
+```bash
+# Analyze your codebase and generate design tokens
+npx @buoy-design/cli architect
+
+# Output to file
+npx @buoy-design/cli architect --output design-tokens.css
+
+# Create a PR automatically
+npx @buoy-design/cli architect --github-token $TOKEN --github-repo owner/repo
+```
+
+The architect command:
+
+1. **Scans your CSS** — finds all hardcoded colors, spacing, fonts
+2. **Analyzes git history** — understands team size and contribution patterns
+3. **Calculates maturity** — scores your design system 0-100
+4. **Generates recommendations** — tailored to your team size
+5. **Creates design tokens** — a starter `design-tokens.css` file
+6. **Opens a PR** — if you provide GitHub credentials
+
+**Maturity Levels:**
+
+| Score | Level | Meaning |
+|-------|-------|---------|
+| 80-100 | Optimized | Consistent tokens, good coverage |
+| 60-79 | Managed | Most values tokenized |
+| 40-59 | Defined | Some tokens, inconsistent usage |
+| 20-39 | Emerging | Few tokens, mostly hardcoded |
+| 0-19 | None | No design system detected |
+
+**Team-Aware Recommendations:**
+
+- **Small teams (1-3):** Start simple with colors + spacing
+- **Medium teams (4-10):** Add documentation and tooling
+- **Large teams (10+):** Full governance and component library
+
+## GitHub Action
+
+Use the official Buoy GitHub Action for automated design drift detection:
+
+```yaml
+name: Design Drift Check
+on: [pull_request]
+
+jobs:
+  buoy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dylantarre/buoy@main
+        with:
+          mode: ci  # or 'architect'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}  # Optional, for AI features
+```
+
+**Inputs:**
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `mode` | `ci` | `ci` for drift check, `architect` for design token creation |
+| `github-token` | Required | Token for PR comments |
+| `anthropic-api-key` | Optional | For AI-powered analysis |
+| `fail-on-drift` | `false` | Fail workflow if drift detected |
 
 ## Supported Frameworks
 

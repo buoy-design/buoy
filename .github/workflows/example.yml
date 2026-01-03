@@ -1,0 +1,56 @@
+# Example workflow for using Buoy GitHub Action
+# Copy this to your repository's .github/workflows/ directory
+
+name: Design Drift Check
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Mode to run'
+        required: false
+        default: 'ci'
+        type: choice
+        options:
+          - ci
+          - architect
+
+jobs:
+  buoy-check:
+    runs-on: ubuntu-latest
+    name: Check Design Drift
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git analysis
+
+      - name: Run Buoy
+        uses: dylantarre/buoy@main
+        with:
+          mode: ${{ github.event.inputs.mode || 'ci' }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          fail-on-drift: 'false'
+
+  # Optional: Run architect mode on-demand to create design tokens PR
+  architect:
+    runs-on: ubuntu-latest
+    name: Design System Architect
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'architect'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Architect
+        uses: dylantarre/buoy@main
+        with:
+          mode: architect
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
