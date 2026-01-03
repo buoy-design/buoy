@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import {
-  createInitCommand,
+  createDockCommand,
   createScanCommand,
   createDriftCommand,
   createStatusCommand,
@@ -26,7 +26,7 @@ export function createCli(): Command {
     .version("0.0.1");
 
   // Add commands
-  program.addCommand(createInitCommand());
+  program.addCommand(createDockCommand());
   program.addCommand(createScanCommand());
   program.addCommand(createDriftCommand());
   program.addCommand(createStatusCommand());

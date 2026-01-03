@@ -751,9 +751,9 @@ async function promptConfirm(
   });
 }
 
-export function createInitCommand(): Command {
-  const cmd = new Command("init")
-    .description("Initialize Buoy configuration in the current project")
+export function createDockCommand(): Command {
+  const cmd = new Command("dock")
+    .description("Dock Buoy into your project")
     .option("-f, --force", "Overwrite existing configuration")
     .option("-n, --name <name>", "Project name")
     .option("--skip-detect", "Skip auto-detection and create minimal config")
