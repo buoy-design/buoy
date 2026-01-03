@@ -1,278 +1,102 @@
 # Buoy
 
-**ESLint tells you a color is hardcoded. Buoy tells you which token it should be.**
+**Design system guardrails for AI-assisted development.**
 
-Buoy is a design drift detection tool. It catches when developers (or AI tools like Copilot/Claude) use hardcoded values instead of your design system tokens—and tells you exactly which token to use.
+AI coding tools are fast, but they don't know your design system. They'll write `#3b82f6` when you have `--color-primary`. They'll use `padding: 17px` when your spacing scale is multiples of 4.
+
+Buoy catches these issues before they ship—and if you don't have a design system yet, it'll create one for you.
 
 ```
 src/Button.tsx:24
   #3b82f6 → Use var(--color-primary) instead (92% match)
 ```
 
-## What is "Drift"?
+## Two Modes
 
-**Drift** is when code diverges from your design system. Examples:
+### 1. Check Mode — You have a design system
 
-| What You Wrote | What You Should Write | Drift Type |
-|----------------|----------------------|------------|
-| `color: #3b82f6` | `color: var(--color-primary)` | Hardcoded value |
-| `padding: 17px` | `padding: var(--spacing-md)` | Arbitrary spacing |
-| `<ButtonNew>` | `<Button>` | Naming inconsistency |
-| `className="p-[13px]"` | `className="p-4"` | Tailwind arbitrary value |
-
-**Aligned** means your code uses design system tokens. **Drifting** means it doesn't.
-
-## Quick Start (2 minutes)
+Buoy scans your code and flags anything that doesn't use your tokens:
 
 ```bash
-# Install nothing. Just run it.
 npx @buoy-design/cli status
 ```
 
-That's it. Buoy auto-detects your framework and shows your alignment score.
-
-## Tutorial: From Drift to Aligned
-
-### Step 1: You have a component with hardcoded values
-
-```tsx
-// src/components/Button.tsx
-export function Button({ children }) {
-  return (
-    <button style={{
-      backgroundColor: '#3b82f6',  // Hardcoded color
-      padding: '8px 16px',         // Hardcoded spacing
-      borderRadius: '4px'          // Hardcoded radius
-    }}>
-      {children}
-    </button>
-  );
-}
 ```
-
-### Step 2: Run `buoy status` to see the overview
-
-```bash
-$ npx @buoy-design/cli status
-
 Component Alignment
-                                        47/52 components · 90% aligned
+                                    47/52 components · 90% aligned
 ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛀ ⛁ ⛁
 ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛀
-...
 
 ✓ Good alignment. Minor drift to review.
 ```
 
-### Step 3: Run `buoy drift check` to see specific issues
+### 2. Architect Mode — You need a design system
+
+Buoy analyzes your codebase and creates one:
 
 ```bash
-$ npx @buoy-design/cli drift check
-
-━━━ WARNING (3) ━━━
-
-! Hardcoded Value
-  Component:  Button
-  Location:   src/components/Button.tsx:5
-  Issue:      Using hardcoded color #3b82f6
-  Suggestion: Use var(--color-primary) (92% match)
-
-! Hardcoded Value
-  Component:  Button
-  Location:   src/components/Button.tsx:6
-  Issue:      Using hardcoded spacing 8px 16px
-  Suggestion: Use var(--spacing-sm) var(--spacing-md)
-
-! Hardcoded Value
-  Component:  Button
-  Location:   src/components/Button.tsx:7
-  Issue:      Using hardcoded radius 4px
-  Suggestion: Use var(--radius-sm) (100% match)
+npx @buoy-design/cli architect
 ```
 
-### Step 4: Don't have tokens? Generate them from your code
+```
+Design System Diagnosis
+───────────────────────
+
+Maturity Score: ███░░░░░░░ 30/100
+Level: Emerging
+
+CSS Analysis
+Unique Colors: 47
+Unique Spacing Values: 23
+Tokenization: 12%
+
+Recommendations
+  🔴 Create design tokens
+     47 unique colors found. Consolidate to ~8-12 for consistency.
+
+✓ Generated design-tokens.css
+```
+
+## Quick Start
 
 ```bash
-$ npx @buoy-design/cli tokens
-
-Token Generation
-────────────────
-Files scanned: 47
-Values found: 156
-Tokens generated: 42
-
-✓ Created design-tokens.css
-```
-
-This extracts all your hardcoded values and creates a token file:
-
-```css
-/* design-tokens.css */
-:root {
-  --color-primary: #3b82f6;
-  --spacing-sm: 8px;
-  --spacing-md: 16px;
-  --radius-sm: 4px;
-}
-```
-
-### Step 5: Update your component to use tokens
-
-```tsx
-// src/components/Button.tsx
-export function Button({ children }) {
-  return (
-    <button style={{
-      backgroundColor: 'var(--color-primary)',
-      padding: 'var(--spacing-sm) var(--spacing-md)',
-      borderRadius: 'var(--radius-sm)'
-    }}>
-      {children}
-    </button>
-  );
-}
-```
-
-### Step 6: Run again — 100% aligned
-
-```bash
-$ npx @buoy-design/cli status
-
-Component Alignment
-                                        52/52 components · 100% aligned
-⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁
-⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁
-...
-
-✓ Perfect alignment!
-```
-
-## Which Command Should I Use?
-
-### Getting Started
-| Command | When to Use |
-|---------|-------------|
-| `buoy status` | Quick health check — start here |
-| `buoy init` | Save config so your team uses the same settings |
-
-### Finding Issues
-| Command | When to Use |
-|---------|-------------|
-| `buoy drift check` | Detailed report with fix suggestions (local dev) |
-| `buoy ci` | CI pipelines — posts to GitHub PRs, returns exit codes |
-| `buoy check` | Pre-commit hooks — fast, fails on critical only |
-
-### Fixing Issues
-| Command | When to Use |
-|---------|-------------|
-| `buoy tokens` | Generate design tokens from your existing code |
-| `buoy architect` | AI-powered diagnosis + automatic PR with design tokens |
-| `buoy baseline` | Accept current drift, only flag NEW issues going forward |
-
-## What It Detects
-
-| Drift Type | Example |
-|------------|---------|
-| **Hardcoded values** | `#ff0000` instead of `var(--color-primary)` |
-| **Tailwind arbitrary values** | `p-[17px]` instead of `p-4` |
-| **Naming inconsistencies** | `ButtonNew`, `ButtonV2`, `ButtonOld` in same codebase |
-| **Value divergence** | Code says `#3b82f6`, Figma says `#2563eb` |
-| **Framework sprawl** | React + Vue + jQuery mixed together |
-| **Deprecated patterns** | Using components marked `@deprecated` |
-
-## Zero-Config vs Saved Config
-
-**Zero-config mode** works immediately — Buoy auto-detects your framework.
-
-**Why save config with `buoy init`?**
-- Team consistency — everyone scans the same paths
-- Custom excludes — ignore test files, generated code
-- Figma integration — connect to your design tool
-- Faster CI — config is cached, no re-detection
-
-```bash
-# Works without config
+# See your design system health
 npx @buoy-design/cli status
 
-# Save config when ready
-npx @buoy-design/cli init
+# Get detailed drift report
+npx @buoy-design/cli drift check
+
+# Create a design system from scratch
+npx @buoy-design/cli architect
 ```
+
+No config needed. Buoy auto-detects your framework.
+
+## What It Catches
+
+| Issue | Example |
+|-------|---------|
+| **Hardcoded colors** | `#ff0000` instead of `var(--color-primary)` |
+| **Arbitrary spacing** | `padding: 17px` instead of design scale |
+| **Tailwind escape hatches** | `p-[13px]` instead of `p-4` |
+| **Naming inconsistencies** | `ButtonNew`, `ButtonV2`, `ButtonOld` |
+| **Framework mixing** | React + Vue + jQuery in same codebase |
+
+## Commands
+
+| Command | Purpose |
+|---------|---------|
+| `buoy status` | Visual health check |
+| `buoy drift check` | Detailed issues with fix suggestions |
+| `buoy architect` | Create design system + PR |
+| `buoy tokens` | Generate tokens from existing code |
+| `buoy ci` | CI mode with GitHub PR comments |
+| `buoy baseline` | Accept current state, flag only new drift |
 
 ## CI Integration
 
-```bash
-# Basic — exits 1 on critical issues only
-buoy ci
-
-# Strict — exits 1 on any warning
-buoy ci --fail-on warning
-
-# Post results to GitHub PR
-buoy ci --github-token $TOKEN --github-repo owner/repo --github-pr $PR_NUMBER
-```
-
-**GitHub Actions:**
-
 ```yaml
-name: Design Drift
-on: [pull_request]
-
-jobs:
-  drift:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: npx @buoy-design/cli ci
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
-
-## AI Design System Architect
-
-No design system yet? Let Buoy create one for you.
-
-```bash
-# Analyze your codebase and generate design tokens
-npx @buoy-design/cli architect
-
-# Output to file
-npx @buoy-design/cli architect --output design-tokens.css
-
-# Create a PR automatically
-npx @buoy-design/cli architect --github-token $TOKEN --github-repo owner/repo
-```
-
-The architect command:
-
-1. **Scans your CSS** — finds all hardcoded colors, spacing, fonts
-2. **Analyzes git history** — understands team size and contribution patterns
-3. **Calculates maturity** — scores your design system 0-100
-4. **Generates recommendations** — tailored to your team size
-5. **Creates design tokens** — a starter `design-tokens.css` file
-6. **Opens a PR** — if you provide GitHub credentials
-
-**Maturity Levels:**
-
-| Score | Level | Meaning |
-|-------|-------|---------|
-| 80-100 | Optimized | Consistent tokens, good coverage |
-| 60-79 | Managed | Most values tokenized |
-| 40-59 | Defined | Some tokens, inconsistent usage |
-| 20-39 | Emerging | Few tokens, mostly hardcoded |
-| 0-19 | None | No design system detected |
-
-**Team-Aware Recommendations:**
-
-- **Small teams (1-3):** Start simple with colors + spacing
-- **Medium teams (4-10):** Add documentation and tooling
-- **Large teams (10+):** Full governance and component library
-
-## GitHub Action
-
-Use the official Buoy GitHub Action for automated design drift detection:
-
-```yaml
-name: Design Drift Check
+name: Design System Check
 on: [pull_request]
 
 jobs:
@@ -285,19 +109,44 @@ jobs:
 
       - uses: dylantarre/buoy@main
         with:
-          mode: ci  # or 'architect'
+          mode: ci
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}  # Optional, for AI features
 ```
 
-**Inputs:**
+Or run architect mode to auto-create design tokens:
 
-| Input | Default | Description |
-|-------|---------|-------------|
-| `mode` | `ci` | `ci` for drift check, `architect` for design token creation |
-| `github-token` | Required | Token for PR comments |
-| `anthropic-api-key` | Optional | For AI-powered analysis |
-| `fail-on-drift` | `false` | Fail workflow if drift detected |
+```yaml
+- uses: dylantarre/buoy@main
+  with:
+    mode: architect
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+## Architect Mode Details
+
+The `architect` command does more than generate tokens—it diagnoses your entire design system maturity:
+
+1. **Scans CSS** — extracts all hardcoded colors, spacing, fonts
+2. **Analyzes git history** — understands team size and patterns
+3. **Scores maturity** — 0-100 based on tokenization and consistency
+4. **Recommends next steps** — tailored to your team size
+5. **Creates PR** — with design tokens ready to merge
+
+**Maturity Levels:**
+
+| Score | Level | Meaning |
+|-------|-------|---------|
+| 80-100 | Optimized | Consistent tokens, good coverage |
+| 60-79 | Managed | Most values tokenized |
+| 40-59 | Defined | Some tokens, inconsistent usage |
+| 20-39 | Emerging | Few tokens, mostly hardcoded |
+| 0-19 | None | No design system detected |
+
+**Team-Aware:**
+
+- Small teams (1-3): Recommends simple color + spacing tokens
+- Medium teams (4-10): Adds documentation and tooling suggestions
+- Large teams (10+): Full governance and component library guidance
 
 ## Supported Frameworks
 
@@ -307,11 +156,15 @@ jobs:
 
 **Tokens:** CSS variables, SCSS, Tailwind config, JSON, Style Dictionary
 
-**Design Tools:** Figma (optional, requires API key)
+**Design Tools:** Figma (optional integration)
 
 ## Configuration
 
-After running `buoy init`:
+Works without config, but you can save settings:
+
+```bash
+npx @buoy-design/cli init
+```
 
 ```js
 // buoy.config.mjs
@@ -333,21 +186,16 @@ export default {
 
 ## Philosophy
 
-**Buoy informs by default, blocks by choice.**
+**Inform by default, block by choice.**
 
 ```bash
-buoy status                  # Just show me (default)
+buoy status                  # Just show me
 buoy ci                      # Comment on PR, don't fail
-buoy ci --fail-on critical   # Fail only on critical
+buoy ci --fail-on critical   # Fail on critical only
 buoy ci --fail-on warning    # Strict mode
 ```
 
-Teams climb the enforcement ladder when they're ready.
-
-## Documentation
-
-- [CLAUDE.md](./CLAUDE.md) — Development guide
-- [docs/ROADMAP.md](./docs/ROADMAP.md) — Planned features
+Teams adopt enforcement when they're ready.
 
 ## License
 
