@@ -35,6 +35,10 @@ import {
   extractTemplateLiteralType,
   extractMappedTypeKeys,
   extractRecursiveTypePattern,
+  extractCallableInterfaceSignature,
+  extractTypeAssertion,
+  extractContextReExport,
+  extractExtendWithParts,
 } from "./parser-utils.js";
 
 describe("parser-utils", () => {
@@ -1172,6 +1176,136 @@ export * as Card from "./namespace"
     it("should return null for non-recursive types", () => {
       const code = `type Simple<T> = T | null`;
       const result = extractRecursiveTypePattern(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractCallableInterfaceSignature", () => {
+    it("should extract generic callable signature from interface", () => {
+      const code = `interface ComboboxRootComponent {
+  <T extends CollectionItem>(
+    props: ComboboxRootProps<T> & React.RefAttributes<HTMLDivElement>,
+  ): JSX.Element
+}`;
+      const result = extractCallableInterfaceSignature(code);
+      expect(result).not.toBeNull();
+      expect(result?.interfaceName).toBe("ComboboxRootComponent");
+      expect(result?.genericParams).toContain("T extends CollectionItem");
+      expect(result?.returnType).toBe("JSX.Element");
+    });
+
+    it("should handle simple callable signature without generics", () => {
+      const code = `interface ButtonComponent {
+  (props: ButtonProps): JSX.Element
+}`;
+      const result = extractCallableInterfaceSignature(code);
+      expect(result).not.toBeNull();
+      expect(result?.interfaceName).toBe("ButtonComponent");
+      expect(result?.genericParams).toEqual([]);
+      expect(result?.returnType).toBe("JSX.Element");
+    });
+
+    it("should return null for non-callable interface", () => {
+      const code = `interface ButtonProps {
+  onClick: () => void
+}`;
+      const result = extractCallableInterfaceSignature(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractTypeAssertion", () => {
+    it("should extract type from 'as' assertion", () => {
+      const code = `export const ComboboxRoot = withProvider<HTMLDivElement, ComboboxRootProps>(
+  ArkCombobox.Root,
+  "root",
+  { forwardAsChild: true },
+) as ComboboxRootComponent`;
+      const result = extractTypeAssertion(code);
+      expect(result).not.toBeNull();
+      expect(result?.assertedType).toBe("ComboboxRootComponent");
+    });
+
+    it("should extract React.FC type assertion", () => {
+      const code = `export const CheckboxGroup = chakra(
+  ArkCheckbox.Group,
+  { base: { display: "flex" } },
+  { forwardAsChild: true },
+) as React.FC<CheckboxGroupProps>`;
+      const result = extractTypeAssertion(code);
+      expect(result).not.toBeNull();
+      expect(result?.assertedType).toBe("React.FC<CheckboxGroupProps>");
+    });
+
+    it("should return null for code without type assertion", () => {
+      const code = `export const Button = forwardRef<HTMLButtonElement, ButtonProps>(() => {})`;
+      const result = extractTypeAssertion(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractContextReExport", () => {
+    it("should extract context re-export pattern", () => {
+      const code = `export const DialogContext = ArkDialog.Context`;
+      const result = extractContextReExport(code);
+      expect(result).not.toBeNull();
+      expect(result?.exportName).toBe("DialogContext");
+      expect(result?.sourcePath).toBe("ArkDialog.Context");
+    });
+
+    it("should extract HiddenInput re-export", () => {
+      const code = `export const CheckboxHiddenInput = ArkCheckbox.HiddenInput`;
+      const result = extractContextReExport(code);
+      expect(result).not.toBeNull();
+      expect(result?.exportName).toBe("CheckboxHiddenInput");
+      expect(result?.sourcePath).toBe("ArkCheckbox.HiddenInput");
+    });
+
+    it("should return null for regular exports", () => {
+      const code = `export const Button = forwardRef(() => {})`;
+      const result = extractContextReExport(code);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("extractExtendWithParts", () => {
+    it("should extract parts from extendWith call on variable", () => {
+      const code = `export const dialogAnatomy = arkDialogAnatomy.extendWith(
+  "header",
+  "body",
+  "footer",
+  "backdrop",
+)`;
+      const result = extractExtendWithParts(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("dialogAnatomy");
+      expect(result?.sourceVariable).toBe("arkDialogAnatomy");
+      expect(result?.parts).toEqual(["header", "body", "footer", "backdrop"]);
+    });
+
+    it("should handle single part extension", () => {
+      const code = `export const accordionAnatomy = arkAccordionAnatomy.extendWith("itemBody")`;
+      const result = extractExtendWithParts(code);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("accordionAnatomy");
+      expect(result?.sourceVariable).toBe("arkAccordionAnatomy");
+      expect(result?.parts).toEqual(["itemBody"]);
+    });
+
+    it("should handle chained extendWith on another extendWith result", () => {
+      const code = `export const radioCardAnatomy = radioGroupAnatomy.extendWith(
+  "itemContent",
+  "itemDescription",
+)`;
+      const result = extractExtendWithParts(code);
+      expect(result).not.toBeNull();
+      expect(result?.sourceVariable).toBe("radioGroupAnatomy");
+      expect(result?.parts).toEqual(["itemContent", "itemDescription"]);
+    });
+
+    it("should return null for createAnatomy (use extractAnatomyParts instead)", () => {
+      const code = `export const alertAnatomy = createAnatomy("alert").parts("root", "title")`;
+      const result = extractExtendWithParts(code);
       expect(result).toBeNull();
     });
   });

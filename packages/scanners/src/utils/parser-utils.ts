@@ -1978,3 +1978,241 @@ export function extractRecursiveTypePattern(
     recursionPoints,
   };
 }
+
+/**
+ * Result of extracting a callable interface signature.
+ * Common pattern in Chakra UI for generic component types.
+ */
+export interface CallableInterfaceSignature {
+  /** The interface name (e.g., "ComboboxRootComponent") */
+  interfaceName: string;
+  /** Generic type parameters in the call signature (e.g., ["T extends CollectionItem"]) */
+  genericParams: string[];
+  /** The return type of the call signature (e.g., "JSX.Element") */
+  returnType: string;
+  /** The parameters definition string */
+  params: string;
+}
+
+/**
+ * Extract a callable interface signature from an interface definition.
+ * Handles interfaces like:
+ * ```typescript
+ * interface ComboboxRootComponent {
+ *   <T extends CollectionItem>(props: Props<T>): JSX.Element
+ * }
+ * ```
+ *
+ * @param code The code string to search
+ * @returns Callable interface signature info, or null if not found
+ */
+export function extractCallableInterfaceSignature(
+  code: string,
+): CallableInterfaceSignature | null {
+  // Match interface name
+  const interfaceMatch = code.match(/interface\s+(\w+)\s*\{/);
+  if (!interfaceMatch) {
+    return null;
+  }
+
+  const interfaceName = interfaceMatch[1]!;
+
+  // Look for callable signature inside the interface
+  // Pattern: <T>(...): ReturnType or (...): ReturnType
+  const callablePattern = /\{\s*(?:<([^>]+)>)?\s*\(([^)]*)\)\s*:\s*([^}]+)\}/s;
+  const callableMatch = code.match(callablePattern);
+
+  if (!callableMatch) {
+    return null;
+  }
+
+  const genericString = callableMatch[1] || "";
+  const params = callableMatch[2]!.trim();
+  const returnType = callableMatch[3]!.trim();
+
+  // Parse generic parameters
+  const genericParams = genericString
+    ? splitTopLevelArgs(genericString)
+    : [];
+
+  return {
+    interfaceName,
+    genericParams,
+    returnType,
+    params,
+  };
+}
+
+/**
+ * Result of extracting a type assertion.
+ */
+export interface TypeAssertionResult {
+  /** The asserted type (e.g., "ComboboxRootComponent") */
+  assertedType: string;
+  /** The full expression being asserted */
+  expression: string;
+}
+
+/**
+ * Extract type assertion from an expression.
+ * Handles patterns like: `withProvider(...) as ComboboxRootComponent`
+ *
+ * @param code The code string to search
+ * @returns Type assertion info, or null if not found
+ */
+export function extractTypeAssertion(code: string): TypeAssertionResult | null {
+  // Match pattern: ) as TypeName or ) as Type<Generic>
+  // We need to find the last "as" followed by a type
+  const asPattern = /\)\s+as\s+([A-Za-z_$][A-Za-z0-9_$.<>]*)\s*$/;
+  const match = code.match(asPattern);
+
+  if (!match) {
+    return null;
+  }
+
+  const assertedType = match[1]!;
+
+  // Extract the expression before "as"
+  const asIndex = code.lastIndexOf(" as ");
+  const expression = code.substring(0, asIndex).trim();
+
+  return {
+    assertedType,
+    expression,
+  };
+}
+
+/**
+ * Result of extracting a context or component re-export.
+ */
+export interface ContextReExportResult {
+  /** The exported name (e.g., "DialogContext") */
+  exportName: string;
+  /** The source path (e.g., "ArkDialog.Context") */
+  sourcePath: string;
+}
+
+/**
+ * Extract context or component re-export patterns.
+ * Handles patterns like:
+ * - `export const DialogContext = ArkDialog.Context`
+ * - `export const CheckboxHiddenInput = ArkCheckbox.HiddenInput`
+ *
+ * @param code The code string to search
+ * @returns Re-export info, or null if not a simple re-export
+ */
+export function extractContextReExport(
+  code: string,
+): ContextReExportResult | null {
+  // Match: export const Name = Package.Property
+  // Must be a simple property access, not a function call
+  const pattern = /export\s+const\s+(\w+)\s*=\s*([A-Z][a-zA-Z0-9_]*\.[A-Z][a-zA-Z0-9_]*)\s*$/;
+  const match = code.match(pattern);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    exportName: match[1]!,
+    sourcePath: match[2]!,
+  };
+}
+
+/**
+ * Result of extracting parts from an extendWith call.
+ */
+export interface ExtendWithPartsResult {
+  /** The variable name being defined (e.g., "dialogAnatomy") */
+  name: string;
+  /** The source variable being extended (e.g., "arkDialogAnatomy") */
+  sourceVariable: string;
+  /** The parts being added */
+  parts: string[];
+}
+
+/**
+ * Extract parts from an `.extendWith()` call on an anatomy variable.
+ * Handles patterns like:
+ * ```typescript
+ * export const dialogAnatomy = arkDialogAnatomy.extendWith(
+ *   "header",
+ *   "body",
+ *   "footer"
+ * )
+ * ```
+ *
+ * This is different from `extractAnatomyParts` which handles `createAnatomy().parts()`.
+ *
+ * @param code The code string to search
+ * @returns ExtendWith parts info, or null if not found
+ */
+export function extractExtendWithParts(
+  code: string,
+): ExtendWithPartsResult | null {
+  // Match: (export)? const name = sourceVar.extendWith(...)
+  // Don't match createAnatomy().extendWith() - use extractAnatomyParts for that
+  const pattern = /(?:export\s+)?const\s+(\w+)\s*=\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\.extendWith\s*\(/;
+  const match = code.match(pattern);
+
+  if (!match) {
+    return null;
+  }
+
+  const name = match[1]!;
+  const sourceVariable = match[2]!;
+
+  // Skip if the source is createAnatomy (handled by extractAnatomyParts)
+  if (sourceVariable === "createAnatomy") {
+    return null;
+  }
+
+  // Find the opening parenthesis and extract the arguments
+  const extendWithIndex = code.indexOf(".extendWith(");
+  if (extendWithIndex === -1) {
+    return null;
+  }
+
+  const argsStart = extendWithIndex + ".extendWith(".length;
+  const remaining = code.substring(argsStart);
+
+  // Find the closing parenthesis (handle multiline)
+  let depth = 1;
+  let endIndex = 0;
+
+  for (let i = 0; i < remaining.length; i++) {
+    const char = remaining[i];
+    if (char === "(") {
+      depth++;
+    } else if (char === ")") {
+      depth--;
+      if (depth === 0) {
+        endIndex = i;
+        break;
+      }
+    }
+  }
+
+  const argsContent = remaining.substring(0, endIndex);
+
+  // Extract string arguments (parts)
+  const parts: string[] = [];
+  const stringPattern = /["']([^"']+)["']/g;
+  let stringMatch;
+
+  while ((stringMatch = stringPattern.exec(argsContent)) !== null) {
+    if (stringMatch[1]) {
+      parts.push(stringMatch[1]);
+    }
+  }
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  return {
+    name,
+    sourceVariable,
+    parts,
+  };
+}
