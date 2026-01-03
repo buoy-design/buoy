@@ -615,3 +615,57 @@ export class EditorComponent {
   @Output() onSelectionChange = new EventEmitter<void>();
 }
 `;
+
+// Comprehensive Angular 17+ signal queries (viewChild, viewChildren, contentChild, contentChildren)
+export const SIGNAL_QUERIES_COMPREHENSIVE_ANGULAR = `
+import {
+  Component,
+  Input,
+  viewChild,
+  viewChildren,
+  contentChild,
+  contentChildren,
+  ElementRef,
+  QueryList,
+  Signal
+} from '@angular/core';
+
+// Stub types for the queries
+declare class MatLabel {}
+declare class MatOption {}
+
+@Component({
+  selector: 'mat-form-field',
+  template: '<div><ng-content></ng-content></div>',
+})
+export class MatFormField {
+  @Input() appearance: 'fill' | 'outline' = 'fill';
+
+  // Single content child (Angular 17+ signal query)
+  readonly labelChild = contentChild(MatLabel);
+
+  // Required content child
+  readonly requiredLabel = contentChild.required(MatLabel);
+
+  // Content child with options
+  readonly labelWithDescendants = contentChild(MatLabel, { descendants: true });
+
+  // Multiple content children
+  readonly allLabels = contentChildren(MatLabel);
+
+  // Content children with descendants option
+  readonly allLabelsWithDescendants = contentChildren(MatLabel, { descendants: true });
+
+  // Single view child
+  readonly inputElement = viewChild<ElementRef<HTMLInputElement>>('inputElement');
+
+  // Required view child
+  readonly requiredInput = viewChild.required<ElementRef<HTMLInputElement>>('requiredInput');
+
+  // Multiple view children
+  readonly options = viewChildren(MatOption);
+
+  // View children with read option
+  readonly optionElements = viewChildren(MatOption, { read: ElementRef });
+}
+`;

@@ -31,6 +31,7 @@ import {
   INFERRED_TYPE_FROM_TRANSFORM_ANGULAR,
   SIGNAL_INPUT_INLINE_TRANSFORM_NO_TYPE_ANGULAR,
   OUTPUT_WITH_ALIAS_ANGULAR,
+  SIGNAL_QUERIES_COMPREHENSIVE_ANGULAR,
 } from '../__tests__/fixtures/angular-components.js';
 import { AngularComponentScanner } from './angular-scanner.js';
 
@@ -1090,6 +1091,111 @@ describe('AngularComponentScanner', () => {
       // Regular inputs should still be detected
       const appearanceProp = result.items[0]!.props.find(p => p.name === 'appearance');
       expect(appearanceProp).toBeDefined();
+    });
+
+    it('extracts contentChild signal queries as props', async () => {
+      vol.fromJSON({
+        '/project/src/form-field.ts': SIGNAL_QUERIES_COMPREHENSIVE_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+
+      // contentChild should be extracted as a query prop
+      const labelChildProp = result.items[0]!.props.find(p => p.name === 'labelChild');
+      expect(labelChildProp).toBeDefined();
+      expect(labelChildProp!.type).toContain('Signal');
+    });
+
+    it('extracts required contentChild signal queries', async () => {
+      vol.fromJSON({
+        '/project/src/form-field.ts': SIGNAL_QUERIES_COMPREHENSIVE_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      const requiredLabelProp = result.items[0]!.props.find(p => p.name === 'requiredLabel');
+      expect(requiredLabelProp).toBeDefined();
+      expect(requiredLabelProp!.required).toBe(true);
+    });
+
+    it('extracts contentChildren signal queries', async () => {
+      vol.fromJSON({
+        '/project/src/form-field.ts': SIGNAL_QUERIES_COMPREHENSIVE_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      const allLabelsProp = result.items[0]!.props.find(p => p.name === 'allLabels');
+      expect(allLabelsProp).toBeDefined();
+      expect(allLabelsProp!.type).toContain('Signal');
+    });
+
+    it('extracts viewChild signal queries', async () => {
+      vol.fromJSON({
+        '/project/src/form-field.ts': SIGNAL_QUERIES_COMPREHENSIVE_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      const inputElementProp = result.items[0]!.props.find(p => p.name === 'inputElement');
+      expect(inputElementProp).toBeDefined();
+      expect(inputElementProp!.type).toContain('Signal');
+    });
+
+    it('extracts required viewChild signal queries', async () => {
+      vol.fromJSON({
+        '/project/src/form-field.ts': SIGNAL_QUERIES_COMPREHENSIVE_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      const requiredInputProp = result.items[0]!.props.find(p => p.name === 'requiredInput');
+      expect(requiredInputProp).toBeDefined();
+      expect(requiredInputProp!.required).toBe(true);
+    });
+
+    it('extracts viewChildren signal queries', async () => {
+      vol.fromJSON({
+        '/project/src/form-field.ts': SIGNAL_QUERIES_COMPREHENSIVE_ANGULAR,
+      });
+
+      const scanner = new AngularComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.ts'],
+      });
+
+      const result = await scanner.scan();
+
+      const optionsProp = result.items[0]!.props.find(p => p.name === 'options');
+      expect(optionsProp).toBeDefined();
+      expect(optionsProp!.type).toContain('Signal');
     });
   });
 

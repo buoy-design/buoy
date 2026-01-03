@@ -144,6 +144,8 @@ export class AngularComponentScanner extends Scanner<
       sourceFile,
     );
     const modelSignals = this.extractModelSignals(node, sourceFile);
+    // Extract signal queries (viewChild, viewChildren, contentChild, contentChildren)
+    const signalQueries = this.extractSignalQueries(node, sourceFile);
 
     // Extract hostDirectives as dependencies
     const hostDirectives = this.extractHostDirectives(decorator, sourceFile);
@@ -152,7 +154,7 @@ export class AngularComponentScanner extends Scanner<
       id: createComponentId(source as any, name),
       name,
       source: source as any,
-      props: [...props, ...metadataInputs, ...outputs, ...metadataOutputs, ...modelSignals],
+      props: [...props, ...metadataInputs, ...outputs, ...metadataOutputs, ...modelSignals, ...signalQueries],
       variants: [],
       tokens: [],
       dependencies: hostDirectives,
@@ -989,6 +991,104 @@ export class AngularComponentScanner extends Scanner<
     }
 
     return models;
+  }
+
+  /**
+   * Extract Angular 17+ signal queries: viewChild, viewChildren, contentChild, contentChildren
+   */
+  private extractSignalQueries(
+    node: ts.ClassDeclaration,
+    sourceFile: ts.SourceFile,
+  ): PropDefinition[] {
+    const queries: PropDefinition[] = [];
+
+    for (const member of node.members) {
+      if (!ts.isPropertyDeclaration(member)) continue;
+      if (!member.name || !ts.isIdentifier(member.name)) continue;
+
+      if (member.initializer && ts.isCallExpression(member.initializer)) {
+        const propName = member.name.getText(sourceFile);
+        const callExpr = member.initializer.expression;
+
+        // viewChild() or contentChild()
+        if (ts.isIdentifier(callExpr)) {
+          const funcName = callExpr.text;
+          if (funcName === "viewChild" || funcName === "contentChild") {
+            const queryType = this.getSignalQueryType(member, sourceFile, false);
+            queries.push({
+              name: propName,
+              type: queryType,
+              required: false,
+              description: `${funcName} query`,
+            });
+          } else if (funcName === "viewChildren" || funcName === "contentChildren") {
+            const queryType = this.getSignalQueryType(member, sourceFile, true);
+            queries.push({
+              name: propName,
+              type: queryType,
+              required: false,
+              description: `${funcName} query`,
+            });
+          }
+        }
+
+        // viewChild.required() or contentChild.required()
+        if (
+          ts.isPropertyAccessExpression(callExpr) &&
+          ts.isIdentifier(callExpr.expression) &&
+          callExpr.name.text === "required"
+        ) {
+          const baseName = callExpr.expression.text;
+          if (baseName === "viewChild" || baseName === "contentChild") {
+            const queryType = this.getSignalQueryType(member, sourceFile, false);
+            queries.push({
+              name: propName,
+              type: queryType,
+              required: true,
+              description: `${baseName}.required query`,
+            });
+          }
+        }
+      }
+    }
+
+    return queries;
+  }
+
+  /**
+   * Determine the type for a signal query based on type annotations or type arguments
+   */
+  private getSignalQueryType(
+    member: ts.PropertyDeclaration,
+    sourceFile: ts.SourceFile,
+    isMultiple: boolean,
+  ): string {
+    // Check for explicit type annotation
+    if (member.type) {
+      const typeText = member.type.getText(sourceFile);
+      // If it's already a Signal type, use it
+      if (typeText.includes("Signal")) {
+        return typeText;
+      }
+    }
+
+    // Check for type arguments on the call expression
+    if (member.initializer && ts.isCallExpression(member.initializer)) {
+      const typeArgs = member.initializer.typeArguments;
+      if (typeArgs && typeArgs.length > 0) {
+        const firstTypeArg = typeArgs[0];
+        if (firstTypeArg) {
+          const innerType = firstTypeArg.getText(sourceFile);
+          if (isMultiple) {
+            return `Signal<readonly ${innerType}[]>`;
+          }
+          return `Signal<${innerType} | undefined>`;
+        }
+      }
+    }
+
+    // Default signal type
+    return isMultiple ? "Signal<readonly unknown[]>" : "Signal<unknown | undefined>";
   }
 
   private hasDeprecatedDecorator(node: ts.ClassDeclaration): boolean {
