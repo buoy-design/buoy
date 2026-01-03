@@ -19,6 +19,14 @@ import {
 } from "../output/formatters.js";
 import { ScanOrchestrator } from "../scan/orchestrator.js";
 import type { BuoyConfig } from "../config/schema.js";
+import {
+  isLoggedIn,
+  syncScan,
+  formatScanForUpload,
+  getGitMetadata,
+  hasQueuedScans,
+  getQueueCount,
+} from "../cloud/index.js";
 
 export function createScanCommand(): Command {
   const cmd = new Command("scan")
@@ -178,6 +186,65 @@ export function createScanCommand(): Command {
 
         success("Scan complete");
 
+        // Cloud sync if linked
+        const cloudProjectId = (config as BuoyConfig & { cloudProjectId?: string }).cloudProjectId;
+        if (cloudProjectId && isLoggedIn()) {
+          const syncSpin = spinner("Syncing to Buoy Cloud...").start();
+
+          try {
+            const cwd = process.cwd();
+            const gitMeta = getGitMetadata(cwd);
+
+            // Convert scan results to upload format
+            // Note: drift is computed separately, here we just upload components/tokens
+            const scanData = formatScanForUpload(
+              results.components.map((c) => ({
+                name: c.name,
+                path: 'path' in c.source ? c.source.path : c.id,
+                framework: c.source.type,
+                props: c.props.map((p) => ({
+                  name: p.name,
+                  type: p.type,
+                  required: p.required,
+                  defaultValue: p.defaultValue,
+                })),
+              })),
+              results.tokens.map((t) => ({
+                name: t.name,
+                value: typeof t.value === 'object' ? JSON.stringify(t.value) : String(t.value),
+                type: typeof t.value === 'object' && 'type' in t.value ? t.value.type : 'unknown',
+                path: 'path' in t.source ? t.source.path : undefined,
+                source: t.source.type,
+              })),
+              [], // Drift signals come from drift check, not basic scan
+              gitMeta
+            );
+
+            const syncResult = await syncScan(cwd, cloudProjectId, scanData);
+
+            if (syncResult.success) {
+              syncSpin.succeed(`Synced to Buoy Cloud (${syncResult.scanId})`);
+            } else if (syncResult.queued) {
+              syncSpin.warn("Sync failed - queued for retry");
+              info(`Run ${chalk.cyan("buoy sync")} to retry`);
+            } else {
+              syncSpin.fail(`Sync failed: ${syncResult.error}`);
+            }
+          } catch (syncErr) {
+            syncSpin.fail("Cloud sync failed");
+            if (options.verbose) {
+              const msg = syncErr instanceof Error ? syncErr.message : String(syncErr);
+              error(msg);
+            }
+          }
+        } else if (hasQueuedScans(process.cwd())) {
+          // Remind about queued scans
+          const queueCount = getQueueCount(process.cwd());
+          newline();
+          warning(`${queueCount} scan(s) queued for sync`);
+          info(`Run ${chalk.cyan("buoy sync")} to upload`);
+        }
+
         // Show hint to save config if we auto-detected
         if (isAutoDetected) {
           console.log("");
@@ -185,7 +252,7 @@ export function createScanCommand(): Command {
           console.log(
             chalk.dim("💡 ") +
               "Run " +
-              chalk.cyan("buoy init") +
+              chalk.cyan("buoy dock") +
               " to save this configuration"
           );
         }

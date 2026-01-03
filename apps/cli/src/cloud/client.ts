@@ -195,3 +195,117 @@ export async function deleteProject(id: string): Promise<ApiResponse<{ success: 
     method: 'DELETE',
   });
 }
+
+// ============================================================================
+// Scans API
+// ============================================================================
+
+export interface ScanComponent {
+  name: string;
+  path: string;
+  framework?: string;
+  props?: Array<{
+    name: string;
+    type?: string;
+    required?: boolean;
+    defaultValue?: unknown;
+  }>;
+  imports?: string[];
+  loc?: number;
+}
+
+export interface ScanToken {
+  name: string;
+  value: string;
+  type: string;
+  path?: string;
+  source?: string;
+}
+
+export interface ScanDriftSignal {
+  type: string;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  file?: string;
+  line?: number;
+  component?: string;
+  token?: string;
+  suggestion?: string;
+}
+
+export interface UploadScanRequest {
+  commitSha?: string;
+  branch?: string;
+  author?: string;
+  timestamp?: string;
+  components: ScanComponent[];
+  tokens: ScanToken[];
+  drift: ScanDriftSignal[];
+  summary?: {
+    totalComponents: number;
+    totalTokens: number;
+    totalDrift: number;
+    driftByType?: Record<string, number>;
+    driftBySeverity?: Record<string, number>;
+  };
+}
+
+export interface UploadScanResponse {
+  id: string;
+  projectId: string;
+  summary: {
+    totalComponents: number;
+    totalTokens: number;
+    totalDrift: number;
+    driftByType?: Record<string, number>;
+    driftBySeverity?: Record<string, number>;
+  };
+  createdAt: string;
+}
+
+export interface Scan {
+  id: string;
+  commitSha: string | null;
+  branch: string | null;
+  author: string | null;
+  componentsCount: number;
+  tokensCount: number;
+  driftCount: number;
+  summary: {
+    totalComponents: number;
+    totalTokens: number;
+    totalDrift: number;
+    driftByType?: Record<string, number>;
+    driftBySeverity?: Record<string, number>;
+  } | null;
+  createdAt: string;
+}
+
+export async function uploadScan(
+  projectId: string,
+  data: UploadScanRequest
+): Promise<ApiResponse<UploadScanResponse>> {
+  return apiRequest<UploadScanResponse>(`/projects/${projectId}/scans`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function listScans(
+  projectId: string,
+  options?: { limit?: number; offset?: number }
+): Promise<ApiResponse<{ scans: Scan[]; total: number }>> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.offset) params.set('offset', String(options.offset));
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return apiRequest<{ scans: Scan[]; total: number }>(`/projects/${projectId}/scans${query}`);
+}
+
+export async function getLatestScan(
+  projectId: string,
+  includeFull = false
+): Promise<ApiResponse<Scan>> {
+  const query = includeFull ? '?include=full' : '';
+  return apiRequest<Scan>(`/projects/${projectId}/scans/latest${query}`);
+}

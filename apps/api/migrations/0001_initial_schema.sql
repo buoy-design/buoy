@@ -200,3 +200,34 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 
 CREATE INDEX IF NOT EXISTS projects_account_id_idx ON projects(account_id);
+
+-- Scans (scan results uploaded from CLI)
+CREATE TABLE IF NOT EXISTS scans (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+
+  -- Git metadata
+  commit_sha TEXT,
+  branch TEXT,
+  author TEXT,
+
+  -- Counts
+  components_count INTEGER DEFAULT 0,
+  tokens_count INTEGER DEFAULT 0,
+  drift_count INTEGER DEFAULT 0,
+
+  -- Summary JSON
+  summary TEXT,
+
+  -- Full scan data (JSON blobs)
+  components_data TEXT,
+  tokens_data TEXT,
+  drift_data TEXT,
+
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS scans_project_id_idx ON scans(project_id);
+CREATE INDEX IF NOT EXISTS scans_account_id_idx ON scans(account_id);
+CREATE INDEX IF NOT EXISTS scans_created_at_idx ON scans(created_at);

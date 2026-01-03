@@ -12,6 +12,7 @@ import type { Env, Variables } from './env.js';
 import { auth } from './routes/auth.js';
 import { apiKeys } from './routes/api-keys.js';
 import { projects } from './routes/projects.js';
+import { scans } from './routes/scans.js';
 import { requireAuth } from './middleware/auth.js';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -70,6 +71,7 @@ app.route('/api-keys', apiKeys);
 // Project routes (authenticated)
 app.use('/projects/*', requireAuth);
 app.route('/projects', projects);
+app.route('/projects', scans); // Nested: /projects/:id/scans
 
 // 404 handler
 app.notFound((c) => {

@@ -24,3 +24,4 @@ export { createLogoutCommand } from "./logout.js";
 export { createWhoamiCommand } from "./whoami.js";
 export { createLinkCommand } from "./link.js";
 export { createUnlinkCommand } from "./unlink.js";
+export { createSyncCommand } from "./sync.js";
