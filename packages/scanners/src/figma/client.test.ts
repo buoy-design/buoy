@@ -6,6 +6,7 @@ import {
   FigmaAuthError,
   FigmaNotFoundError,
   FigmaRateLimitError,
+  FigmaCircuitBreakerError,
   createFigmaClient,
 } from './client.js';
 
@@ -1468,6 +1469,242 @@ describe('FigmaClient', () => {
       await expect(promise).rejects.toThrow();
 
       vi.useFakeTimers();
+    });
+  });
+
+  describe('circuit breaker', () => {
+    it('opens circuit after consecutive failures exceed threshold', async () => {
+      // Fail 5 times in a row to open the circuit
+      mockErrorResponse(500, 'Internal Server Error', 'Server error');
+      mockErrorResponse(500, 'Internal Server Error', 'Server error');
+      mockErrorResponse(500, 'Internal Server Error', 'Server error');
+      mockErrorResponse(500, 'Internal Server Error', 'Server error');
+      mockErrorResponse(500, 'Internal Server Error', 'Server error');
+
+      const client = new FigmaClient('test-token', {
+        enableCache: false,
+        deduplicateRequests: false,
+        maxRetries: 0,
+        circuitBreaker: {
+          enabled: true,
+          failureThreshold: 5,
+          resetTimeoutMs: 30000,
+        },
+      });
+
+      // Make 5 requests that all fail
+      for (let i = 0; i < 5; i++) {
+        await client.getFile(`file-${i}`).catch(() => {});
+      }
+
+      // The 6th request should fail immediately due to open circuit
+      await expect(client.getFile('file-6')).rejects.toThrow('Circuit breaker is open');
+
+      // Only 5 fetch calls should have been made (6th blocked by circuit)
+      expect(mockFetch).toHaveBeenCalledTimes(5);
+    });
+
+    it('resets circuit after timeout period', async () => {
+      // Fail 5 times to open the circuit
+      for (let i = 0; i < 5; i++) {
+        mockErrorResponse(500, 'Internal Server Error', 'Server error');
+      }
+      // Then succeed on the reset attempt
+      mockSuccessResponse({ name: 'Test File' });
+
+      const client = new FigmaClient('test-token', {
+        enableCache: false,
+        deduplicateRequests: false,
+        maxRetries: 0,
+        circuitBreaker: {
+          enabled: true,
+          failureThreshold: 5,
+          resetTimeoutMs: 5000,
+        },
+      });
+
+      // Make 5 requests that all fail
+      for (let i = 0; i < 5; i++) {
+        await client.getFile(`file-${i}`).catch(() => {});
+      }
+
+      // Advance time past reset timeout
+      await vi.advanceTimersByTimeAsync(6000);
+
+      // Now the circuit should be half-open and allow a test request
+      const result = await client.getFile('test-file');
+      expect(result).toEqual({ name: 'Test File' });
+    });
+
+    it('returns to open state if half-open request fails', async () => {
+      // Fail 5 times to open the circuit
+      for (let i = 0; i < 5; i++) {
+        mockErrorResponse(500, 'Internal Server Error', 'Server error');
+      }
+      // Then fail again on the reset attempt
+      mockErrorResponse(500, 'Internal Server Error', 'Still failing');
+
+      const client = new FigmaClient('test-token', {
+        enableCache: false,
+        deduplicateRequests: false,
+        maxRetries: 0,
+        circuitBreaker: {
+          enabled: true,
+          failureThreshold: 5,
+          resetTimeoutMs: 5000,
+        },
+      });
+
+      // Make 5 requests that all fail - opens circuit
+      for (let i = 0; i < 5; i++) {
+        await client.getFile(`file-${i}`).catch(() => {});
+      }
+
+      // Advance time past reset timeout - circuit goes half-open
+      await vi.advanceTimersByTimeAsync(6000);
+
+      // Try a request - it fails
+      await client.getFile('test-file').catch(() => {});
+
+      // Circuit should be open again - next request blocked immediately
+      await expect(client.getFile('another-file')).rejects.toThrow('Circuit breaker is open');
+    });
+
+    it('does not count non-5xx errors toward circuit breaker threshold', async () => {
+      // 4xx errors should not open the circuit
+      mockErrorResponse(404, 'Not Found', 'File not found');
+      mockErrorResponse(403, 'Forbidden', 'Access denied');
+      mockErrorResponse(404, 'Not Found', 'File not found');
+      mockErrorResponse(403, 'Forbidden', 'Access denied');
+      mockErrorResponse(404, 'Not Found', 'File not found');
+      mockSuccessResponse({ name: 'Test File' });
+
+      const client = new FigmaClient('test-token', {
+        enableCache: false,
+        deduplicateRequests: false,
+        maxRetries: 0,
+        circuitBreaker: {
+          enabled: true,
+          failureThreshold: 5,
+          resetTimeoutMs: 30000,
+        },
+      });
+
+      // Make 5 requests that all fail with 4xx
+      for (let i = 0; i < 5; i++) {
+        await client.getFile(`file-${i}`).catch(() => {});
+      }
+
+      // Circuit should still be closed - 6th request should proceed
+      const result = await client.getFile('file-6');
+      expect(result).toEqual({ name: 'Test File' });
+      expect(mockFetch).toHaveBeenCalledTimes(6);
+    });
+
+    it('provides circuit breaker state via getCircuitBreakerState()', async () => {
+      mockErrorResponse(500, 'Internal Server Error', 'Server error');
+
+      const client = new FigmaClient('test-token', {
+        enableCache: false,
+        deduplicateRequests: false,
+        maxRetries: 0,
+        circuitBreaker: {
+          enabled: true,
+          failureThreshold: 2,
+          resetTimeoutMs: 30000,
+        },
+      });
+
+      // Initially closed
+      expect(client.getCircuitBreakerState()).toBe('closed');
+
+      // Make one failing request
+      await client.getFile('file-1').catch(() => {});
+      expect(client.getCircuitBreakerState()).toBe('closed');
+
+      mockErrorResponse(500, 'Internal Server Error', 'Server error');
+
+      // Make second failing request - opens circuit
+      await client.getFile('file-2').catch(() => {});
+      expect(client.getCircuitBreakerState()).toBe('open');
+
+      // Advance time past reset timeout - goes half-open
+      await vi.advanceTimersByTimeAsync(31000);
+      expect(client.getCircuitBreakerState()).toBe('half-open');
+    });
+
+    it('allows manual circuit reset with resetCircuitBreaker()', async () => {
+      for (let i = 0; i < 5; i++) {
+        mockErrorResponse(500, 'Internal Server Error', 'Server error');
+      }
+      mockSuccessResponse({ name: 'Test File' });
+
+      const client = new FigmaClient('test-token', {
+        enableCache: false,
+        deduplicateRequests: false,
+        maxRetries: 0,
+        circuitBreaker: {
+          enabled: true,
+          failureThreshold: 5,
+          resetTimeoutMs: 60000,
+        },
+      });
+
+      // Open the circuit
+      for (let i = 0; i < 5; i++) {
+        await client.getFile(`file-${i}`).catch(() => {});
+      }
+      expect(client.getCircuitBreakerState()).toBe('open');
+
+      // Manually reset the circuit
+      client.resetCircuitBreaker();
+      expect(client.getCircuitBreakerState()).toBe('closed');
+
+      // Now requests should work again
+      const result = await client.getFile('test-file');
+      expect(result).toEqual({ name: 'Test File' });
+    });
+
+    it('is disabled by default', async () => {
+      for (let i = 0; i < 10; i++) {
+        mockErrorResponse(500, 'Internal Server Error', 'Server error');
+      }
+
+      const client = createClient({ maxRetries: 0 });
+
+      // Make many failing requests
+      for (let i = 0; i < 10; i++) {
+        await client.getFile(`file-${i}`).catch(() => {});
+      }
+
+      // All requests should have been made (no circuit breaker blocking)
+      expect(mockFetch).toHaveBeenCalledTimes(10);
+    });
+
+    it('tracks 429 rate limit errors toward circuit breaker threshold', async () => {
+      for (let i = 0; i < 5; i++) {
+        mockErrorResponse(429, 'Too Many Requests', 'Rate limited');
+      }
+
+      const client = new FigmaClient('test-token', {
+        enableCache: false,
+        deduplicateRequests: false,
+        maxRetries: 0,
+        circuitBreaker: {
+          enabled: true,
+          failureThreshold: 5,
+          resetTimeoutMs: 30000,
+        },
+      });
+
+      // Make 5 rate-limited requests
+      for (let i = 0; i < 5; i++) {
+        await client.getFile(`file-${i}`).catch(() => {});
+      }
+
+      // Circuit should be open now
+      expect(client.getCircuitBreakerState()).toBe('open');
+      await expect(client.getFile('file-6')).rejects.toThrow('Circuit breaker is open');
     });
   });
 });

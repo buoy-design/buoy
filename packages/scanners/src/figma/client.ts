@@ -140,6 +140,44 @@ export class FigmaRateLimitError extends FigmaAPIError {
   }
 }
 
+/**
+ * Circuit breaker configuration options
+ */
+export interface CircuitBreakerOptions {
+  /**
+   * Enable the circuit breaker pattern
+   * @default false
+   */
+  enabled: boolean;
+
+  /**
+   * Number of consecutive failures before opening the circuit
+   * @default 5
+   */
+  failureThreshold?: number;
+
+  /**
+   * Time in milliseconds before attempting to close the circuit
+   * @default 30000 (30 seconds)
+   */
+  resetTimeoutMs?: number;
+}
+
+/**
+ * Circuit breaker state
+ */
+export type CircuitBreakerState = 'closed' | 'open' | 'half-open';
+
+/**
+ * Error thrown when circuit breaker is open
+ */
+export class FigmaCircuitBreakerError extends Error {
+  constructor(message: string = 'Circuit breaker is open') {
+    super(message);
+    this.name = 'FigmaCircuitBreakerError';
+  }
+}
+
 export interface FigmaClientOptions {
   /**
    * Maximum number of retry attempts for failed requests
@@ -196,6 +234,13 @@ export interface FigmaClientOptions {
    * Should return a new access token
    */
   onTokenRefresh?: () => Promise<string>;
+
+  /**
+   * Circuit breaker configuration for handling persistent API failures
+   * When enabled, stops making requests after consecutive failures to
+   * prevent overwhelming a failing API and wasting resources.
+   */
+  circuitBreaker?: CircuitBreakerOptions;
 }
 
 /**
@@ -512,6 +557,14 @@ export class FigmaClient {
   private pendingRequests: Map<string, Promise<unknown>> = new Map();
   private tokenRefreshAttempted = false;
 
+  // Circuit breaker state
+  private circuitBreakerEnabled: boolean;
+  private circuitBreakerFailureThreshold: number;
+  private circuitBreakerResetTimeoutMs: number;
+  private circuitBreakerFailureCount: number = 0;
+  private circuitBreakerLastFailureTime: number = 0;
+  private circuitBreakerState: CircuitBreakerState = 'closed';
+
   constructor(accessToken: string, options: FigmaClientOptions = {}) {
     if (!accessToken || accessToken.trim() === "") {
       throw new Error("Access token is required");
@@ -526,9 +579,19 @@ export class FigmaClient {
     this.authType = options.authType ?? "personal";
     this.deduplicateRequests = options.deduplicateRequests ?? true;
     this.onTokenRefresh = options.onTokenRefresh;
+
+    // Initialize circuit breaker
+    this.circuitBreakerEnabled = options.circuitBreaker?.enabled ?? false;
+    this.circuitBreakerFailureThreshold = options.circuitBreaker?.failureThreshold ?? 5;
+    this.circuitBreakerResetTimeoutMs = options.circuitBreaker?.resetTimeoutMs ?? 30000;
   }
 
   private async fetch<T>(endpoint: string, signal?: AbortSignal): Promise<T> {
+    // Check circuit breaker first
+    if (this.circuitBreakerEnabled) {
+      this.checkCircuitBreaker();
+    }
+
     // Check cache first
     if (this.enableCache) {
       const cached = this.getFromCache<T>(endpoint);
@@ -559,6 +622,74 @@ export class FigmaClient {
     return fetchPromise;
   }
 
+  /**
+   * Check circuit breaker state and throw if open
+   */
+  private checkCircuitBreaker(): void {
+    // Update state if we're in open state and timeout has passed
+    if (this.circuitBreakerState === 'open') {
+      const timeSinceLastFailure = Date.now() - this.circuitBreakerLastFailureTime;
+      if (timeSinceLastFailure >= this.circuitBreakerResetTimeoutMs) {
+        this.circuitBreakerState = 'half-open';
+      }
+    }
+
+    // If circuit is open (and not yet half-open), reject the request
+    if (this.circuitBreakerState === 'open') {
+      throw new FigmaCircuitBreakerError('Circuit breaker is open');
+    }
+  }
+
+  /**
+   * Record a successful request for circuit breaker
+   */
+  private recordCircuitBreakerSuccess(): void {
+    if (!this.circuitBreakerEnabled) return;
+
+    // Reset failure count on success
+    this.circuitBreakerFailureCount = 0;
+
+    // If we were half-open and succeeded, close the circuit
+    if (this.circuitBreakerState === 'half-open') {
+      this.circuitBreakerState = 'closed';
+    }
+  }
+
+  /**
+   * Record a failure for circuit breaker
+   * Only counts 5xx errors and 429 rate limits (not 4xx client errors)
+   */
+  private recordCircuitBreakerFailure(error: Error): void {
+    if (!this.circuitBreakerEnabled) return;
+
+    // Only count server errors (5xx) and rate limits (429) toward circuit breaker
+    if (error instanceof FigmaAPIError) {
+      const isServerError = error.statusCode >= 500 && error.statusCode < 600;
+      const isRateLimitError = error.statusCode === 429;
+
+      if (!isServerError && !isRateLimitError) {
+        // 4xx errors (except 429) don't count toward circuit breaker
+        return;
+      }
+    }
+
+    // If we were half-open and the test request failed, go back to open
+    if (this.circuitBreakerState === 'half-open') {
+      this.circuitBreakerState = 'open';
+      this.circuitBreakerLastFailureTime = Date.now();
+      return;
+    }
+
+    // Increment failure count
+    this.circuitBreakerFailureCount++;
+    this.circuitBreakerLastFailureTime = Date.now();
+
+    // Open circuit if threshold exceeded
+    if (this.circuitBreakerFailureCount >= this.circuitBreakerFailureThreshold) {
+      this.circuitBreakerState = 'open';
+    }
+  }
+
   private async fetchWithRetries<T>(endpoint: string, signal?: AbortSignal): Promise<T> {
     // Proactive rate limit waiting
     await this.waitForRateLimitIfNeeded();
@@ -576,6 +707,9 @@ export class FigmaClient {
         if (this.enableCache) {
           this.setCache(endpoint, result);
         }
+
+        // Record success for circuit breaker
+        this.recordCircuitBreakerSuccess();
 
         return result;
       } catch (error) {
@@ -605,6 +739,8 @@ export class FigmaClient {
         // Check if we should retry
         const shouldRetry = this.shouldRetry(lastError, attempt);
         if (!shouldRetry) {
+          // Record failure for circuit breaker before throwing
+          this.recordCircuitBreakerFailure(lastError);
           throw lastError;
         }
 
@@ -624,11 +760,19 @@ export class FigmaClient {
     ) {
       const retryAfter = (lastError as FigmaAPIError & { retryAfter?: number })
         .retryAfter;
-      throw new FigmaRateLimitError(
+      const rateLimitError = new FigmaRateLimitError(
         lastError.message,
         lastError.responseBody,
         retryAfter
       );
+      // Record failure for circuit breaker
+      this.recordCircuitBreakerFailure(rateLimitError);
+      throw rateLimitError;
+    }
+
+    // Record failure for circuit breaker before throwing
+    if (lastError) {
+      this.recordCircuitBreakerFailure(lastError);
     }
 
     // All retries exhausted
@@ -762,6 +906,31 @@ export class FigmaClient {
    */
   getRateLimitInfo(): RateLimitInfo | null {
     return this.rateLimitInfo;
+  }
+
+  /**
+   * Get the current circuit breaker state
+   * @returns 'closed' (normal), 'open' (blocking requests), or 'half-open' (testing)
+   */
+  getCircuitBreakerState(): CircuitBreakerState {
+    // Update state if timeout has passed
+    if (this.circuitBreakerState === 'open') {
+      const timeSinceLastFailure = Date.now() - this.circuitBreakerLastFailureTime;
+      if (timeSinceLastFailure >= this.circuitBreakerResetTimeoutMs) {
+        return 'half-open';
+      }
+    }
+    return this.circuitBreakerState;
+  }
+
+  /**
+   * Manually reset the circuit breaker to closed state
+   * Use this when you know the API is healthy again
+   */
+  resetCircuitBreaker(): void {
+    this.circuitBreakerState = 'closed';
+    this.circuitBreakerFailureCount = 0;
+    this.circuitBreakerLastFailureTime = 0;
   }
 
   /**
