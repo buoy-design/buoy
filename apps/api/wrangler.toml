@@ -1,0 +1,70 @@
+# Buoy Cloud API - Cloudflare Workers Configuration
+
+name = "buoy-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Development settings
+[dev]
+port = 8787
+local_protocol = "http"
+
+# D1 Databases
+[[d1_databases]]
+binding = "PLATFORM_DB"
+database_name = "buoy_platform"
+database_id = ""  # Set after creation
+
+# KV Namespaces
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = ""  # Set after creation
+
+[[kv_namespaces]]
+binding = "RATE_LIMITS"
+id = ""  # Set after creation
+
+# R2 Buckets
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "buoy-backups"
+
+# Queues
+[[queues.producers]]
+binding = "WEBHOOK_QUEUE"
+queue = "buoy-webhooks"
+
+[[queues.consumers]]
+queue = "buoy-webhooks"
+max_batch_size = 10
+max_batch_timeout = 30
+
+# Environment Variables (set via wrangler secret put)
+# GITHUB_CLIENT_ID
+# GITHUB_CLIENT_SECRET
+# GITHUB_WEBHOOK_SECRET
+# STRIPE_SECRET_KEY
+# STRIPE_WEBHOOK_SECRET
+# SESSION_SECRET
+
+[vars]
+ENVIRONMENT = "development"
+API_VERSION = "v1"
+CORS_ORIGIN = "http://localhost:4321"
+
+# Production overrides
+[env.production]
+name = "buoy-api-production"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+CORS_ORIGIN = "https://app.buoy.design"
+
+# Staging overrides
+[env.staging]
+name = "buoy-api-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+CORS_ORIGIN = "https://staging.buoy.design"
