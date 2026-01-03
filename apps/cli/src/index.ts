@@ -15,6 +15,12 @@ import {
   createAuditCommand,
   createGraphCommand,
   createImportCommand,
+  // Cloud commands
+  createLoginCommand,
+  createLogoutCommand,
+  createWhoamiCommand,
+  createLinkCommand,
+  createUnlinkCommand,
 } from "./commands/index.js";
 
 export function createCli(): Command {
@@ -41,6 +47,13 @@ export function createCli(): Command {
   program.addCommand(createAuditCommand());
   program.addCommand(createGraphCommand());
   program.addCommand(createImportCommand());
+
+  // Cloud commands
+  program.addCommand(createLoginCommand());
+  program.addCommand(createLogoutCommand());
+  program.addCommand(createWhoamiCommand());
+  program.addCommand(createLinkCommand());
+  program.addCommand(createUnlinkCommand());
 
   return program;
 }

@@ -17,3 +17,10 @@ export { createCompareCommand } from "./compare.js";
 export { createAuditCommand } from "./audit.js";
 export { createGraphCommand } from "./graph.js";
 export { createImportCommand } from "./import.js";
+
+// Cloud commands
+export { createLoginCommand } from "./login.js";
+export { createLogoutCommand } from "./logout.js";
+export { createWhoamiCommand } from "./whoami.js";
+export { createLinkCommand } from "./link.js";
+export { createUnlinkCommand } from "./unlink.js";
