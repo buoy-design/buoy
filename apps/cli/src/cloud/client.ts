@@ -309,3 +309,38 @@ export async function getLatestScan(
   const query = includeFull ? '?include=full' : '';
   return apiRequest<Scan>(`/projects/${projectId}/scans/latest${query}`);
 }
+
+// ============================================================================
+// GitHub Installations API
+// ============================================================================
+
+export interface GitHubInstallation {
+  id: string;
+  installationId: number;
+  accountLogin: string;
+  accountType: string;
+  avatarUrl: string | null;
+  repositorySelection: 'all' | 'selected';
+  suspended: boolean;
+  suspendedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function listGitHubInstallations(): Promise<
+  ApiResponse<{ installations: GitHubInstallation[] }>
+> {
+  return apiRequest<{ installations: GitHubInstallation[] }>('/github/installations');
+}
+
+export async function revokeGitHubInstallation(
+  id: string
+): Promise<ApiResponse<{ success: boolean }>> {
+  return apiRequest<{ success: boolean }>(`/github/installations/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export function getGitHubInstallUrl(endpoint: string): string {
+  return `${endpoint}/github/install`;
+}

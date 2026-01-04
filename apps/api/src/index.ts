@@ -16,6 +16,7 @@ import { scans } from './routes/scans.js';
 import { drift } from './routes/drift.js';
 import { team } from './routes/team.js';
 import { events } from './routes/events.js';
+import { github } from './routes/github.js';
 import { requireAuth } from './middleware/auth.js';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -84,6 +85,12 @@ app.route('', team); // /account and /account/*
 
 // Public invite acceptance
 app.route('', team); // /invites/:token/accept (handled by team router)
+
+// GitHub App routes
+app.use('/github/install', requireAuth);
+app.use('/github/installations', requireAuth);
+app.use('/github/installations/*', requireAuth);
+app.route('', github); // /github/* and /webhooks/github
 
 // 404 handler
 app.notFound((c) => {

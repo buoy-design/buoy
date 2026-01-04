@@ -25,3 +25,4 @@ export { createWhoamiCommand } from "./whoami.js";
 export { createLinkCommand } from "./link.js";
 export { createUnlinkCommand } from "./unlink.js";
 export { createSyncCommand } from "./sync.js";
+export { createGitHubCommand } from "./github.js";

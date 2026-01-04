@@ -22,6 +22,7 @@ import {
   createLinkCommand,
   createUnlinkCommand,
   createSyncCommand,
+  createGitHubCommand,
 } from "./commands/index.js";
 
 export function createCli(): Command {
@@ -56,6 +57,7 @@ export function createCli(): Command {
   program.addCommand(createLinkCommand());
   program.addCommand(createUnlinkCommand());
   program.addCommand(createSyncCommand());
+  program.addCommand(createGitHubCommand());
 
   return program;
 }
