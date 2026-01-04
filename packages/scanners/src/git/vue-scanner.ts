@@ -1,5 +1,5 @@
 import { Scanner, ScanResult, ScannerConfig } from "../base/scanner.js";
-import type { Component, PropDefinition, VueSource } from "@buoy-design/core";
+import type { Component, PropDefinition, VueSource, HardcodedValue } from "@buoy-design/core";
 import { createComponentId } from "@buoy-design/core";
 import { readFile } from "fs/promises";
 import { relative, basename, dirname, resolve } from "path";
@@ -141,6 +141,9 @@ export class VueComponentScanner extends Scanner<Component, VueScannerConfig> {
       line: 1,
     };
 
+    // Extract hardcoded values from template
+    const hardcodedValues = this.extractHardcodedValuesFromTemplate(content);
+
     return [
       {
         id: createComponentId(source, componentName),
@@ -150,7 +153,10 @@ export class VueComponentScanner extends Scanner<Component, VueScannerConfig> {
         variants: [],
         tokens: [],
         dependencies,
-        metadata,
+        metadata: {
+          ...metadata,
+          hardcodedValues: hardcodedValues.length > 0 ? hardcodedValues : undefined,
+        },
         scannedAt: new Date(),
       },
     ];
@@ -918,5 +924,121 @@ export class VueComponentScanner extends Scanner<Component, VueScannerConfig> {
 
   private hasDeprecatedComment(content: string): boolean {
     return content.includes("@deprecated") || content.includes("* @deprecated");
+  }
+
+  /**
+   * Extract hardcoded color and spacing values from Vue template.
+   * Detects patterns like:
+   * - style="color: #FF0000"
+   * - :style="{ color: '#FF0000', padding: '16px' }"
+   */
+  private extractHardcodedValuesFromTemplate(content: string): HardcodedValue[] {
+    const hardcoded: HardcodedValue[] = [];
+    const templateMatch = content.match(/<template[^>]*>([\s\S]*?)<\/template>/);
+    if (!templateMatch) return hardcoded;
+
+    const template = templateMatch[1] || "";
+
+    // Pattern 1: Inline style attribute: style="color: #FF0000; padding: 16px"
+    const inlineStyleRegex = /style="([^"]+)"/g;
+    let match;
+    while ((match = inlineStyleRegex.exec(template)) !== null) {
+      const styleContent = match[1];
+      if (styleContent) {
+        // Parse CSS properties
+        const propertyRegex = /([a-z-]+)\s*:\s*([^;]+)/g;
+        let propMatch;
+        while ((propMatch = propertyRegex.exec(styleContent)) !== null) {
+          const [, property, value] = propMatch;
+          if (property && value) {
+            const trimmedValue = value.trim();
+            const hardcodedType = this.getHardcodedValueType(property, trimmedValue);
+            if (hardcodedType) {
+              hardcoded.push({
+                type: hardcodedType,
+                value: trimmedValue,
+                property,
+                location: "template",
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Pattern 2: Vue style binding: :style="{ color: '#FF0000', padding: '16px' }"
+    const styleBindingRegex = /:style="?\{([^}]+)\}"?/g;
+    while ((match = styleBindingRegex.exec(template)) !== null) {
+      const bindingContent = match[1];
+      if (bindingContent) {
+        // Parse object properties: color: '#FF0000', padding: '16px'
+        const propRegex = /([a-zA-Z-]+)\s*:\s*['"]([^'"]+)['"]/g;
+        let propMatch;
+        while ((propMatch = propRegex.exec(bindingContent)) !== null) {
+          const [, property, value] = propMatch;
+          if (property && value) {
+            const hardcodedType = this.getHardcodedValueType(property, value);
+            if (hardcodedType) {
+              hardcoded.push({
+                type: hardcodedType,
+                value,
+                property,
+                location: "template",
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Deduplicate by property:value
+    const seen = new Set<string>();
+    return hardcoded.filter((h) => {
+      const key = `${h.property}:${h.value}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  /**
+   * Determine if a CSS value is hardcoded and what type it is.
+   * Returns null if the value is a design token or variable.
+   */
+  private getHardcodedValueType(
+    property: string,
+    value: string,
+  ): "color" | "spacing" | "fontSize" | "other" | null {
+    // Skip CSS variables and design tokens
+    if (value.startsWith("var(") || value.startsWith("$") || value.includes("token")) {
+      return null;
+    }
+
+    // Color properties
+    const colorProps = ["color", "background-color", "background", "border-color", "fill", "stroke"];
+    if (colorProps.includes(property)) {
+      // Hex colors, rgb(), rgba(), hsl(), etc.
+      if (/^(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|oklch\()/.test(value)) {
+        return "color";
+      }
+    }
+
+    // Spacing properties
+    const spacingProps = ["padding", "margin", "gap", "padding-top", "padding-bottom", "padding-left", "padding-right", "margin-top", "margin-bottom", "margin-left", "margin-right"];
+    if (spacingProps.includes(property)) {
+      // Values with units: 16px, 1rem, 2em, etc.
+      if (/^\d+(\.\d+)?(px|rem|em)$/.test(value)) {
+        return "spacing";
+      }
+    }
+
+    // Font size properties
+    if (property === "font-size" || property === "fontSize") {
+      if (/^\d+(\.\d+)?(px|rem|em|pt)$/.test(value)) {
+        return "fontSize";
+      }
+    }
+
+    return null;
   }
 }

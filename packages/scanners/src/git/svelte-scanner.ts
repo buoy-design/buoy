@@ -3,6 +3,7 @@ import type {
   Component,
   PropDefinition,
   SvelteSource,
+  HardcodedValue,
 } from "@buoy-design/core";
 import { createComponentId } from "@buoy-design/core";
 import { readFile } from "fs/promises";
@@ -55,6 +56,7 @@ export class SvelteComponentScanner extends Scanner<
 
     const props = this.extractProps(scriptContent, moduleScriptContent);
     const dependencies = this.extractDependencies(content);
+    const hardcodedValues = this.extractHardcodedValuesFromTemplate(content);
 
     const source: SvelteSource = {
       type: "svelte",
@@ -75,6 +77,7 @@ export class SvelteComponentScanner extends Scanner<
         metadata: {
           deprecated: this.hasDeprecatedComment(content),
           tags: [],
+          hardcodedValues: hardcodedValues.length > 0 ? hardcodedValues : undefined,
         },
         scannedAt: new Date(),
       },
@@ -794,5 +797,109 @@ export class SvelteComponentScanner extends Scanner<
     }
 
     return "";
+  }
+
+  /**
+   * Extract hardcoded color and spacing values from Svelte template.
+   * Detects patterns like:
+   * - style="color: #FF0000"
+   * - style:color="#FF0000"
+   */
+  private extractHardcodedValuesFromTemplate(content: string): HardcodedValue[] {
+    const hardcoded: HardcodedValue[] = [];
+
+    // Pattern 1: Inline style attribute: style="color: #FF0000; padding: 16px"
+    const inlineStyleRegex = /style="([^"]+)"/g;
+    let match;
+    while ((match = inlineStyleRegex.exec(content)) !== null) {
+      const styleContent = match[1];
+      if (styleContent) {
+        // Parse CSS properties
+        const propertyRegex = /([a-z-]+)\s*:\s*([^;]+)/g;
+        let propMatch;
+        while ((propMatch = propertyRegex.exec(styleContent)) !== null) {
+          const [, property, value] = propMatch;
+          if (property && value) {
+            const trimmedValue = value.trim();
+            const hardcodedType = this.getHardcodedValueType(property, trimmedValue);
+            if (hardcodedType) {
+              hardcoded.push({
+                type: hardcodedType,
+                value: trimmedValue,
+                property,
+                location: "template",
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Pattern 2: Svelte style directives: style:color="#FF0000"
+    const styleDirectiveRegex = /style:([a-z-]+)="([^"]+)"/g;
+    while ((match = styleDirectiveRegex.exec(content)) !== null) {
+      const [, property, value] = match;
+      if (property && value) {
+        const hardcodedType = this.getHardcodedValueType(property, value);
+        if (hardcodedType) {
+          hardcoded.push({
+            type: hardcodedType,
+            value,
+            property,
+            location: "template",
+          });
+        }
+      }
+    }
+
+    // Deduplicate by property:value
+    const seen = new Set<string>();
+    return hardcoded.filter((h) => {
+      const key = `${h.property}:${h.value}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  /**
+   * Determine if a CSS value is hardcoded and what type it is.
+   * Returns null if the value is a design token or variable.
+   */
+  private getHardcodedValueType(
+    property: string,
+    value: string,
+  ): "color" | "spacing" | "fontSize" | "other" | null {
+    // Skip CSS variables and design tokens
+    if (value.startsWith("var(") || value.startsWith("$") || value.includes("token")) {
+      return null;
+    }
+
+    // Color properties
+    const colorProps = ["color", "background-color", "background", "border-color", "fill", "stroke"];
+    if (colorProps.includes(property)) {
+      // Hex colors, rgb(), rgba(), hsl(), etc.
+      if (/^(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|oklch\()/.test(value)) {
+        return "color";
+      }
+    }
+
+    // Spacing properties
+    const spacingProps = ["padding", "margin", "gap", "padding-top", "padding-bottom", "padding-left", "padding-right", "margin-top", "margin-bottom", "margin-left", "margin-right"];
+    if (spacingProps.includes(property)) {
+      // Values with units: 16px, 1rem, 2em, etc.
+      if (/^\d+(\.\d+)?(px|rem|em)$/.test(value)) {
+        return "spacing";
+      }
+    }
+
+    // Font size properties
+    if (property === "font-size" || property === "fontSize") {
+      if (/^\d+(\.\d+)?(px|rem|em|pt)$/.test(value)) {
+        return "fontSize";
+      }
+    }
+
+    return null;
   }
 }

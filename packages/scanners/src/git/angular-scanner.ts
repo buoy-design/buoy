@@ -1,5 +1,5 @@
 import { Scanner, ScanResult, ScannerConfig } from "../base/scanner.js";
-import type { Component, PropDefinition } from "@buoy-design/core";
+import type { Component, PropDefinition, HardcodedValue } from "@buoy-design/core";
 import { createComponentId } from "@buoy-design/core";
 import * as ts from "typescript";
 import { readFileSync } from "fs";
@@ -156,6 +156,9 @@ export class AngularComponentScanner extends Scanner<
     // Extract hostDirectives as dependencies
     const hostDirectives = this.extractHostDirectives(decorator, sourceFile);
 
+    // Extract hardcoded values from template
+    const hardcodedValues = this.extractHardcodedValuesFromTemplate(decorator);
+
     return {
       id: createComponentId(source as any, name),
       name,
@@ -167,6 +170,7 @@ export class AngularComponentScanner extends Scanner<
       metadata: {
         deprecated: this.hasDeprecatedDecorator(node),
         tags: [],
+        hardcodedValues: hardcodedValues.length > 0 ? hardcodedValues : undefined,
       },
       scannedAt: new Date(),
     };
@@ -1100,5 +1104,168 @@ export class AngularComponentScanner extends Scanner<
   private hasDeprecatedDecorator(node: ts.ClassDeclaration): boolean {
     const jsDocs = ts.getJSDocTags(node);
     return jsDocs.some((tag) => tag.tagName.text === "deprecated");
+  }
+
+  /**
+   * Extract hardcoded color and spacing values from Angular template.
+   * Detects patterns like:
+   * - style="color: #FF0000"
+   * - [style]="{ color: '#FF0000' }"
+   * - [ngStyle]="{ 'background-color': '#FF0000' }"
+   */
+  private extractHardcodedValuesFromTemplate(
+    decorator: ts.Decorator,
+  ): HardcodedValue[] {
+    const hardcoded: HardcodedValue[] = [];
+
+    // Extract template string from decorator
+    let templateContent: string | null = null;
+
+    if (ts.isCallExpression(decorator.expression)) {
+      const args = decorator.expression.arguments;
+      const firstArg = args[0];
+      if (firstArg && ts.isObjectLiteralExpression(firstArg)) {
+        for (const prop of firstArg.properties) {
+          if (
+            ts.isPropertyAssignment(prop) &&
+            ts.isIdentifier(prop.name) &&
+            prop.name.text === "template" &&
+            ts.isStringLiteral(prop.initializer)
+          ) {
+            templateContent = prop.initializer.text;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!templateContent) return hardcoded;
+
+    // Pattern 1: Inline style attribute: style="color: #FF0000; padding: 16px"
+    const inlineStyleRegex = /style="([^"]+)"/g;
+    let match;
+    while ((match = inlineStyleRegex.exec(templateContent)) !== null) {
+      const styleContent = match[1];
+      if (styleContent) {
+        // Parse CSS properties
+        const propertyRegex = /([a-z-]+)\s*:\s*([^;]+)/g;
+        let propMatch;
+        while ((propMatch = propertyRegex.exec(styleContent)) !== null) {
+          const [, property, value] = propMatch;
+          if (property && value) {
+            const trimmedValue = value.trim();
+            const hardcodedType = this.getHardcodedValueType(property, trimmedValue);
+            if (hardcodedType) {
+              hardcoded.push({
+                type: hardcodedType,
+                value: trimmedValue,
+                property,
+                location: "template",
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Pattern 2: Angular style binding: [style]="{ color: '#FF0000', padding: '16px' }"
+    const styleBindingRegex = /\[style\]="?\{([^}]+)\}"?/g;
+    while ((match = styleBindingRegex.exec(templateContent)) !== null) {
+      const bindingContent = match[1];
+      if (bindingContent) {
+        // Parse object properties: color: '#FF0000', padding: '16px'
+        const propRegex = /([a-zA-Z-]+)\s*:\s*['"]([^'"]+)['"]/g;
+        let propMatch;
+        while ((propMatch = propRegex.exec(bindingContent)) !== null) {
+          const [, property, value] = propMatch;
+          if (property && value) {
+            const hardcodedType = this.getHardcodedValueType(property, value);
+            if (hardcodedType) {
+              hardcoded.push({
+                type: hardcodedType,
+                value,
+                property,
+                location: "template",
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Pattern 3: Angular ngStyle directive: [ngStyle]="{ 'background-color': '#FF0000' }"
+    const ngStyleRegex = /\[ngStyle\]="?\{([^}]+)\}"?/g;
+    while ((match = ngStyleRegex.exec(templateContent)) !== null) {
+      const bindingContent = match[1];
+      if (bindingContent) {
+        // Parse object properties: 'background-color': '#FF0000'
+        const propRegex = /['"]([a-zA-Z-]+)['"]\s*:\s*['"]([^'"]+)['"]/g;
+        let propMatch;
+        while ((propMatch = propRegex.exec(bindingContent)) !== null) {
+          const [, property, value] = propMatch;
+          if (property && value) {
+            const hardcodedType = this.getHardcodedValueType(property, value);
+            if (hardcodedType) {
+              hardcoded.push({
+                type: hardcodedType,
+                value,
+                property,
+                location: "template",
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Deduplicate by property:value
+    const seen = new Set<string>();
+    return hardcoded.filter((h) => {
+      const key = `${h.property}:${h.value}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  /**
+   * Determine if a CSS value is hardcoded and what type it is.
+   * Returns null if the value is a design token or variable.
+   */
+  private getHardcodedValueType(
+    property: string,
+    value: string,
+  ): "color" | "spacing" | "fontSize" | "other" | null {
+    // Skip CSS variables and design tokens
+    if (value.startsWith("var(") || value.startsWith("$") || value.includes("token")) {
+      return null;
+    }
+
+    // Color properties
+    const colorProps = ["color", "background-color", "background", "border-color", "fill", "stroke"];
+    if (colorProps.includes(property)) {
+      // Hex colors, rgb(), rgba(), hsl(), etc.
+      if (/^(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|oklch\()/.test(value)) {
+        return "color";
+      }
+    }
+
+    // Spacing properties
+    const spacingProps = ["padding", "margin", "gap", "padding-top", "padding-bottom", "padding-left", "padding-right", "margin-top", "margin-bottom", "margin-left", "margin-right"];
+    if (spacingProps.includes(property)) {
+      // Values with units: 16px, 1rem, 2em, etc.
+      if (/^\d+(\.\d+)?(px|rem|em)$/.test(value)) {
+        return "spacing";
+      }
+    }
+
+    // Font size properties
+    if (property === "font-size" || property === "fontSize") {
+      if (/^\d+(\.\d+)?(px|rem|em|pt)$/.test(value)) {
+        return "fontSize";
+      }
+    }
+
+    return null;
   }
 }
