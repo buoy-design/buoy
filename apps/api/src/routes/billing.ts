@@ -34,7 +34,7 @@ const PLANS = {
   },
   pro: {
     name: 'Pro',
-    priceId: 'price_buoy_pro_monthly', // Replace with actual Stripe price ID
+    priceId: 'price_1SlgHXAo0W5eA8UvGqHwZWCR',
     amount: 29900, // $299.00 in cents
     userLimit: null, // Unlimited
     features: [
