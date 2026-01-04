@@ -344,3 +344,93 @@ export async function revokeGitHubInstallation(
 export function getGitHubInstallUrl(endpoint: string): string {
   return `${endpoint}/github/install`;
 }
+
+// ============================================================================
+// Billing API
+// ============================================================================
+
+export interface BillingPlan {
+  id: string;
+  name: string;
+  features: string[];
+}
+
+export interface BillingUsage {
+  period: string;
+  scans: number;
+  apiCalls: number;
+  storageBytes: number;
+}
+
+export interface BillingStatus {
+  plan: BillingPlan;
+  subscription: {
+    id: string;
+    customerId: string;
+  } | null;
+  limits: {
+    users: number | null;
+    currentUsers: number;
+  };
+  usage: BillingUsage;
+  trial: {
+    active: boolean;
+    daysRemaining: number;
+    endsAt: string;
+    converted: boolean;
+  } | null;
+  paymentAlert: {
+    status: string;
+    daysRemaining: number;
+    graceEndsAt: string;
+    failedAt: string;
+  } | null;
+  cancellation: {
+    requestedAt: string;
+    reason: string;
+  } | null;
+}
+
+export interface Invoice {
+  id: string;
+  number: string;
+  status: string;
+  amountDue: number;
+  amountPaid: number;
+  currency: string;
+  createdAt: string;
+  hostedUrl: string;
+  pdfUrl: string;
+}
+
+export async function getBillingStatus(): Promise<ApiResponse<BillingStatus>> {
+  return apiRequest<BillingStatus>('/billing');
+}
+
+export async function getInvoices(): Promise<ApiResponse<{ invoices: Invoice[] }>> {
+  return apiRequest<{ invoices: Invoice[] }>('/billing/invoices');
+}
+
+export async function createCheckoutSession(): Promise<
+  ApiResponse<{ checkoutUrl: string; sessionId: string }>
+> {
+  return apiRequest<{ checkoutUrl: string; sessionId: string }>('/billing/checkout', {
+    method: 'POST',
+  });
+}
+
+export async function createPortalSession(): Promise<ApiResponse<{ portalUrl: string }>> {
+  return apiRequest<{ portalUrl: string }>('/billing/portal', {
+    method: 'POST',
+  });
+}
+
+export async function requestCancellation(
+  reason: string,
+  feedback?: string
+): Promise<ApiResponse<{ success: boolean; message: string }>> {
+  return apiRequest<{ success: boolean; message: string }>('/billing/cancel-request', {
+    method: 'POST',
+    body: JSON.stringify({ reason, feedback }),
+  });
+}

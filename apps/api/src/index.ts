@@ -17,6 +17,7 @@ import { drift } from './routes/drift.js';
 import { team } from './routes/team.js';
 import { events } from './routes/events.js';
 import { github } from './routes/github.js';
+import { billing } from './routes/billing.js';
 import { requireAuth } from './middleware/auth.js';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -91,6 +92,11 @@ app.use('/github/install', requireAuth);
 app.use('/github/installations', requireAuth);
 app.use('/github/installations/*', requireAuth);
 app.route('', github); // /github/* and /webhooks/github
+
+// Billing routes (authenticated except webhook)
+app.use('/billing', requireAuth);
+app.use('/billing/*', requireAuth);
+app.route('', billing); // /billing/* and /webhooks/stripe
 
 // 404 handler
 app.notFound((c) => {
