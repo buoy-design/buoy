@@ -759,4 +759,117 @@ describe('ReactComponentScanner', () => {
       expect(result.items).toHaveLength(3);
     });
   });
+
+  describe('signal collection', () => {
+    it('collects component-def signals during scan', async () => {
+      vol.fromJSON({
+        '/project/src/Button.tsx': SIMPLE_BUTTON,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scanWithSignals();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.signals.length).toBeGreaterThan(0);
+
+      const componentDefSignals = result.signals.filter(s => s.type === 'component-def');
+      expect(componentDefSignals).toHaveLength(1);
+      expect(componentDefSignals[0]!.value).toBe('Button');
+    });
+
+    it('collects hardcoded value signals for colors and spacing', async () => {
+      vol.fromJSON({
+        '/project/src/StyledComponent.tsx': HARDCODED_STYLES,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scanWithSignals();
+
+      // Should have color and spacing signals from the hardcoded styles
+      const colorSignals = result.signals.filter(s => s.type === 'color-value');
+      const spacingSignals = result.signals.filter(s => s.type === 'spacing-value');
+
+      expect(colorSignals.length).toBeGreaterThan(0);
+      expect(spacingSignals.length).toBeGreaterThan(0);
+    });
+
+    it('provides signal stats summary', async () => {
+      vol.fromJSON({
+        '/project/src/Button.tsx': SIMPLE_BUTTON,
+        '/project/src/StyledComponent.tsx': HARDCODED_STYLES,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scanWithSignals();
+
+      expect(result.signalStats.total).toBeGreaterThan(0);
+      expect(result.signalStats.byType['component-def']).toBeGreaterThanOrEqual(2);
+    });
+
+    it('clears signals between scans', async () => {
+      vol.fromJSON({
+        '/project/src/Button.tsx': SIMPLE_BUTTON,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      // First scan
+      const result1 = await scanner.scanWithSignals();
+      const signalCount1 = result1.signals.length;
+
+      // Second scan should have same signal count, not doubled
+      const result2 = await scanner.scanWithSignals();
+      expect(result2.signals.length).toBe(signalCount1);
+    });
+
+    it('collects component-usage signals for dependencies', async () => {
+      // Component that uses other components
+      const componentWithDeps = `
+        import { Icon } from './Icon';
+        import { Text } from './Text';
+
+        export function Button({ children }) {
+          return (
+            <button>
+              <Icon name="check" />
+              <Text>{children}</Text>
+            </button>
+          );
+        }
+      `;
+
+      vol.fromJSON({
+        '/project/src/Button.tsx': componentWithDeps,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scanWithSignals();
+
+      const usageSignals = result.signals.filter(s => s.type === 'component-usage');
+      expect(usageSignals.length).toBe(2);
+
+      const usedComponents = usageSignals.map(s => s.value);
+      expect(usedComponents).toContain('Icon');
+      expect(usedComponents).toContain('Text');
+    });
+  });
 });

@@ -8,6 +8,15 @@ import { glob } from 'glob';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { analyzeCss, mergeAnalyses, type CssAnalysis } from './analyzer.js';
+import {
+  createScannerSignalCollector,
+  type CollectorStats,
+} from '../signals/scanner-integration.js';
+import {
+  createSignalAggregator,
+  type SignalAggregator,
+  type RawSignal,
+} from '../signals/index.js';
 
 export interface CssScannerOptions {
   projectRoot: string;
@@ -40,6 +49,7 @@ const DEFAULT_EXCLUDE = [
 
 export class CssScanner {
   private options: Required<CssScannerOptions>;
+  private signalAggregator: SignalAggregator = createSignalAggregator();
 
   constructor(options: CssScannerOptions) {
     this.options = {
@@ -49,7 +59,43 @@ export class CssScanner {
     };
   }
 
+  /**
+   * Scan and return signals along with the standard result.
+   */
+  async scanWithSignals(): Promise<CssScanResult & { signals: RawSignal[]; signalStats: CollectorStats }> {
+    const result = await this.scan();
+    return {
+      ...result,
+      signals: this.signalAggregator.getAllSignals(),
+      signalStats: {
+        total: this.signalAggregator.getStats().total,
+        byType: this.signalAggregator.getStats().byType,
+      },
+    };
+  }
+
+  /**
+   * Get signals collected during the last scan.
+   */
+  getCollectedSignals(): RawSignal[] {
+    return this.signalAggregator.getAllSignals();
+  }
+
+  /**
+   * Get signal statistics from the last scan.
+   */
+  getSignalStats(): CollectorStats {
+    const stats = this.signalAggregator.getStats();
+    return {
+      total: stats.total,
+      byType: stats.byType,
+    };
+  }
+
   async scan(): Promise<CssScanResult> {
+    // Clear signals from previous scan
+    this.signalAggregator.clear();
+
     const files: string[] = [];
     const errors: Array<{ file: string; message: string }> = [];
     const analyses: CssAnalysis[] = [];
@@ -74,6 +120,38 @@ export class CssScanner {
         const content = await readFile(fullPath, 'utf-8');
         const analysis = analyzeCss(content, file);
         analyses.push(analysis);
+
+        // Emit signals for detected values
+        const signalCollector = createScannerSignalCollector('css', file);
+
+        // Emit color signals
+        for (const [, colorValue] of analysis.colors) {
+          signalCollector.collectFromValue(
+            colorValue.value,
+            colorValue.property,
+            colorValue.line
+          );
+        }
+
+        // Emit spacing signals
+        for (const [, spacingValue] of analysis.spacing) {
+          signalCollector.collectFromValue(
+            spacingValue.value,
+            spacingValue.property,
+            spacingValue.line
+          );
+        }
+
+        // Emit font signals
+        for (const [, fontValue] of analysis.fonts) {
+          signalCollector.collectFromValue(
+            fontValue.value,
+            fontValue.property,
+            fontValue.line
+          );
+        }
+
+        this.signalAggregator.addEmitter(file, signalCollector.getEmitter());
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         errors.push({ file, message });

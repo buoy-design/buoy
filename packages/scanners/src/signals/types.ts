@@ -69,6 +69,7 @@ export const FrameworkSchema = z.enum([
   'angular',
   'tailwind',
   'vanilla',
+  'css',
 ]).nullable();
 
 export type Framework = z.infer<typeof FrameworkSchema>;

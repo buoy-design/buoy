@@ -5,6 +5,15 @@ import { ArbitraryValueDetector } from './arbitrary-detector.js';
 import { readFileSync, existsSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { glob } from 'glob';
+import {
+  createScannerSignalCollector,
+  type CollectorStats,
+} from '../signals/scanner-integration.js';
+import {
+  createSignalAggregator,
+  type SignalAggregator,
+  type RawSignal,
+} from '../signals/index.js';
 
 export interface TailwindScannerConfig {
   projectRoot: string;
@@ -125,6 +134,7 @@ interface TailwindV4Config {
 
 export class TailwindScanner {
   private config: TailwindScannerConfig;
+  private signalAggregator: SignalAggregator = createSignalAggregator();
 
   constructor(config: TailwindScannerConfig) {
     this.config = {
@@ -136,7 +146,43 @@ export class TailwindScanner {
     };
   }
 
+  /**
+   * Scan and return signals along with the standard result.
+   */
+  async scanWithSignals(): Promise<TailwindScanResult & { signals: RawSignal[]; signalStats: CollectorStats }> {
+    const result = await this.scan();
+    return {
+      ...result,
+      signals: this.signalAggregator.getAllSignals(),
+      signalStats: {
+        total: this.signalAggregator.getStats().total,
+        byType: this.signalAggregator.getStats().byType,
+      },
+    };
+  }
+
+  /**
+   * Get signals collected during the last scan.
+   */
+  getCollectedSignals(): RawSignal[] {
+    return this.signalAggregator.getAllSignals();
+  }
+
+  /**
+   * Get signal statistics from the last scan.
+   */
+  getSignalStats(): CollectorStats {
+    const stats = this.signalAggregator.getStats();
+    return {
+      total: stats.total,
+      byType: stats.byType,
+    };
+  }
+
   async scan(): Promise<TailwindScanResult> {
+    // Clear signals from previous scan
+    this.signalAggregator.clear();
+
     const result: TailwindScanResult = {
       tokens: [],
       drifts: [],
@@ -147,6 +193,9 @@ export class TailwindScanner {
         tokensExtracted: 0,
       },
     };
+
+    // Create a signal collector for this scan
+    const signalCollector = createScannerSignalCollector('tailwind', 'tailwind-config');
 
     // Extract theme tokens from config
     if (this.config.extractThemeTokens) {
@@ -252,6 +301,31 @@ export class TailwindScanner {
     // when it appears in multiple CSS files or is extracted by multiple methods
     result.tokens = this.deduplicateTokensBySemanticName(result.tokens);
     result.stats.tokensExtracted = result.tokens.length;
+
+    // Emit signals for extracted tokens
+    for (const token of result.tokens) {
+      signalCollector.collectTokenDef(
+        token.name,
+        typeof token.value === 'object' && 'value' in token.value
+          ? String(token.value.value)
+          : JSON.stringify(token.value),
+        1, // Line not available from parsed config
+        { category: token.category, source: token.source }
+      );
+    }
+
+    // Emit signals for class patterns (Tailwind utility classes)
+    if (result.classPatterns) {
+      for (const duplicate of result.classPatterns.duplicates) {
+        signalCollector.collectClassPattern(duplicate.pattern, 1, {
+          files: duplicate.files,
+          count: duplicate.count,
+        });
+      }
+    }
+
+    // Add signals to aggregator
+    this.signalAggregator.addEmitter('tailwind-scan', signalCollector.getEmitter());
 
     return result;
   }
