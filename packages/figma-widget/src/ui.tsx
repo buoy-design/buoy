@@ -517,10 +517,28 @@ function ComponentsView({
 function ExportView({
   analysis,
   onBack,
+  saving,
+  saved,
+  inviteUrl,
+  generatingInvite,
 }: {
   analysis: AnalysisResult;
   onBack: () => void;
+  saving: boolean;
+  saved: boolean;
+  inviteUrl: string | null;
+  generatingInvite: boolean;
 }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (inviteUrl) {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   return (
     <>
       <button style={styles.backButton} onClick={onBack}>
@@ -550,23 +568,58 @@ function ExportView({
         </div>
       </div>
 
-      <button
-        style={styles.button}
-        onClick={() => parent.postMessage({ pluginMessage: { type: 'save-design-intent' } }, '*')}
-      >
-        Save to Buoy
-      </button>
+      {saved ? (
+        <div style={{ ...styles.issueCard, background: '#F0FDF4', marginBottom: '16px' }}>
+          <div style={{ ...styles.issueTitle, color: '#16A34A' }}>✓ Design intent saved!</div>
+        </div>
+      ) : (
+        <button
+          style={{ ...styles.button, opacity: saving ? 0.7 : 1 }}
+          onClick={() => parent.postMessage({ pluginMessage: { type: 'save-design-intent' } }, '*')}
+          disabled={saving}
+        >
+          {saving ? 'Saving...' : 'Save to Buoy'}
+        </button>
+      )}
 
       <div style={{ textAlign: 'center', marginTop: '16px' }}>
         <div style={{ fontSize: '12px', color: '#A8A29E', marginBottom: '8px' }}>
           Then invite a developer to connect your repo
         </div>
-        <button
-          style={{ ...styles.secondaryButton, marginTop: '0' }}
-          onClick={() => parent.postMessage({ pluginMessage: { type: 'generate-invite' } }, '*')}
-        >
-          Generate Invite Link
-        </button>
+
+        {inviteUrl ? (
+          <div style={{ background: '#FAFAF9', borderRadius: '8px', padding: '12px' }}>
+            <div style={{ fontSize: '11px', color: '#A8A29E', marginBottom: '8px' }}>INVITE LINK:</div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                value={inviteUrl}
+                readOnly
+                style={{
+                  flex: 1,
+                  padding: '8px',
+                  border: '1px solid #E7E5E4',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                }}
+              />
+              <button
+                style={{ ...styles.button, width: 'auto', padding: '8px 16px' }}
+                onClick={handleCopy}
+              >
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            style={{ ...styles.secondaryButton, marginTop: '0', opacity: generatingInvite ? 0.7 : 1 }}
+            onClick={() => parent.postMessage({ pluginMessage: { type: 'generate-invite' } }, '*')}
+            disabled={generatingInvite}
+          >
+            {generatingInvite ? 'Generating...' : 'Generate Invite Link'}
+          </button>
+        )}
       </div>
     </>
   );
@@ -581,6 +634,10 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>('overview');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [generatingInvite, setGeneratingInvite] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
 
   useEffect(() => {
     window.onmessage = (event) => {
@@ -599,6 +656,26 @@ function App() {
         case 'error':
           setError(msg.payload);
           setLoading(false);
+          break;
+        case 'saving':
+          setSaving(true);
+          break;
+        case 'save-complete':
+          setSaving(false);
+          setSaved(true);
+          break;
+        case 'save-error':
+          setSaving(false);
+          break;
+        case 'generating-invite':
+          setGeneratingInvite(true);
+          break;
+        case 'invite-generated':
+          setGeneratingInvite(false);
+          setInviteUrl(msg.payload);
+          break;
+        case 'invite-error':
+          setGeneratingInvite(false);
           break;
       }
     };
@@ -646,7 +723,16 @@ function App() {
       {view === 'typography' && <TypographyView typography={analysis.typography} onBack={() => setView('overview')} />}
       {view === 'spacing' && <SpacingView spacing={analysis.spacing} onBack={() => setView('overview')} />}
       {view === 'components' && <ComponentsView components={analysis.components} onBack={() => setView('overview')} />}
-      {view === 'export' && <ExportView analysis={analysis} onBack={() => setView('overview')} />}
+      {view === 'export' && (
+        <ExportView
+          analysis={analysis}
+          onBack={() => setView('overview')}
+          saving={saving}
+          saved={saved}
+          inviteUrl={inviteUrl}
+          generatingInvite={generatingInvite}
+        />
+      )}
     </div>
   );
 }

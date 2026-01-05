@@ -69,6 +69,118 @@ interface AnalysisResult {
 }
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+const API_BASE = 'https://api.buoy.design';
+
+// Store last analysis for API calls
+let lastAnalysis: AnalysisResult | null = null;
+
+// ============================================================================
+// API Functions
+// ============================================================================
+
+interface DesignIntentPayload {
+  source: 'figma';
+  tokens: Array<{
+    name: string;
+    category: 'color' | 'typography' | 'spacing' | 'other';
+    value: string;
+    source?: string;
+  }>;
+  components: Array<{
+    name: string;
+    description?: string;
+    figmaNodeId: string;
+  }>;
+  trackingCategories: {
+    colors: boolean;
+    typography: boolean;
+    spacing: boolean;
+    components: boolean;
+  };
+}
+
+async function saveDesignIntent(analysis: AnalysisResult): Promise<{ success: boolean; error?: string }> {
+  const payload: DesignIntentPayload = {
+    source: 'figma',
+    tokens: [
+      // Colors
+      ...analysis.colors.defined.map((c) => ({
+        name: c.name,
+        category: 'color' as const,
+        value: c.value,
+        source: 'figma-style',
+      })),
+      // Typography
+      ...analysis.typography.defined.map((t) => ({
+        name: t.name,
+        category: 'typography' as const,
+        value: `${t.fontFamily} ${t.fontWeight} ${t.fontSize}px`,
+        source: 'figma-style',
+      })),
+      // Spacing (top 8 values)
+      ...analysis.spacing.values.slice(0, 8).map((s, i) => ({
+        name: `spacing-${i + 1}`,
+        category: 'spacing' as const,
+        value: `${s.value}px`,
+        source: 'figma-usage',
+      })),
+    ],
+    components: analysis.components.defined.map((c) => ({
+      name: c.name,
+      description: c.description || undefined,
+      figmaNodeId: c.id,
+    })),
+    trackingCategories: {
+      colors: true,
+      typography: true,
+      spacing: analysis.spacing.hasScale,
+      components: true,
+    },
+  };
+
+  try {
+    const response = await fetch(`${API_BASE}/design-intent`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      return { success: false, error: `API error: ${response.status}` };
+    }
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Network error' };
+  }
+}
+
+async function generateInvite(): Promise<{ success: boolean; inviteUrl?: string; error?: string }> {
+  try {
+    const response = await fetch(`${API_BASE}/developer-invites`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ message: 'Please connect our repository to Buoy.' }),
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `API error: ${response.status}` };
+    }
+
+    const data = await response.json() as { inviteUrl: string };
+    return { success: true, inviteUrl: data.inviteUrl };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Network error' };
+  }
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 
@@ -366,6 +478,7 @@ figma.ui.onmessage = async (msg: { type: string; payload?: unknown }) => {
       try {
         figma.ui.postMessage({ type: 'analyzing' });
         const result = await runAnalysis();
+        lastAnalysis = result;
         figma.ui.postMessage({ type: 'analysis-complete', payload: result });
       } catch (error) {
         figma.ui.postMessage({
@@ -376,13 +489,41 @@ figma.ui.onmessage = async (msg: { type: string; payload?: unknown }) => {
       break;
 
     case 'save-design-intent':
-      // TODO: Send to Buoy API
-      figma.notify('Design intent saved! (API integration coming soon)');
+      if (!lastAnalysis) {
+        figma.notify('Please run analysis first');
+        break;
+      }
+      try {
+        figma.ui.postMessage({ type: 'saving' });
+        const saveResult = await saveDesignIntent(lastAnalysis);
+        if (saveResult.success) {
+          figma.notify('Design intent saved to Buoy!');
+          figma.ui.postMessage({ type: 'save-complete' });
+        } else {
+          figma.notify(`Failed to save: ${saveResult.error}`);
+          figma.ui.postMessage({ type: 'save-error', payload: saveResult.error });
+        }
+      } catch (error) {
+        figma.notify('Failed to save design intent');
+        figma.ui.postMessage({ type: 'save-error', payload: 'Unknown error' });
+      }
       break;
 
     case 'generate-invite':
-      // TODO: Generate invite via Buoy API
-      figma.notify('Invite generated! (API integration coming soon)');
+      try {
+        figma.ui.postMessage({ type: 'generating-invite' });
+        const inviteResult = await generateInvite();
+        if (inviteResult.success && inviteResult.inviteUrl) {
+          figma.ui.postMessage({ type: 'invite-generated', payload: inviteResult.inviteUrl });
+          figma.notify('Invite link generated! Copy it from the plugin.');
+        } else {
+          figma.notify(`Failed to generate invite: ${inviteResult.error}`);
+          figma.ui.postMessage({ type: 'invite-error', payload: inviteResult.error });
+        }
+      } catch (error) {
+        figma.notify('Failed to generate invite');
+        figma.ui.postMessage({ type: 'invite-error', payload: 'Unknown error' });
+      }
       break;
 
     case 'close':
@@ -396,5 +537,6 @@ figma.ui.onmessage = async (msg: { type: string; payload?: unknown }) => {
 
 // Run initial analysis
 runAnalysis().then((result) => {
+  lastAnalysis = result;
   figma.ui.postMessage({ type: 'analysis-complete', payload: result });
 });
