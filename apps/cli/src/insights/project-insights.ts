@@ -1,3 +1,4 @@
+import chalk from 'chalk';
 import { ProjectDetector, type DetectedProject } from '../detect/project-detector.js';
 
 const FRAMEWORK_FAMILIES = {
@@ -7,6 +8,8 @@ const FRAMEWORK_FAMILIES = {
   angular: ['angular'],
   webcomponents: ['lit', 'stencil'],
 } as const;
+
+const MAX_SUGGESTIONS = 3;
 
 export interface ProjectInsights {
   project: DetectedProject;
@@ -166,4 +169,80 @@ function getTypeLabel(type: string | undefined): string {
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * Format insights for CLI display.
+ * Used by commands when primary results are empty.
+ */
+export function formatInsightsBlock(insights: ProjectInsights): string {
+  const lines: string[] = [];
+  const { summary, suggestions } = insights;
+
+  // Header
+  lines.push(chalk.bold('Your Codebase at a Glance'));
+  lines.push(chalk.dim('─'.repeat(30)));
+  lines.push('');
+
+  // Framework
+  lines.push(`  Framework:  ${chalk.cyan(summary.frameworkLine)}`);
+
+  // File breakdown
+  if (summary.fileBreakdown.length > 0) {
+    lines.push('');
+    lines.push('  ' + chalk.dim('Files found:'));
+    for (const fb of summary.fileBreakdown) {
+      const icon = fb.scannable ? chalk.green('✓') : chalk.yellow('○');
+      const scanNote = fb.scannable ? '' : chalk.dim(' (no scanner yet)');
+      lines.push(`    ${icon} ${fb.count} ${fb.type} in ${fb.path}${scanNote}`);
+    }
+  }
+
+  // Token summary
+  if (summary.tokenSummary) {
+    lines.push('');
+    lines.push(`  Tokens:     ${summary.tokenSummary}`);
+  }
+
+  // Scanner status
+  const unavailable = summary.scannerStatus.filter(s => !s.available);
+  if (unavailable.length > 0) {
+    lines.push('');
+    lines.push('  ' + chalk.dim('Scanner status:'));
+    for (const s of unavailable) {
+      lines.push(`    ${chalk.yellow('○')} ${s.name}: ${chalk.dim(s.reason)}`);
+    }
+  }
+
+  // Suggestions
+  if (suggestions.length > 0) {
+    lines.push('');
+    lines.push(chalk.dim('─'.repeat(30)));
+    lines.push('');
+    lines.push('  ' + chalk.bold('Try instead:'));
+    for (const s of suggestions.slice(0, MAX_SUGGESTIONS)) {
+      lines.push(`    ${chalk.cyan(s.command)}`);
+      lines.push(`    ${chalk.dim(s.description)}`);
+      lines.push('');
+    }
+    if (suggestions.length > MAX_SUGGESTIONS) {
+      const remaining = suggestions.length - MAX_SUGGESTIONS;
+      lines.push(`  ${chalk.dim(`...and ${remaining} more suggestion${remaining === 1 ? '' : 's'}`)}`);
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Format a compact one-line summary for headers.
+ */
+export function formatInsightsSummaryLine(insights: ProjectInsights): string {
+  const { summary } = insights;
+  const fileCount = summary.fileBreakdown.reduce((sum, fb) => sum + fb.count, 0);
+  if (fileCount === 0) {
+    return summary.frameworkLine;
+  }
+  return `${summary.frameworkLine} · ${fileCount} files`;
 }

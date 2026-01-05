@@ -83,6 +83,16 @@ id = "a018c61a2988488d8ac7ab9242aed117"
 binding = "RATE_LIMITS"
 id = "f82a7fbfe55347ffb09634779e30555b"
 
+[[env.production.queues.producers]]
+binding = "SCAN_QUEUE"
+queue = "buoy-scan-prod"
+
+[[env.production.queues.consumers]]
+queue = "buoy-scan-prod"
+max_batch_size = 1
+max_retries = 3
+dead_letter_queue = "buoy-scan-prod-dlq"
+
 [env.production.vars]
 ENVIRONMENT = "production"
 API_VERSION = "v1"
