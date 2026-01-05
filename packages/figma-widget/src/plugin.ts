@@ -5,68 +5,21 @@
  * helping designers understand their design system health.
  */
 
-// ============================================================================
-// Types
-// ============================================================================
-
-interface ColorToken {
-  name: string;
-  value: string; // hex
-  opacity: number;
-  source: 'style' | 'usage';
-  usageCount?: number;
-}
-
-interface TypographyToken {
-  name: string;
-  fontFamily: string;
-  fontSize: number;
-  fontWeight: number;
-  lineHeight: string;
-  letterSpacing: string;
-}
-
-interface SpacingValue {
-  value: number;
-  usageCount: number;
-}
-
-interface ComponentInfo {
-  id: string;
-  name: string;
-  description: string;
-  instanceCount: number;
-  variantCount: number;
-}
-
-interface AnalysisResult {
-  colors: {
-    defined: ColorToken[];
-    used: ColorToken[];
-    duplicates: Array<{ colors: ColorToken[]; suggestion: string }>;
-  };
-  typography: {
-    defined: TypographyToken[];
-    orphaned: number; // text nodes without style
-  };
-  spacing: {
-    values: SpacingValue[];
-    hasScale: boolean;
-  };
-  components: {
-    defined: ComponentInfo[];
-    orphaned: number; // component instances with no main component
-  };
-  health: {
-    score: number;
-    breakdown: {
-      colorScore: number;
-      typographyScore: number;
-      spacingScore: number;
-      componentScore: number;
-    };
-  };
-}
+import {
+  rgbToHex,
+  colorDistance,
+  findDuplicateColors,
+  getFontWeight,
+  hasConsistentSpacingScale,
+  calculateHealth,
+  getScoreColorRGB,
+  generateIssueMessages,
+  type ColorToken,
+  type TypographyToken,
+  type SpacingValue,
+  type ComponentInfo,
+  type AnalysisResult,
+} from './logic';
 
 // ============================================================================
 // Constants
@@ -178,25 +131,6 @@ async function generateInvite(): Promise<{ success: boolean; inviteUrl?: string;
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Network error' };
   }
-}
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-function rgbToHex(r: number, g: number, b: number): string {
-  const toHex = (n: number) => Math.round(n * 255).toString(16).padStart(2, '0');
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
-}
-
-function colorDistance(hex1: string, hex2: string): number {
-  const r1 = parseInt(hex1.slice(1, 3), 16);
-  const g1 = parseInt(hex1.slice(3, 5), 16);
-  const b1 = parseInt(hex1.slice(5, 7), 16);
-  const r2 = parseInt(hex2.slice(1, 3), 16);
-  const g2 = parseInt(hex2.slice(3, 5), 16);
-  const b2 = parseInt(hex2.slice(5, 7), 16);
-  return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
 }
 
 // ============================================================================

@@ -15,6 +15,7 @@ import { ProjectDetector } from "../detect/project-detector.js";
 import { ScanOrchestrator } from "../scan/orchestrator.js";
 import type { BuoyConfig } from "../config/schema.js";
 import type { DriftSignal } from "@buoy-design/core";
+import { discoverProject, formatInsightsBlock } from '../insights/index.js';
 
 export function createStatusCommand(): Command {
   const cmd = new Command("status")
@@ -157,20 +158,15 @@ export function createStatusCommand(): Command {
         }
 
         if (stats.total === 0) {
-          info("No components found to analyze.");
-          console.log("");
-          info("Options:");
-          info(
-            "  - Run " +
-              chalk.cyan("buoy tokens") +
-              " to extract tokens from existing code",
-          );
-          info(
-            "  - Run " +
-              chalk.cyan("buoy anchor") +
-              " to generate a design system with AI",
-          );
-          info("  - Check your config has component paths configured");
+          // Show insights instead of bare "no components"
+          const insights = await discoverProject(process.cwd());
+
+          console.log(chalk.bold('Design System Status'));
+          console.log(chalk.dim('────────────────────'));
+          console.log('');
+          console.log(`Coverage: ${chalk.dim('N/A')} (no component scanners active)`);
+          console.log('');
+          console.log(formatInsightsBlock(insights));
           return;
         }
 

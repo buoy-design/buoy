@@ -141,27 +141,40 @@ export function findDuplicateColors(
 
 /**
  * Convert font style string to numeric weight
+ * Order matters - check longer/more specific names first to avoid
+ * "ExtraBold" matching "Bold" before "ExtraBold"
  */
 export function getFontWeight(style: string): number {
-  const weights: Record<string, number> = {
-    Thin: 100,
-    Hairline: 100,
-    ExtraLight: 200,
-    UltraLight: 200,
-    Light: 300,
-    Regular: 400,
-    Normal: 400,
-    Medium: 500,
-    SemiBold: 600,
-    DemiBold: 600,
-    Bold: 700,
-    ExtraBold: 800,
-    UltraBold: 800,
-    Black: 900,
-    Heavy: 900,
-  };
+  // Check in order from most specific to least specific
+  // Longer patterns must come before shorter ones they contain
+  const weightPatterns: Array<[string, number]> = [
+    // 900 - Black/Heavy
+    ['Black', 900],
+    ['Heavy', 900],
+    // 800 - ExtraBold/UltraBold (must come before Bold)
+    ['ExtraBold', 800],
+    ['UltraBold', 800],
+    // 600 - SemiBold/DemiBold (must come before Bold)
+    ['SemiBold', 600],
+    ['DemiBold', 600],
+    // 700 - Bold
+    ['Bold', 700],
+    // 500 - Medium
+    ['Medium', 500],
+    // 400 - Regular/Normal
+    ['Regular', 400],
+    ['Normal', 400],
+    // 200 - ExtraLight/UltraLight (must come before Light)
+    ['ExtraLight', 200],
+    ['UltraLight', 200],
+    // 300 - Light
+    ['Light', 300],
+    // 100 - Thin/Hairline
+    ['Thin', 100],
+    ['Hairline', 100],
+  ];
 
-  for (const [name, weight] of Object.entries(weights)) {
+  for (const [name, weight] of weightPatterns) {
     if (style.includes(name)) return weight;
   }
   return 400;
