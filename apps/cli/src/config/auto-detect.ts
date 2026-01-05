@@ -232,9 +232,16 @@ export async function buildAutoConfig(projectRoot: string = process.cwd()): Prom
         break;
       }
 
-      case 'tailwind':
-        // Tailwind is handled by token scanning, not a separate source
+      case 'tailwind': {
+        // Enable Tailwind arbitrary value detection
+        const baseInclude = ['src/**/*.tsx', 'src/**/*.jsx', 'src/**/*.vue', 'src/**/*.svelte', 'app/**/*.tsx', 'components/**/*.tsx'];
+        config.sources.tailwind = {
+          enabled: true,
+          files: monorepo ? expandForMonorepo(baseInclude, monorepo) : baseInclude,
+          exclude: ['**/node_modules/**', '**/dist/**', '**/.next/**'],
+        };
         break;
+      }
     }
   }
 

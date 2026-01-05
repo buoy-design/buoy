@@ -1,9 +1,10 @@
 import { existsSync } from 'fs';
-import { resolve, basename } from 'path';
+import { resolve } from 'path';
 import { pathToFileURL } from 'url';
 import { ZodError } from 'zod';
 import { fromZodError } from 'zod-validation-error';
 import { BuoyConfig, BuoyConfigSchema } from './schema.js';
+import { buildAutoConfig } from './auto-detect.js';
 
 const CONFIG_FILES = [
   'buoy.config.mjs',
@@ -31,11 +32,10 @@ export async function loadConfig(cwd: string = process.cwd()): Promise<LoadConfi
   }
 
   if (!configPath) {
-    // Return default config if no file found
+    // No config file - use zero-config auto-detection
+    const { config } = await buildAutoConfig(cwd);
     return {
-      config: BuoyConfigSchema.parse({
-        project: { name: basename(cwd) },
-      }),
+      config,
       configPath: null,
     };
   }

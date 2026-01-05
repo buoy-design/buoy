@@ -83,6 +83,13 @@ export const TokenConfigSchema = z.object({
   cssVariablePrefix: z.string().optional(),
 });
 
+// Tailwind source config (for arbitrary value detection)
+export const TailwindConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  files: z.array(z.string()).default(['src/**/*.tsx', 'src/**/*.jsx', 'src/**/*.vue', 'src/**/*.svelte']),
+  exclude: z.array(z.string()).default(['**/node_modules/**', '**/dist/**', '**/.next/**']),
+});
+
 // Sources config
 export const SourcesConfigSchema = z.object({
   // JS Frameworks
@@ -93,6 +100,8 @@ export const SourcesConfigSchema = z.object({
   webcomponent: WebComponentConfigSchema.optional(),
   // Templates
   templates: TemplateConfigSchema.optional(),
+  // CSS Frameworks
+  tailwind: TailwindConfigSchema.optional(),
   // Design tools
   figma: FigmaConfigSchema.optional(),
   storybook: StorybookConfigSchema.optional(),
@@ -156,6 +165,7 @@ export type TemplateConfig = z.infer<typeof TemplateConfigSchema>;
 export type FigmaConfig = z.infer<typeof FigmaConfigSchema>;
 export type StorybookConfig = z.infer<typeof StorybookConfigSchema>;
 export type TokenConfig = z.infer<typeof TokenConfigSchema>;
+export type TailwindConfig = z.infer<typeof TailwindConfigSchema>;
 export type SourcesConfig = z.infer<typeof SourcesConfigSchema>;
 export type DriftIgnore = z.infer<typeof DriftIgnoreSchema>;
 export type DriftConfig = z.infer<typeof DriftConfigSchema>;

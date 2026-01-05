@@ -13,6 +13,7 @@ import type { DriftSignal, Severity, Component } from "@buoy-design/core";
 import type { BuoyConfig } from "../config/schema.js";
 import { ScanOrchestrator } from "../scan/orchestrator.js";
 import { getSeverityWeight } from "@buoy-design/core";
+import { TailwindScanner } from "@buoy-design/scanners";
 
 export interface DriftAnalysisOptions {
   /** Callback for progress updates */
@@ -170,6 +171,23 @@ export class DriftAnalysisService {
     });
 
     let drifts: DriftSignal[] = diffResult.drifts;
+
+    // Step 2.5: Run Tailwind arbitrary value detection if tailwind is configured
+    if (this.config.sources.tailwind?.enabled) {
+      onProgress?.("Scanning for Tailwind arbitrary values...");
+      const tailwindScanner = new TailwindScanner({
+        projectRoot: process.cwd(),
+        include: this.config.sources.tailwind.files,
+        exclude: this.config.sources.tailwind.exclude,
+        detectArbitraryValues: true,
+      });
+
+      const tailwindResult = await tailwindScanner.scan();
+      if (tailwindResult.drifts.length > 0) {
+        drifts = [...drifts, ...tailwindResult.drifts];
+        onProgress?.(`Found ${tailwindResult.drifts.length} Tailwind arbitrary value issues`);
+      }
+    }
 
     // Step 3: Apply severity filter (before other filters for efficiency)
     if (minSeverity) {
