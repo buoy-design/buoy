@@ -411,6 +411,103 @@ function formatDriftType(type: string): string {
   return labels[type] || type;
 }
 
+// Format for AI agents - concise, actionable, easy to parse
+export function formatAgent(drifts: DriftSignal[]): string {
+  if (drifts.length === 0) {
+    return JSON.stringify({ status: 'clean', fixes: [] });
+  }
+
+  // Focus on actionable signals (warning and critical only)
+  const actionable = drifts.filter(d => d.severity === 'warning' || d.severity === 'critical');
+
+  if (actionable.length === 0) {
+    return JSON.stringify({
+      status: 'clean',
+      fixes: [],
+      info: `${drifts.length} info-level signals (run with --verbose to see)`
+    });
+  }
+
+  // Group by file for efficient fixes
+  const byFile = new Map<string, DriftSignal[]>();
+  for (const drift of actionable) {
+    const file = drift.source.location?.split(':')[0] || drift.source.entityName;
+    const existing = byFile.get(file) || [];
+    existing.push(drift);
+    byFile.set(file, existing);
+  }
+
+  const fixes: Array<{
+    file: string;
+    severity: string;
+    type: string;
+    issue: string;
+    fix: string;
+    line?: number;
+  }> = [];
+
+  for (const [file, fileDrifts] of byFile) {
+    for (const drift of fileDrifts) {
+      const line = drift.source.location?.includes(':')
+        ? parseInt(drift.source.location.split(':')[1] || '0', 10)
+        : undefined;
+
+      // Generate specific fix suggestion
+      let fix = '';
+      if (drift.type === 'hardcoded-value') {
+        if (drift.message.includes('color')) {
+          const match = drift.message.match(/#[0-9a-fA-F]{3,8}/);
+          if (match) {
+            fix = `Replace ${match[0]} with design token (e.g., bg-muted, text-primary)`;
+          } else {
+            fix = 'Replace hardcoded color with design token';
+          }
+        } else if (drift.message.includes('spacing')) {
+          fix = 'Replace arbitrary spacing with theme value (e.g., p-4, gap-2)';
+        } else if (drift.message.includes('size')) {
+          fix = 'Replace arbitrary size with theme value (e.g., w-full, h-10)';
+        } else {
+          fix = 'Replace arbitrary value with design token';
+        }
+      } else if (drift.type === 'semantic-mismatch') {
+        fix = `Standardize prop type: ${drift.details.actual} → ${drift.details.expected}`;
+      } else if (drift.details.suggestions?.[0]) {
+        fix = drift.details.suggestions[0];
+      } else {
+        fix = drift.message;
+      }
+
+      fixes.push({
+        file,
+        severity: drift.severity,
+        type: drift.type,
+        issue: drift.message,
+        fix,
+        ...(line && { line }),
+      });
+    }
+  }
+
+  // Sort by severity (critical first) then by file
+  fixes.sort((a, b) => {
+    if (a.severity !== b.severity) {
+      return a.severity === 'critical' ? -1 : 1;
+    }
+    return a.file.localeCompare(b.file);
+  });
+
+  return JSON.stringify({
+    status: 'drift_detected',
+    summary: {
+      critical: drifts.filter(d => d.severity === 'critical').length,
+      warning: drifts.filter(d => d.severity === 'warning').length,
+      info: drifts.filter(d => d.severity === 'info').length,
+    },
+    fixes: fixes.slice(0, 20), // Limit to top 20 for context efficiency
+    ...(fixes.length > 20 && { truncated: fixes.length - 20 }),
+  }, null, 2);
+}
+
 // Format as markdown
 export function formatMarkdown(drifts: DriftSignal[]): string {
   if (drifts.length === 0) {

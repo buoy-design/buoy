@@ -18,6 +18,7 @@ import {
   formatDriftList,
   formatJson,
   formatMarkdown,
+  formatAgent,
 } from "../output/formatters.js";
 import type { DriftSignal, Severity } from "@buoy-design/core";
 import { DriftAnalysisService } from "../services/drift-analysis.js";
@@ -38,12 +39,13 @@ export function createDriftCommand(): Command {
     .option("-t, --type <type>", "Filter by drift type")
     .option("--json", "Output as JSON")
     .option("--markdown", "Output as Markdown")
+    .option("--agent", "Output optimized for AI agents (concise, actionable)")
     .option("--compact", "Compact table output (less detail)")
     .option("-v, --verbose", "Verbose output")
     .option("--include-baseline", "Include baselined drifts (show all)")
     .action(async (options) => {
       // Set JSON mode before creating spinner to redirect spinner to stderr
-      if (options.json) {
+      if (options.json || options.agent) {
         setJsonMode(true);
       }
       const spin = spinner("Loading configuration...");
@@ -70,6 +72,11 @@ export function createDriftCommand(): Command {
         spin.stop();
 
         // Output results
+        if (options.agent) {
+          console.log(formatAgent(drifts));
+          return;
+        }
+
         if (options.json) {
           console.log(
             formatJson({
