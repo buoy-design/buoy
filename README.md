@@ -1,76 +1,30 @@
-# Buoy
+# 🛟 Buoy
 
-**Design system safety for AI-assisted development.**
+**Catch design drift before it ships.**
 
-AI coding tools are fast, but they don't know your design system. They'll write `#3b82f6` when you have `--color-primary`. They'll use `padding: 17px` when your spacing scale is multiples of 4.
+AI coding tools are fast—but they don't know your design system. They'll write `#3b82f6` when you have `--color-primary`. They'll use `padding: 17px` when your spacing scale is multiples of 4.
 
-Buoy catches these issues before they ship—and if you don't have a design system yet, it'll create one for you.
-
-```
-src/Button.tsx:24
-  #3b82f6 → Use var(--color-primary) instead (92% match)
-```
-
-## Two Modes
-
-### 1. Check Mode — You have a design system
-
-Buoy scans your code and flags anything that doesn't use your tokens:
-
-```bash
-npx @buoy-design/cli status
-```
+Buoy watches for these issues and helps you fix them.
 
 ```
-Component Alignment
-                                    47/52 components · 90% aligned
-⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛀ ⛁ ⛁
-⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛀
-
-✓ Good alignment. Minor drift to review.
-```
-
-### 2. Architect Mode — You need a design system
-
-Buoy analyzes your codebase and creates one:
-
-```bash
-npx @buoy-design/cli architect
-```
-
-```
-Design System Diagnosis
-───────────────────────
-
-Maturity Score: ███░░░░░░░ 30/100
-Level: Emerging
-
-CSS Analysis
-Unique Colors: 47
-Unique Spacing Values: 23
-Tokenization: 12%
-
-Recommendations
-  🔴 Create design tokens
-     47 unique colors found. Consolidate to ~8-12 for consistency.
-
-✓ Generated design-tokens.css
+src/components/Button.tsx:24
+  ⚠ hardcoded-value: #3b82f6 → var(--color-primary) (92% match)
 ```
 
 ## Quick Start
 
 ```bash
-# See your design system health
+# See your design system health (zero config!)
 npx @buoy-design/cli status
 
-# Get detailed drift report
-npx @buoy-design/cli drift check
+# Get AI-powered explanations
+npx @buoy-design/cli explain
 
-# Create a design system from scratch
-npx @buoy-design/cli architect
+# Set up configuration
+npx @buoy-design/cli dock
 ```
 
-No config needed. Buoy auto-detects your framework.
+No config needed. Buoy auto-detects your framework and starts working immediately.
 
 ## What It Catches
 
@@ -80,20 +34,103 @@ No config needed. Buoy auto-detects your framework.
 | **Arbitrary spacing** | `padding: 17px` instead of design scale |
 | **Tailwind escape hatches** | `p-[13px]` instead of `p-4` |
 | **Naming inconsistencies** | `ButtonNew`, `ButtonV2`, `ButtonOld` |
-| **Framework mixing** | React + Vue + jQuery in same codebase |
+| **Framework sprawl** | React + Vue + jQuery in same codebase |
+| **Detached components** | Instances without main component |
 
 ## Commands
 
+### Core Commands
+
 | Command | Purpose |
 |---------|---------|
-| `buoy status` | Visual health check |
-| `buoy drift check` | Detailed issues with fix suggestions |
-| `buoy architect` | Create design system + PR |
+| `buoy status` | Visual health check—see coverage at a glance |
+| `buoy scan` | Scan components and tokens |
+| `buoy drift check` | Detailed drift signals with fix suggestions |
+| `buoy explain [target]` | AI-powered investigation of drift |
 | `buoy tokens` | Generate tokens from existing code |
+
+### Setup & Configuration
+
+| Command | Purpose |
+|---------|---------|
+| `buoy dock` | Initialize Buoy in your project |
+| `buoy anchor` | Analyze code and establish design tokens |
+| `buoy baseline` | Accept current drift, flag only new issues |
+| `buoy import <file>` | Import tokens from external sources |
+
+### CI & Automation
+
+| Command | Purpose |
+|---------|---------|
 | `buoy ci` | CI mode with GitHub PR comments |
-| `buoy baseline` | Accept current state, flag only new drift |
+| `buoy check` | Fast pre-commit hook check |
+| `buoy compare <file>` | Compare tokens against codebase |
+| `buoy audit` | Full design system health audit |
+
+### Buoy Cloud
+
+| Command | Purpose |
+|---------|---------|
+| `buoy login` | Authenticate with Buoy Cloud |
+| `buoy link` | Connect project to Buoy Cloud |
+| `buoy sync` | Sync scans to cloud dashboard |
+| `buoy github` | Manage GitHub App integration |
+
+## The `status` Command
+
+Get a quick visual health check:
+
+```bash
+buoy status
+```
+
+```
+⚡ Zero-config mode
+   Auto-detected:
+   • React (package.json)
+   • Tailwind CSS (tailwind.config.js)
+   • 2 token file(s)
+
+Component Coverage
+                                    47/52 components · 90% aligned
+⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛀ ⛁ ⛁
+⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛀
+
+✓ Good coverage. Minor drift to review.
+```
+
+## The `explain` Command
+
+AI-powered investigation of your design system:
+
+```bash
+# Explain a specific file
+buoy explain src/components/Button.tsx
+
+# Explain specific drift
+buoy explain drift:abc123
+
+# Explain everything
+buoy explain --all
+```
+
+Returns natural language explanations with fix suggestions.
+
+## Figma Plugin
+
+Buoy includes a Figma plugin that analyzes your design files:
+
+- **Health Score** — See how well-structured your design system is
+- **Color Analysis** — Find duplicate and similar colors
+- **Typography Check** — Identify orphaned text nodes
+- **Spacing Audit** — Verify consistent spacing scale
+- **Auto Dashboard** — Creates a health report page in your Figma file
+
+The plugin syncs with Buoy Cloud to keep designers and developers aligned.
 
 ## CI Integration
+
+### GitHub Actions
 
 ```yaml
 name: Design System Check
@@ -107,67 +144,36 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: buoy-design/buoy@main
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          mode: ci
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          node-version: '20'
+
+      - name: Run Buoy
+        run: npx @buoy-design/cli ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-Or run architect mode to auto-create design tokens:
+### Options
 
-```yaml
-- uses: buoy-design/buoy@main
-  with:
-    mode: architect
-    github-token: ${{ secrets.GITHUB_TOKEN }}
+```bash
+buoy ci                      # Comment on PR, don't fail
+buoy ci --fail-on critical   # Fail on critical issues only
+buoy ci --fail-on warning    # Strict mode
 ```
-
-## Architect Mode Details
-
-The `architect` command does more than generate tokens—it diagnoses your entire design system maturity:
-
-1. **Scans CSS** — extracts all hardcoded colors, spacing, fonts
-2. **Analyzes git history** — understands team size and patterns
-3. **Scores maturity** — 0-100 based on tokenization and consistency
-4. **Recommends next steps** — tailored to your team size
-5. **Creates PR** — with design tokens ready to merge
-
-**Maturity Levels:**
-
-| Score | Level | Meaning |
-|-------|-------|---------|
-| 80-100 | Optimized | Consistent tokens, good coverage |
-| 60-79 | Managed | Most values tokenized |
-| 40-59 | Defined | Some tokens, inconsistent usage |
-| 20-39 | Emerging | Few tokens, mostly hardcoded |
-| 0-19 | None | No design system detected |
-
-**Team-Aware:**
-
-- Small teams (1-3): Recommends simple color + spacing tokens
-- Medium teams (4-10): Adds documentation and tooling suggestions
-- Large teams (10+): Full governance and component library guidance
-
-## Supported Frameworks
-
-**Components:** React, Vue, Svelte, Angular, Lit, Stencil, Alpine, HTMX
-
-**Templates:** Blade, ERB, Twig, Razor, Jinja, Handlebars, EJS, Pug
-
-**Tokens:** CSS variables, SCSS, Tailwind config, JSON, Style Dictionary
-
-**Design Tools:** Figma (optional integration)
 
 ## Configuration
 
 Works without config, but you can save settings:
 
 ```bash
-npx @buoy-design/cli init
+buoy dock
 ```
 
+Creates `buoy.config.mjs`:
+
 ```js
-// buoy.config.mjs
 export default {
   project: { name: 'my-app' },
   sources: {
@@ -184,9 +190,21 @@ export default {
 };
 ```
 
+## Supported Frameworks
+
+**Components:** React, Vue, Svelte, Angular, Lit, Stencil, Alpine, HTMX
+
+**Templates:** Blade, ERB, Twig, Razor, Jinja, Handlebars, EJS, Pug
+
+**Tokens:** CSS variables, SCSS, Tailwind config, JSON, Style Dictionary
+
+**Design Tools:** Figma (plugin + API integration)
+
 ## Philosophy
 
 **Inform by default, block by choice.**
+
+Buoy shows you what's happening without getting in your way. Teams adopt enforcement when they're ready:
 
 ```bash
 buoy status                  # Just show me
@@ -195,7 +213,30 @@ buoy ci --fail-on critical   # Fail on critical only
 buoy ci --fail-on warning    # Strict mode
 ```
 
-Teams adopt enforcement when they're ready.
+## Development
+
+```bash
+# Install dependencies
+pnpm install
+
+# Build all packages
+pnpm build
+
+# Run tests
+pnpm test
+
+# Run CLI locally
+node apps/cli/dist/bin.js status
+```
+
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| `@buoy-design/cli` | Command-line interface |
+| `@buoy-design/core` | Domain models and drift detection engine |
+| `@buoy-design/scanners` | Framework-specific code scanners |
+| `@buoy-design/db` | SQLite persistence |
 
 ## License
 
