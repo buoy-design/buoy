@@ -14,14 +14,11 @@ src/components/Button.tsx:24
 ## Quick Start
 
 ```bash
-# See your design system health (zero config!)
+# Interactive setup wizard
+npx @buoy-design/cli begin
+
+# Or jump straight in (zero config!)
 npx @buoy-design/cli status
-
-# Get AI-powered explanations
-npx @buoy-design/cli explain
-
-# Set up configuration
-npx @buoy-design/cli dock
 ```
 
 No config needed. Buoy auto-detects your framework and starts working immediately.
@@ -53,6 +50,7 @@ No config needed. Buoy auto-detects your framework and starts working immediatel
 
 | Command | Purpose |
 |---------|---------|
+| `buoy begin` | Interactive wizard to get started with Buoy |
 | `buoy dock` | Initialize Buoy in your project |
 | `buoy anchor` | Analyze code and establish design tokens |
 | `buoy baseline` | Accept current drift, flag only new issues |
@@ -75,6 +73,43 @@ No config needed. Buoy auto-detects your framework and starts working immediatel
 | `buoy link` | Connect project to Buoy Cloud |
 | `buoy sync` | Sync scans to cloud dashboard |
 | `buoy github` | Manage GitHub App integration |
+
+## The `begin` Command
+
+Interactive wizard that gets you up and running:
+
+```bash
+buoy begin
+```
+
+```
+🛟 Welcome to Buoy
+
+Let's get your project set up for design drift detection.
+
+Scanning project...
+
+✓ Detected frameworks:
+  • React (package.json)
+  • Tailwind CSS (tailwind.config.js)
+
+✓ Found 2 token files:
+  • src/styles/variables.css
+  • tailwind.config.js
+
+? What would you like to do?
+  ❯ Run a quick scan to see current drift
+    Set up CI integration
+    Configure Figma connection
+    Save configuration to buoy.config.mjs
+```
+
+The wizard walks you through:
+- **Framework detection** — Confirms what Buoy found
+- **Token discovery** — Shows your design tokens
+- **Quick scan** — Immediate drift report
+- **CI setup** — GitHub Actions configuration
+- **Figma connection** — Link your design files
 
 ## The `status` Command
 
