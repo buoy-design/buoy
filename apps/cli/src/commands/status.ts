@@ -15,7 +15,7 @@ import { ProjectDetector } from "../detect/project-detector.js";
 import { ScanOrchestrator } from "../scan/orchestrator.js";
 import type { BuoyConfig } from "../config/schema.js";
 import type { DriftSignal } from "@buoy-design/core";
-import { discoverProject, formatInsightsBlock } from '../insights/index.js';
+import { discoverProject, formatInsightsBlock, promptNextAction, isTTY } from '../insights/index.js';
 
 export function createStatusCommand(): Command {
   const cmd = new Command("status")
@@ -167,6 +167,20 @@ export function createStatusCommand(): Command {
           console.log(`Coverage: ${chalk.dim('N/A')} (no component scanners active)`);
           console.log('');
           console.log(formatInsightsBlock(insights));
+
+          // Offer interactive next step if TTY
+          if (isTTY()) {
+            const nextCmd = await promptNextAction(insights);
+            if (nextCmd) {
+              console.log(chalk.dim(`\nRunning: ${nextCmd}\n`));
+              try {
+                const { execSync } = await import('child_process');
+                execSync(nextCmd, { stdio: 'inherit', cwd: process.cwd() });
+              } catch {
+                // Command failed - user already saw the error output
+              }
+            }
+          }
           return;
         }
 

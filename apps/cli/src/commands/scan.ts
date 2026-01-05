@@ -19,7 +19,7 @@ import {
 } from "../output/formatters.js";
 import { ScanOrchestrator } from "../scan/orchestrator.js";
 import type { BuoyConfig } from "../config/schema.js";
-import { discoverProject, formatInsightsBlock } from "../insights/index.js";
+import { discoverProject, formatInsightsBlock, promptNextAction, isTTY } from "../insights/index.js";
 import {
   isLoggedIn,
   syncScan,
@@ -169,6 +169,20 @@ export function createScanCommand(): Command {
           // Show what we DID find
           const insights = await discoverProject(process.cwd());
           console.log(formatInsightsBlock(insights));
+
+          // Offer interactive next step if TTY
+          if (isTTY()) {
+            const nextCmd = await promptNextAction(insights);
+            if (nextCmd) {
+              console.log(chalk.dim(`\nRunning: ${nextCmd}\n`));
+              try {
+                const { execSync } = await import('child_process');
+                execSync(nextCmd, { stdio: 'inherit', cwd: process.cwd() });
+              } catch {
+                // Command failed - user already saw the error output
+              }
+            }
+          }
           return;
         }
 
