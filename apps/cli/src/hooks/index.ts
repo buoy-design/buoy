@@ -367,13 +367,18 @@ export interface ClaudeHooksConfig {
 
 /**
  * Generate Claude Code hooks configuration for design system awareness
- * Injects condensed design system context at session start
+ * - SessionStart: Injects condensed design system context
+ * - PostToolUse: Real-time drift check on file modifications
  *
  * Uses cross-platform Node.js command instead of `cat` for Windows compatibility
  */
 export function generateClaudeHooksConfig(): ClaudeHooksConfig {
   // Cross-platform command that works on Windows, macOS, and Linux
   const crossPlatformRead = `node -e "const fs=require('fs');const p='.claude/buoy-context.md';fs.existsSync(p)?console.log(fs.readFileSync(p,'utf8')):console.log('🛟 Design system active. Run buoy onboard to set up context.')"`;
+
+  // Real-time check command - runs after file edits, silent when clean
+  // Uses --format ai-feedback for structured output the AI can act on
+  const realtimeCheck = `npx buoy check --quiet --fail-on critical --format ai-feedback 2>/dev/null || true`;
 
   return {
     hooks: {
@@ -383,6 +388,26 @@ export function generateClaudeHooksConfig(): ClaudeHooksConfig {
             {
               type: "command",
               command: crossPlatformRead,
+            },
+          ],
+        },
+      ],
+      PostToolUse: [
+        {
+          matcher: "Edit",
+          hooks: [
+            {
+              type: "command",
+              command: realtimeCheck,
+            },
+          ],
+        },
+        {
+          matcher: "Write",
+          hooks: [
+            {
+              type: "command",
+              command: realtimeCheck,
             },
           ],
         },
@@ -474,6 +499,10 @@ export function setupClaudeHooks(projectRoot: string): SetupClaudeHooksResult {
       existingHooks.SessionStart = [
         ...(existingHooks.SessionStart || []),
         ...buoyConfig.hooks.SessionStart!,
+      ];
+      existingHooks.PostToolUse = [
+        ...(existingHooks.PostToolUse || []),
+        ...buoyConfig.hooks.PostToolUse!,
       ];
 
       writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + "\n");

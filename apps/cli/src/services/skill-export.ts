@@ -818,6 +818,45 @@ Run \`buoy check\` to see current violations with fix suggestions.
       }
     }
 
+    // Learnings from drift analysis - show real examples of what to avoid
+    if (data.drifts.length > 0) {
+      lines.push('## What We Learned (from drift analysis)');
+      lines.push('Recent issues found in this codebase - avoid these patterns:');
+      lines.push('');
+
+      // Group drifts by type
+      const driftsByType = new Map<string, DriftSignal[]>();
+      for (const drift of data.drifts) {
+        const list = driftsByType.get(drift.type) || [];
+        list.push(drift);
+        driftsByType.set(drift.type, list);
+      }
+
+      // Get top 3 drift types by frequency
+      const topDrifts = Array.from(driftsByType.entries())
+        .sort((a, b) => b[1].length - a[1].length)
+        .slice(0, 3);
+
+      for (const [type, drifts] of topDrifts) {
+        const critical = drifts.filter(d => d.severity === 'critical').length;
+        const badge = critical > 0 ? '🔴' : '🟡';
+        const example = drifts[0];
+        if (!example) continue;
+
+        lines.push(`${badge} **${this.formatDriftType(type)}** (${drifts.length} found)`);
+        lines.push(`   Example: ${example.message}`);
+
+        // Show fix suggestion if available
+        const suggestions = example.details?.suggestions as string[] | undefined;
+        if (suggestions?.length) {
+          lines.push(`   Fix: Use \`${suggestions[0]}\` instead`);
+        } else if (example.details?.expected) {
+          lines.push(`   Fix: Use \`${example.details.expected}\` instead`);
+        }
+        lines.push('');
+      }
+    }
+
     // Guidelines - what to do (not what's broken)
     // Only show guidelines section if we have components or tokens
     if (data.components.length > 0 || data.tokens.length > 0) {

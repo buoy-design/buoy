@@ -22,6 +22,7 @@ import {
   createFixCommand,
   createContextCommand,
   createOnboardCommand,
+  createLearnCommand,
   // Cloud commands
   createLoginCommand,
   createLogoutCommand,
@@ -50,7 +51,7 @@ Command Groups:
   Drift Detection    drift, lighthouse, check, fix, baseline
   AI Integration     onboard, skill, context, explain
   Design Tokens      tokens, anchor, compare, import
-  Analysis           audit, graph, history, plugins
+  Analysis           audit, graph, history, learn, plugins
   Cloud              login, logout, whoami, link, unlink, sync, billing
   GitHub             github
 
@@ -90,6 +91,7 @@ Quick Start:
   program.addCommand(createAuditCommand());
   program.addCommand(createGraphCommand());
   program.addCommand(createHistoryCommand());
+  program.addCommand(createLearnCommand());
   program.addCommand(createPluginsCommand());
 
   // === Cloud ===

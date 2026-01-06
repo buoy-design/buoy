@@ -22,6 +22,7 @@ export { createSkillCommand } from "./skill.js";
 export { createFixCommand } from "./fix.js";
 export { createContextCommand } from "./context.js";
 export { createOnboardCommand } from "./onboard.js";
+export { createLearnCommand } from "./learn.js";
 
 // Cloud commands
 export { createLoginCommand } from "./login.js";
