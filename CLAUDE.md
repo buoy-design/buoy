@@ -129,3 +129,51 @@ node apps/cli/dist/bin.js status
 ## Output Modes
 
 All commands support `--json` for machine-readable output. The `setJsonMode()` function in `apps/cli/src/output/reporters.ts` suppresses decorative output when enabled.
+
+## AI Guardrails
+
+Buoy provides comprehensive AI guardrails for design system compliance:
+
+### AI-Friendly Commands
+
+| Command | Purpose |
+|---------|---------|
+| `buoy skill export` | Generate AI skill with design system context |
+| `buoy context` | Generate CLAUDE.md section for design system |
+| `buoy check --format ai-feedback` | AI-optimized validation output |
+| `buoy tokens --format ai-context` | Export tokens with intent metadata |
+| `buoy fix --dry-run` | Preview fix suggestions |
+
+### MCP Server
+
+The `@buoy-design/mcp` package provides an MCP server for real-time design system context:
+
+```json
+// .claude/settings.json
+{
+  "mcpServers": {
+    "buoy": {
+      "command": "npx",
+      "args": ["@buoy-design/mcp", "serve"]
+    }
+  }
+}
+```
+
+**Resources:** `tokens://all`, `components://inventory`, `patterns://all`, `antipatterns://all`
+**Tools:** `find_component`, `validate_code`, `resolve_token`, `suggest_fix`
+
+### Sub-Agents
+
+See `docs/ai-agents/` for specialized agent definitions:
+- **Design Validator** - Validate code against design system
+- **Token Advisor** - Find tokens for hardcoded values
+- **Pattern Matcher** - Find existing patterns for UI needs
+
+### AI Development Workflow
+
+1. Load design system skill before generating UI
+2. Validate with `buoy check --format ai-feedback`
+3. Fix issues with token suggestions
+4. Verify with `buoy check` again
+5. Commit (pre-commit hook runs validation)
