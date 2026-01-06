@@ -8,6 +8,14 @@
 
 ## Executive Summary
 
+AI coding tools generate code at unprecedented speed—but they don't know your design system exists. They'll write `#3b82f6` when you have `--color-primary`. They'll use `padding: 17px` when your spacing scale is multiples of 4.
+
+**Key Statistics (2025):**
+- **4x more code cloning** with AI assistance
+- **30-50% of AI code** contains quality issues
+- **60% of teams** have no process for reviewing AI code
+- MCP adopted by OpenAI, Cursor, Windsurf, Replit
+
 This document defines a comprehensive feature set for keeping AI agents on track with design systems. The core insight: **AI needs guardrails, not just detection.** We provide guardrails through multiple channels:
 
 1. **Setup Wizard** - One-click AI guardrails configuration via `buoy begin`
@@ -910,6 +918,204 @@ buoy context --detail standard --append
 │  └─────────┘  └─────────┘  └─────────┘  └─────────┘    │
 └─────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Gap Analysis: What's Missing
+
+Based on research of ecosystem best practices, these gaps have been identified:
+
+| Gap | Impact | Priority | Reference |
+|-----|--------|----------|-----------|
+| **Token intent not exported** | AI knows values but not WHY | High | - |
+| **No ESLint plugin** | No IDE-level enforcement | High | [Backlight ESLint](https://backlight.dev/blog/best-practices-w-eslint-part-1) |
+| **No GitHub Action** | Manual CLI installation in CI | High | Standard practice |
+| **Pre-commit setup undocumented** | Users don't know how to install | High | [pre-commit.com](https://pre-commit.com/) |
+| **No Stylelint plugin** | CSS token validation missing | Medium | [stylelint-design-tokens-plugin](https://github.com/LasaleFamine/stylelint-design-tokens-plugin) |
+| **README not updated** | New features invisible | Medium | User feedback |
+| **No streaming validation** | Bad code generated before correction | Medium | [MCP docs](https://www.anthropic.com/engineering/code-execution-with-mcp) |
+
+---
+
+## ESLint Plugin: `eslint-plugin-buoy`
+
+### Rules
+
+| Rule | Description | Fixable |
+|------|-------------|---------|
+| `buoy/no-hardcoded-colors` | Disallow hex/rgb colors in JSX | Yes |
+| `buoy/no-hardcoded-spacing` | Disallow arbitrary pixel values | Yes |
+| `buoy/use-design-components` | Prefer design system components | No |
+| `buoy/no-div-button` | Disallow `<div onClick>` | Yes |
+
+### Configuration
+
+```javascript
+// .eslintrc.js
+module.exports = {
+  plugins: ['buoy'],
+  rules: {
+    'buoy/no-hardcoded-colors': 'error',
+    'buoy/no-hardcoded-spacing': 'warn',
+    'buoy/use-design-components': ['error', {
+      Button: ['button', 'div[onClick]'],
+      Input: ['input'],
+    }],
+  },
+  settings: {
+    buoy: {
+      tokensPath: './design-tokens.json',
+    },
+  },
+};
+```
+
+### Implementation
+
+```typescript
+// packages/eslint-plugin-buoy/src/rules/no-hardcoded-colors.ts
+export const rule: Rule.RuleModule = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'Disallow hardcoded color values' },
+    fixable: 'code',
+  },
+  create(context) {
+    const tokens = loadTokens(context.settings.buoy?.tokensPath);
+    return {
+      Literal(node) {
+        if (typeof node.value === 'string' && isHexColor(node.value)) {
+          const suggestion = findClosestToken(node.value, tokens);
+          context.report({
+            node,
+            message: `Use design token instead of "${node.value}"`,
+            fix: suggestion ? (fixer) => fixer.replaceText(node, suggestion) : undefined,
+          });
+        }
+      },
+    };
+  },
+};
+```
+
+---
+
+## Stylelint Plugin: `stylelint-plugin-buoy`
+
+### Rules
+
+| Rule | Description |
+|------|-------------|
+| `buoy/use-design-tokens` | All color/spacing must use CSS variables |
+| `buoy/no-arbitrary-values` | No magic numbers outside token scale |
+
+### Configuration
+
+```javascript
+// .stylelintrc.js
+module.exports = {
+  plugins: ['stylelint-plugin-buoy'],
+  rules: {
+    'buoy/use-design-tokens': [true, {
+      tokensPath: './design-tokens.json',
+      severity: 'error',
+    }],
+  },
+};
+```
+
+---
+
+## GitHub Action: `buoy-design/buoy-action`
+
+### Usage
+
+```yaml
+# .github/workflows/design-check.yml
+name: Design System Check
+
+on: [pull_request]
+
+jobs:
+  buoy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: buoy-design/buoy-action@v1
+        with:
+          fail-on: warning  # or 'critical', 'none'
+          comment: true     # Post PR comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### Action Definition
+
+```yaml
+# action.yml
+name: 'Buoy Design Check'
+description: 'Check for design system drift in pull requests'
+inputs:
+  fail-on:
+    description: 'Severity level to fail on (critical, warning, info, none)'
+    default: 'critical'
+  comment:
+    description: 'Post results as PR comment'
+    default: 'true'
+runs:
+  using: 'composite'
+  steps:
+    - run: npx @buoy-design/cli ci --fail-on ${{ inputs.fail-on }}
+      shell: bash
+```
+
+---
+
+## Pre-commit Configuration
+
+### Setup
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: local
+    hooks:
+      - id: buoy-check
+        name: Buoy Design Check
+        entry: npx @buoy-design/cli check --staged --fail-on critical
+        language: system
+        types: [javascript, typescript, tsx, jsx, css, scss]
+        pass_filenames: false
+```
+
+### Installation
+
+```bash
+# Install pre-commit
+pip install pre-commit
+
+# Install hooks
+pre-commit install
+
+# Run manually
+pre-commit run buoy-check
+```
+
+---
+
+## Research Sources
+
+| Source | Key Insight |
+|--------|-------------|
+| [Anthropic Claude Code Best Practices](https://www.anthropic.com/engineering/claude-code-best-practices) | CLAUDE.md should be 100-200 lines max; use folder-specific files for details |
+| [Using CLAUDE.md Files](https://claude.com/blog/using-claude-md-files) | Skills and custom commands for reusable context |
+| [MCP Specification 2025-06-18](https://modelcontextprotocol.io/specification/2025-06-18) | Resources for static context, Tools for active queries |
+| [The MCP's Impact on 2025](https://www.thoughtworks.com/en-us/insights/blog/generative-ai/model-context-protocol-mcp-impact-2025) | MCP is "USB-C port of AI applications" |
+| [ESLint for Design Systems](https://backlight.dev/blog/best-practices-w-eslint-part-1) | Custom ESLint rules enforce design system component usage |
+| [stylelint-design-tokens-plugin](https://github.com/LasaleFamine/stylelint-design-tokens-plugin) | Validate CSS uses only defined design tokens |
+| [pre-commit.com](https://pre-commit.com/) | Keep hooks fast (<2s); comprehensive checks belong in CI |
+| [Qodo AI Code Reviews](https://www.qodo.ai/blog/ai-code-reviews-enforce-compliance-coding-standards/) | AI code needs multi-layer validation: lint + SAST + review |
 
 ---
 
