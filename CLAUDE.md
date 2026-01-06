@@ -138,7 +138,7 @@ Buoy provides comprehensive AI guardrails for design system compliance:
 
 | Command | Purpose |
 |---------|---------|
-| `buoy skill export` | Generate AI skill with design system context |
+| `buoy skill spill` | Generate AI skill with design system context |
 | `buoy context` | Generate CLAUDE.md section for design system |
 | `buoy check --format ai-feedback` | AI-optimized validation output |
 | `buoy tokens --format ai-context` | Export tokens with intent metadata |

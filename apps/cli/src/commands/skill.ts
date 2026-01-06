@@ -37,8 +37,9 @@ export function createSkillCommand(): Command {
 }
 
 function createExportCommand(): Command {
-  return new Command('export')
-    .description('Export design system as a skill for AI agents')
+  return new Command('spill')
+    .alias('export')  // Keep 'export' as alias for backwards compatibility
+    .description('Spill your design system as a skill for AI agents')
     .option(
       '-o, --output <path>',
       'Output directory',
@@ -225,7 +226,7 @@ function createExportCommand(): Command {
           }
 
           newline();
-          info('To update, run: buoy skill export');
+          info('To update, run: buoy skill spill');
         }
       } catch (err) {
         spin.stop();

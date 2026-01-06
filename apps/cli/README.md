@@ -32,7 +32,7 @@ Buoy works great with AI coding tools:
 
 ```bash
 # Generate a skill file for Claude/Cursor
-buoy skill export
+buoy skill spill
 
 # Add design system context to CLAUDE.md
 buoy context

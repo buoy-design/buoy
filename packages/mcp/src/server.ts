@@ -403,7 +403,7 @@ function handleFindComponent(
           ? `Available components include: ${availableComponents.join(', ')}`
           : 'No components in inventory. Run `buoy scan` to discover components.',
         nextSteps: ctx.components.length === 0
-          ? ['Run `buoy scan` to discover components', 'Run `buoy skill export` to populate component inventory']
+          ? ['Run `buoy scan` to discover components', 'Run `buoy skill spill` to populate component inventory']
           : ['Check component naming - try broader search terms', 'View full inventory with components://inventory'],
       },
     };

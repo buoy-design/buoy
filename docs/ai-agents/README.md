@@ -98,7 +98,7 @@ Then agents can call:
 ### For Developers
 
 1. **Set up MCP server** - For real-time AI assistance
-2. **Export skill on changes** - `buoy skill export` when design system updates
+2. **Export skill on changes** - `buoy skill spill` when design system updates
 3. **Configure pre-commit hooks** - `buoy check --staged`
 4. **Review AI output** - Trust but verify
 
@@ -109,7 +109,7 @@ Then agents can call:
 | `buoy check` | Validate code for drift |
 | `buoy check --format ai-feedback` | AI-friendly validation output |
 | `buoy fix --dry-run` | Preview fix suggestions |
-| `buoy skill export` | Generate AI skill |
+| `buoy skill spill` | Generate AI skill |
 | `buoy context` | Generate CLAUDE.md section |
 | `buoy begin` | Interactive setup wizard |
 

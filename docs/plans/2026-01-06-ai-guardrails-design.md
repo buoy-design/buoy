@@ -33,7 +33,7 @@ This document defines a comprehensive feature set for keeping AI agents on track
 | Feature | Type | Status | AI Benefit |
 |---------|------|--------|------------|
 | `buoy begin` wizard | CLI | Enhanced | One-click AI guardrails setup |
-| `buoy skill export` | CLI | New | Generates portable design system skill |
+| `buoy skill spill` | CLI | New | Generates portable design system skill |
 | `buoy context` | CLI | New | Generates CLAUDE.md section for design system |
 | MCP Server | Package | Planned | Real-time token/component queries |
 | Token Context Format | Core | New | W3C-compatible tokens with intent |
@@ -43,7 +43,7 @@ This document defines a comprehensive feature set for keeping AI agents on track
 
 ---
 
-## 1. Design System Skill (`buoy skill export`)
+## 1. Design System Skill (`buoy skill spill`)
 
 ### Purpose
 
@@ -53,13 +53,13 @@ Generate a portable skill that teaches AI agents how to use the design system. S
 
 ```bash
 # Export skill to local project
-buoy skill export --output .claude/skills/design-system/
+buoy skill spill --output .claude/skills/design-system/
 
 # Export with specific sections
-buoy skill export --sections tokens,components,patterns
+buoy skill spill --sections tokens,components,patterns
 
 # Export to global skills directory
-buoy skill export --global
+buoy skill spill --global
 ```
 
 ### Generated Structure
@@ -730,7 +730,7 @@ After setup completes:
   Next steps:
     • Run 'buoy check' after AI generates code
     • Update guardrails when design system changes:
-      buoy skill export && buoy context --append
+      buoy skill spill && buoy context --append
 ```
 
 ### Customize Flow
@@ -833,11 +833,11 @@ The wizard internally calls these commands:
 
 ```bash
 # Behind the scenes when "Set up everything" is selected:
-buoy skill export --output .claude/skills/design-system/
+buoy skill spill --output .claude/skills/design-system/
 buoy context --append
 
 # With customize options:
-buoy skill export \
+buoy skill spill \
   --output .claude/skills/design-system/ \
   --sections tokens,components,patterns,anti-patterns
 
@@ -849,7 +849,7 @@ buoy context --detail standard --append
 ## Implementation Priority
 
 ### Phase 1: Foundation (Week 1-2)
-1. `buoy skill export` - Generate portable skill
+1. `buoy skill spill` - Generate portable skill
 2. `buoy context` - Generate CLAUDE.md section
 3. `buoy begin` wizard integration - "Set up AI guardrails" menu option
 4. `buoy check --format ai-feedback` - AI-friendly output

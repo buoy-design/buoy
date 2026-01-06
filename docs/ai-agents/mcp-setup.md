@@ -143,7 +143,7 @@ Components are loaded from:
 For best results, export the skill:
 
 ```bash
-buoy skill export
+buoy skill spill
 ```
 
 ## Troubleshooting
@@ -169,7 +169,7 @@ buoy tokens --format ai-context
 Export the design system skill:
 
 ```bash
-buoy skill export
+buoy skill spill
 ```
 
 ### Resources returning empty
@@ -193,7 +193,7 @@ buoy init
 buoy tokens --format ai-context
 
 # 3. Export skill
-buoy skill export
+buoy skill spill
 
 # 4. Generate CLAUDE.md context
 buoy context --append

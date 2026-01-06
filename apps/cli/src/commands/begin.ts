@@ -653,7 +653,7 @@ Scanning your project...
 
     console.log('B) Set up AI guardrails (recommended)');
     console.log('   Helps AI tools follow the design system');
-    console.log('   → Run: buoy skill export');
+    console.log('   → Run: buoy skill spill');
     console.log('');
 
     console.log('C) Add to CI/CD pipeline');

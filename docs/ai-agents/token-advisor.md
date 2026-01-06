@@ -64,7 +64,7 @@ Use this agent to find the best design token for a hardcoded value.
     ## Where to Find Tokens
 
     Check these locations in order:
-    1. \`.claude/skills/design-system/tokens/\` - If skill exported
+    1. \`.claude/skills/design-system/tokens/\` - If skill spilled
     2. \`design-tokens.json\` or \`tokens.json\` - Token files
     3. \`tailwind.config.js\` - Theme configuration
     4. CSS files with custom properties (--token-name)

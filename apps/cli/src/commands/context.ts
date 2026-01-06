@@ -250,7 +250,7 @@ This file provides guidance to AI tools working with this codebase.
   console.log('');
   info('Next steps:');
   console.log('    • AI tools will now see these rules in context');
-  console.log('    • Run `buoy skill export` to create detailed skill files');
+  console.log('    • Run `buoy skill spill` to create detailed skill files');
   console.log('    • Update context when design system changes');
 }
 
