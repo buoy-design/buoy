@@ -1,4 +1,6 @@
 import { Command } from "commander";
+import { existsSync } from "fs";
+import { join } from "path";
 import {
   createDockCommand,
   createScanCommand,
@@ -37,39 +39,87 @@ export function createCli(): Command {
   program
     .name("buoy")
     .description("Design drift detection for the AI era")
-    .version("0.0.1");
+    .version("0.0.1")
+    .configureHelp({
+      sortSubcommands: false,
+      subcommandTerm: (cmd) => cmd.name(),
+    })
+    .addHelpText('after', `
+Command Groups:
+  Getting Started    begin, status, scan, dock
+  Drift Detection    check, drift, ci, fix, baseline
+  AI Integration     skill, context, explain
+  Design Tokens      tokens, anchor, compare, import
+  Analysis           audit, graph, history, plugins
+  Cloud              login, logout, whoami, link, unlink, sync, billing
+  GitHub             github
 
-  // Add commands
-  program.addCommand(createDockCommand());
-  program.addCommand(createScanCommand());
-  program.addCommand(createDriftCommand());
+Quick Start:
+  $ buoy              # auto-launches wizard if no config
+  $ buoy status       # see design system coverage
+  $ buoy scan         # find tokens & components
+  $ buoy check        # validate for drift
+`);
+
+  // === Getting Started ===
+  const beginCommand = createBeginCommand();
+  program.addCommand(beginCommand);
   program.addCommand(createStatusCommand());
+  program.addCommand(createScanCommand());
+  program.addCommand(createDockCommand());
+
+  // === Drift Detection ===
+  program.addCommand(createCheckCommand());
+  program.addCommand(createDriftCommand());
+  program.addCommand(createCICommand());
+  program.addCommand(createFixCommand());
+  program.addCommand(createBaselineCommand());
+
+  // === AI Integration ===
+  program.addCommand(createSkillCommand());
+  program.addCommand(createContextCommand());
+  program.addCommand(createExplainCommand());
+
+  // === Design Tokens ===
   program.addCommand(createTokensCommand());
   program.addCommand(createAnchorCommand());
-  program.addCommand(createPluginsCommand());
-  program.addCommand(createCICommand());
-  program.addCommand(createCheckCommand());
-  program.addCommand(createBaselineCommand());
-  program.addCommand(createExplainCommand());
   program.addCommand(createCompareCommand());
+  program.addCommand(createImportCommand());
+
+  // === Analysis ===
   program.addCommand(createAuditCommand());
   program.addCommand(createGraphCommand());
-  program.addCommand(createImportCommand());
   program.addCommand(createHistoryCommand());
-  program.addCommand(createBeginCommand());
-  program.addCommand(createSkillCommand());
-  program.addCommand(createFixCommand());
-  program.addCommand(createContextCommand());
+  program.addCommand(createPluginsCommand());
 
-  // Cloud commands
+  // === Cloud ===
   program.addCommand(createLoginCommand());
   program.addCommand(createLogoutCommand());
   program.addCommand(createWhoamiCommand());
   program.addCommand(createLinkCommand());
   program.addCommand(createUnlinkCommand());
   program.addCommand(createSyncCommand());
-  program.addCommand(createGitHubCommand());
   program.addCommand(createBillingCommand());
+
+  // === GitHub ===
+  program.addCommand(createGitHubCommand());
+
+  // Default action: run wizard if no config exists
+  program.action(async () => {
+    const configExists =
+      existsSync(join(process.cwd(), 'buoy.config.mjs')) ||
+      existsSync(join(process.cwd(), 'buoy.config.js')) ||
+      existsSync(join(process.cwd(), 'buoy.config.json'));
+
+    if (!configExists && process.stdin.isTTY) {
+      // No config + interactive terminal - launch wizard
+      console.log('\nNo config found. Launching setup wizard...\n');
+      await beginCommand.parseAsync([], { from: 'user' });
+    } else {
+      // Config exists or non-interactive - show help
+      program.outputHelp();
+    }
+  });
 
   return program;
 }
