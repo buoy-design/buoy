@@ -391,10 +391,21 @@ function handleFindComponent(
   const matches = searchComponents(ctx, useCase);
 
   if (matches.length === 0) {
+    // No Dead Ends: Provide guidance when no components found
+    const availableComponents = ctx.components.slice(0, 5).map(c => c.name);
     return {
       recommended: null,
       alternatives: [],
-      reasoning: `No existing component found for "${useCase}". Consider creating a new component or using a composition of existing ones.`,
+      reasoning: `No existing component found for "${useCase}".`,
+      guidance: {
+        suggestion: 'Consider creating a new component or composing existing ones.',
+        availableComponents: availableComponents.length > 0
+          ? `Available components include: ${availableComponents.join(', ')}`
+          : 'No components in inventory. Run `buoy scan` to discover components.',
+        nextSteps: ctx.components.length === 0
+          ? ['Run `buoy scan` to discover components', 'Run `buoy skill export` to populate component inventory']
+          : ['Check component naming - try broader search terms', 'View full inventory with components://inventory'],
+      },
     };
   }
 
@@ -521,6 +532,13 @@ function handleValidateCode(
     });
   }
 
+  // No Dead Ends: Provide context about what was checked
+  const checksPerformed = [
+    'Hardcoded colors',
+    'Arbitrary spacing values',
+    'Accessibility anti-patterns (div onClick, img alt)',
+  ];
+
   return {
     valid: issues.length === 0,
     issues,
@@ -529,6 +547,14 @@ function handleValidateCode(
       critical: issues.filter(i => i.severity === 'critical').length,
       warning: issues.filter(i => i.severity === 'warning').length,
       info: issues.filter(i => i.severity === 'info').length,
+    },
+    context: {
+      checksPerformed,
+      tokensAvailable: ctx.tokens.length,
+      componentsKnown: ctx.components.length,
+      guidance: issues.length === 0
+        ? 'Code follows design system rules. Run `buoy check` for comprehensive analysis.'
+        : 'Fix issues above, then re-validate. Run `buoy fix --dry-run` for automated suggestions.',
     },
   };
 }
@@ -570,10 +596,29 @@ function handleResolveToken(
     };
   }
 
+  // No Dead Ends: Explain why no match and suggest next steps
+  const availableCategories = [...new Set(ctx.tokens.map(t => t.category))];
   return {
     exactMatch: null,
     closestMatches: [],
-    suggestion: `No matching token found for "${value}". Consider adding a new token or using the closest available value.`,
+    suggestion: `No matching token found for "${value}".`,
+    guidance: {
+      tokenCount: ctx.tokens.length,
+      availableCategories: availableCategories.length > 0
+        ? availableCategories
+        : ['No tokens loaded'],
+      nextSteps: ctx.tokens.length === 0
+        ? [
+            'Run `buoy tokens` to extract tokens from hardcoded values',
+            'Add a design-tokens.json file',
+            'Run `buoy scan` to discover tokens from CSS',
+          ]
+        : [
+            'Consider adding a new token for this value',
+            'Use the closest available value from the scale',
+            `View available tokens: tokens://${tokenContext || 'all'}`,
+          ],
+    },
   };
 }
 
@@ -637,10 +682,26 @@ function handleSuggestFix(
   const closest = findClosestToken(ctx, value, category);
 
   if (!closest) {
+    // No Dead Ends: Explain why no fix and suggest next steps
     return {
       fix: null,
       explanation: `No suitable token found for "${value}"`,
       alternatives: [],
+      guidance: {
+        tokenCount: ctx.tokens.length,
+        categorySearched: category || 'all',
+        nextSteps: ctx.tokens.length === 0
+          ? [
+              'Run `buoy tokens` to extract tokens from codebase',
+              'Add a design-tokens.json file',
+              'Manual fix: replace with CSS variable or theme token',
+            ]
+          : [
+              'Value may be intentionally one-off (consider documenting)',
+              'Run `buoy fix --confidence low` to see all suggestions',
+              'Create a new token for this value if it will be reused',
+            ],
+      },
     };
   }
 

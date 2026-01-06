@@ -82,7 +82,26 @@ export function createFixCommand(): Command {
 
         if (tokens.length === 0) {
           spin.stop();
-          warning('No design tokens found. Run `buoy scan` to detect tokens first.');
+          // No Dead Ends: Show what we found and guide next steps
+          console.log('');
+          warning('No design tokens found to match against');
+          console.log('');
+          console.log('  But here\'s what I found:');
+          if (scanResult.components.length > 0) {
+            console.log(`    • ${scanResult.components.length} components scanned`);
+          }
+          const frameworks = config.sources ? Object.keys(config.sources).filter(k =>
+            config.sources[k as keyof typeof config.sources]?.enabled
+          ) : [];
+          if (frameworks.length > 0) {
+            console.log(`    • Frameworks: ${frameworks.join(', ')}`);
+          }
+          console.log('');
+          console.log('  Next steps:');
+          console.log('    • Run `buoy tokens` to extract tokens from hardcoded values');
+          console.log('    • Or create a tokens file (design-tokens.json)');
+          console.log('    • Run `buoy scan` to see full analysis');
+          console.log('');
           return;
         }
 
@@ -104,7 +123,20 @@ export function createFixCommand(): Command {
 
         if (driftSignals.length === 0) {
           spin.stop();
-          success('No hardcoded values found - nothing to fix');
+          // No Dead Ends: Celebrate success and show what was checked
+          console.log('');
+          success('No hardcoded values found - your code is clean!');
+          console.log('');
+          console.log('  What was checked:');
+          console.log(`    • ${components.length} components scanned`);
+          console.log(`    • ${tokens.length} tokens available for matching`);
+          const otherDrifts = diffResult.drifts.filter(d => !d.type.startsWith('hardcoded-'));
+          if (otherDrifts.length > 0) {
+            console.log('');
+            console.log(`  Note: ${otherDrifts.length} other drift signals found (naming, etc.)`);
+            console.log('    Run `buoy drift check` for full analysis');
+          }
+          console.log('');
           return;
         }
 
@@ -132,7 +164,26 @@ export function createFixCommand(): Command {
         spin.stop();
 
         if (fixes.length === 0) {
-          success('No fixable issues found matching your criteria');
+          // No Dead Ends: Explain what didn't match and suggest alternatives
+          console.log('');
+          warning('No fixable issues match your criteria');
+          console.log('');
+          console.log(`  Found ${driftSignals.length} hardcoded values, but:`);
+          if (minConfidence === 'high') {
+            console.log('    • No high-confidence fixes available');
+            console.log('    • Try: --confidence medium or --confidence low');
+          }
+          if (includeTypes?.length) {
+            console.log(`    • Types filter: ${includeTypes.join(', ')}`);
+            console.log('    • Try: Remove --type filter to see all issues');
+          }
+          if (includeFiles.length > 0) {
+            console.log(`    • File filter: ${includeFiles.join(', ')}`);
+            console.log('    • Try: Remove --file filter to see all files');
+          }
+          console.log('');
+          console.log('  Or run `buoy fix --dry-run` without filters to preview all fixes');
+          console.log('');
           return;
         }
 

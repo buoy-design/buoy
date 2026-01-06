@@ -193,13 +193,36 @@ function createExportCommand(): Command {
             'anti-patterns/',
           ]);
 
-          newline();
-          info('AI agents will now:');
-          bulletList([
-            'Load your design system skill when building UI',
-            'See token rules in project context',
-            'Get validation feedback from buoy check',
-          ]);
+          // No Dead Ends: Explain empty results and suggest next steps
+          if (result.stats.tokens.total === 0 && result.stats.components === 0) {
+            newline();
+            info('The skill was created but is minimal because:');
+            bulletList([
+              'No design tokens were found',
+              'No components were detected',
+            ]);
+            newline();
+            info('To enrich the skill:');
+            bulletList([
+              'Run `buoy tokens` to extract tokens from hardcoded values',
+              'Add a design-tokens.json or tokens.css file',
+              'Ensure components are in src/components/ or similar paths',
+            ]);
+          } else if (result.stats.tokens.total === 0) {
+            newline();
+            info('Note: No tokens found. Run `buoy tokens` to extract from codebase.');
+          } else if (result.stats.components === 0) {
+            newline();
+            info('Note: No components found. Ensure component files are in src/.');
+          } else {
+            newline();
+            info('AI agents will now:');
+            bulletList([
+              'Load your design system skill when building UI',
+              'See token rules in project context',
+              'Get validation feedback from buoy check',
+            ]);
+          }
 
           newline();
           info('To update, run: buoy skill export');

@@ -84,6 +84,12 @@ export interface FindComponentResponse {
   recommended: ComponentSummary | null;
   alternatives: ComponentSummary[];
   reasoning: string;
+  /** No Dead Ends: Guidance when no results found */
+  guidance?: {
+    suggestion: string;
+    availableComponents: string;
+    nextSteps: string[];
+  };
 }
 
 /**
@@ -112,6 +118,13 @@ export interface ValidateCodeResponse {
     warning: number;
     info: number;
   };
+  /** No Dead Ends: Context about what was checked */
+  context?: {
+    checksPerformed: string[];
+    tokensAvailable: number;
+    componentsKnown: number;
+    guidance: string;
+  };
 }
 
 /**
@@ -132,6 +145,12 @@ export interface ResolveTokenResponse {
     similarity: number;
   }>;
   suggestion: string;
+  /** No Dead Ends: Guidance when no match found */
+  guidance?: {
+    tokenCount: number;
+    availableCategories: string[];
+    nextSteps: string[];
+  };
 }
 
 /**
@@ -153,4 +172,10 @@ export interface SuggestFixResponse {
   } | null;
   explanation: string;
   alternatives?: string[];
+  /** No Dead Ends: Guidance when no fix found */
+  guidance?: {
+    tokenCount: number;
+    categorySearched: string;
+    nextSteps: string[];
+  };
 }

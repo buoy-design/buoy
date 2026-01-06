@@ -117,7 +117,7 @@ export function createContextCommand(): Command {
         }
 
         if (options.append) {
-          await handleAppend(result.content, process.cwd());
+          await handleAppend(result.content, process.cwd(), result.stats);
           return;
         }
 
@@ -130,6 +130,14 @@ export function createContextCommand(): Command {
 
         // Default: stdout
         console.log(result.content);
+
+        // No Dead Ends: Show guidance after output
+        if (result.stats.tokenCount === 0 && result.stats.componentCount === 0) {
+          console.error('');
+          console.error('Note: Generated minimal context (no tokens or components found).');
+          console.error('  Run `buoy scan` to see what can be detected.');
+          console.error('  Run `buoy tokens` to extract tokens from hardcoded values.');
+        }
       } catch (err) {
         spin.stop();
         error(err instanceof Error ? err.message : 'Context generation failed');
@@ -186,15 +194,34 @@ function validateDetailLevel(level: string): DetailLevel {
 /**
  * Handle append mode - append to CLAUDE.md
  */
-async function handleAppend(content: string, cwd: string): Promise<void> {
+async function handleAppend(
+  content: string,
+  cwd: string,
+  stats?: { tokenCount: number; componentCount: number; antiPatternCount: number }
+): Promise<void> {
   const claudeMdPath = join(cwd, 'CLAUDE.md');
 
   if (existsSync(claudeMdPath)) {
     // Check if design system section already exists
     const existing = await readFile(claudeMdPath, 'utf-8');
     if (existing.includes('## Design System Rules')) {
+      // No Dead Ends: Explain what we found and give options
       warning('CLAUDE.md already has a Design System Rules section.');
-      info('To update, manually remove the existing section first.');
+      console.log('');
+      console.log('  What was scanned:');
+      if (stats) {
+        console.log(`    • ${stats.tokenCount} tokens found`);
+        console.log(`    • ${stats.componentCount} components found`);
+        if (stats.antiPatternCount > 0) {
+          console.log(`    • ${stats.antiPatternCount} anti-patterns detected`);
+        }
+      }
+      console.log('');
+      console.log('  Options:');
+      console.log('    • Remove existing section manually, then re-run');
+      console.log('    • Use --output context.md to write to a separate file');
+      console.log('    • Pipe to clipboard: buoy context | pbcopy (macOS)');
+      console.log('');
       return;
     }
 
@@ -202,6 +229,9 @@ async function handleAppend(content: string, cwd: string): Promise<void> {
     const toAppend = '\n\n---\n\n' + content;
     await appendFile(claudeMdPath, toAppend, 'utf-8');
     success('Design system context appended to CLAUDE.md');
+    if (stats) {
+      showStats(stats);
+    }
   } else {
     // Create new CLAUDE.md
     const header = `# Project Instructions
@@ -211,7 +241,17 @@ This file provides guidance to AI tools working with this codebase.
 `;
     await writeFile(claudeMdPath, header + content, 'utf-8');
     success('Created CLAUDE.md with design system context');
+    if (stats) {
+      showStats(stats);
+    }
   }
+
+  // No Dead Ends: Suggest next steps
+  console.log('');
+  info('Next steps:');
+  console.log('    • AI tools will now see these rules in context');
+  console.log('    • Run `buoy skill export` to create detailed skill files');
+  console.log('    • Update context when design system changes');
 }
 
 /**
