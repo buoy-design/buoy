@@ -19,12 +19,9 @@ export async function showMenu<T = string>(
   title: string,
   options: MenuOption<T>[]
 ): Promise<T> {
-  console.log('');
-  console.log(chalk.bold(title));
-  console.log('');
-
+  // Use title as the message to avoid double prompt
   const answer = await select({
-    message: '',
+    message: title || 'Select an option',
     choices: options.map(opt => ({
       name: opt.label,
       value: opt.value,

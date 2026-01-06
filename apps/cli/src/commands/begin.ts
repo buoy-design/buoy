@@ -1,7 +1,8 @@
 /**
  * buoy begin - Interactive wizard for new users.
  *
- * Runs a scan, shows results, and guides users through setup.
+ * Explains what Buoy does, scans the project, and guides users through setup
+ * with clear, jargon-free language.
  */
 
 import { Command } from 'commander';
@@ -18,22 +19,16 @@ import type { BuoyConfig } from '../config/schema.js';
 import type { DriftSignal, Component } from '@buoy-design/core';
 import {
   showMenu,
-  sectionHeader,
   success,
-  info,
-  bulletList,
-  keyValue,
 } from '../wizard/menu.js';
 import { reviewIssues } from '../wizard/issue-reviewer.js';
 import { setupCI } from '../wizard/ci-generator.js';
 import { setupAIGuardrails } from '../wizard/ai-guardrails-generator.js';
 
 type MenuAction =
-  | 'review-critical'
-  | 'review-all'
-  | 'save-config'
-  | 'setup-ci'
-  | 'setup-ai-guardrails'
+  | 'quick-scan'
+  | 'review-issues'
+  | 'setup-prevention'
   | 'learn-more'
   | 'exit';
 
@@ -41,8 +36,8 @@ interface WizardState {
   configSaved: boolean;
   ciSetup: boolean;
   aiGuardrailsSetup: boolean;
-  criticalReviewed: boolean;
-  allReviewed: boolean;
+  hasScanned: boolean;
+  issuesReviewed: boolean;
 }
 
 export function createBeginCommand(): Command {
@@ -56,214 +51,208 @@ export function createBeginCommand(): Command {
         console.log('');
         console.log('Try these commands instead:');
         console.log(`  ${chalk.cyan('buoy status')}       See health at a glance`);
-        console.log(`  ${chalk.cyan('buoy drift check')} Detailed drift report`);
+        console.log(`  ${chalk.cyan('buoy scan')}         Scan for components`);
         console.log('');
         return;
       }
 
       const cwd = process.cwd();
 
-      // Welcome
+      // Welcome with clear explanation
       console.log('');
-      console.log(chalk.cyan.bold('Welcome to Buoy'));
+      console.log(chalk.cyan.bold('⚓ Welcome to Buoy'));
+      console.log('');
+      console.log(chalk.dim('  Buoy catches inconsistencies in your code before they ship.'));
+      console.log('');
+      console.log(chalk.dim('  Examples of what it finds:'));
+      console.log(`    ${chalk.yellow('•')} Hardcoded colors like ${chalk.yellow('#3b82f6')} instead of design tokens`);
+      console.log(`    ${chalk.yellow('•')} Magic numbers like ${chalk.yellow('padding: 17px')} instead of spacing variables`);
+      console.log(`    ${chalk.yellow('•')} AI-generated code that ignores your team's patterns`);
+      console.log('');
+      console.log(chalk.dim('  Think of it like a linter, but for design consistency.'));
       console.log('');
 
-      const spin = spinner('Scanning your project...');
+      // Initialize state
+      const state: WizardState = {
+        configSaved: !!getConfigPath(),
+        ciSetup: existsSync(join(cwd, '.github', 'workflows', 'buoy.yml')) ||
+                 existsSync(join(cwd, '.gitlab-ci.yml')),
+        aiGuardrailsSetup: existsSync(join(cwd, '.claude', 'skills', 'design-system', 'SKILL.md')),
+        hasScanned: false,
+        issuesReviewed: false,
+      };
 
-      try {
-        // Load or auto-detect config
-        const existingConfig = getConfigPath();
-        let config: BuoyConfig;
-        let autoResult: Awaited<ReturnType<typeof buildAutoConfig>> | undefined;
+      // Main menu loop
+      await menuLoop(cwd, state);
 
-        if (existingConfig) {
-          const result = await loadConfig();
-          config = result.config;
-        } else {
-          autoResult = await buildAutoConfig(cwd);
-          config = autoResult.config;
-        }
-
-        // Run scan
-        const orchestrator = new ScanOrchestrator(config);
-        const { components } = await orchestrator.scanComponents({
-          onProgress: (msg) => {
-            spin.text = msg;
-          },
-        });
-
-        // Detect frameworks
-        spin.text = 'Analyzing frameworks...';
-        const detector = new ProjectDetector(cwd);
-        const projectInfo = await detector.detect();
-
-        // Run drift analysis
-        spin.text = 'Checking for drift...';
-        const { SemanticDiffEngine } = await import('@buoy-design/core/analysis');
-        const engine = new SemanticDiffEngine();
-        const diffResult = engine.analyzeComponents(components, {
-          checkDeprecated: true,
-          checkNaming: true,
-          checkDocumentation: true,
-        });
-
-        const drifts: DriftSignal[] = [...diffResult.drifts];
-
-        // Check framework sprawl
-        const sprawlSignal = engine.checkFrameworkSprawl(
-          projectInfo.frameworks.map(f => ({ name: f.name, version: f.version }))
-        );
-        if (sprawlSignal) {
-          drifts.push(sprawlSignal);
-        }
-
-        spin.stop();
-
-        // Show overview
-        showOverview(components, drifts, autoResult, projectInfo);
-
-        // Initialize state
-        const state: WizardState = {
-          configSaved: !!existingConfig,
-          ciSetup: existsSync(join(cwd, '.github', 'workflows', 'buoy.yml')) ||
-                   existsSync(join(cwd, '.gitlab-ci.yml')),
-          aiGuardrailsSetup: existsSync(join(cwd, '.claude', 'skills', 'design-system', 'SKILL.md')),
-          criticalReviewed: false,
-          allReviewed: false,
-        };
-
-        // Main menu loop
-        await menuLoop(cwd, config, components, drifts, state, autoResult);
-
-        // Exit message
-        showExitMessage();
-      } catch (err) {
-        spin.stop();
-        const message = err instanceof Error ? err.message : String(err);
-        errorLog(`Wizard failed: ${message}`);
-        process.exit(1);
-      }
+      // Exit message
+      showExitMessage();
     });
 }
 
 /**
- * Show the project overview.
+ * Scan the project and show results in a user-friendly way.
  */
-function showOverview(
-  components: Component[],
-  drifts: DriftSignal[],
-  autoResult: Awaited<ReturnType<typeof buildAutoConfig>> | undefined,
-  projectInfo: Awaited<ReturnType<ProjectDetector['detect']>>
-): void {
-  sectionHeader('Project Overview');
+async function runScan(cwd: string): Promise<{
+  components: Component[];
+  drifts: DriftSignal[];
+  config: BuoyConfig;
+  projectInfo: Awaited<ReturnType<ProjectDetector['detect']>>;
+  autoResult: Awaited<ReturnType<typeof buildAutoConfig>> | undefined;
+}> {
+  const spin = spinner('Looking at your project...');
 
-  // Framework detection
-  if (projectInfo.frameworks.length > 0) {
-    const frameworkNames = projectInfo.frameworks.map(f => f.name).join(' + ');
-    keyValue('Framework', frameworkNames);
-  }
+  try {
+    // Load or auto-detect config
+    const existingConfig = getConfigPath();
+    let config: BuoyConfig;
+    let autoResult: Awaited<ReturnType<typeof buildAutoConfig>> | undefined;
 
-  keyValue('Components', `${components.length} found`);
+    if (existingConfig) {
+      const result = await loadConfig();
+      config = result.config;
+    } else {
+      autoResult = await buildAutoConfig(cwd);
+      config = autoResult.config;
+    }
 
-  if (autoResult?.tokenFiles && autoResult.tokenFiles.length > 0) {
-    keyValue('Tokens', `${autoResult.tokenFiles.length} file(s) detected`);
-  }
+    // Run scan
+    const orchestrator = new ScanOrchestrator(config);
+    const { components } = await orchestrator.scanComponents({
+      onProgress: (msg) => {
+        spin.text = msg;
+      },
+    });
 
-  // Health check
-  sectionHeader('Health Check');
+    // Detect frameworks
+    spin.text = 'Detecting frameworks...';
+    const detector = new ProjectDetector(cwd);
+    const projectInfo = await detector.detect();
 
-  const critical = drifts.filter(d => d.severity === 'critical').length;
-  const warning = drifts.filter(d => d.severity === 'warning').length;
-  const infoCount = drifts.filter(d => d.severity === 'info').length;
+    // Run drift analysis
+    spin.text = 'Analyzing for drift...';
+    const { SemanticDiffEngine } = await import('@buoy-design/core/analysis');
+    const engine = new SemanticDiffEngine();
+    const diffResult = engine.analyzeComponents(components, {
+      checkDeprecated: true,
+      checkNaming: true,
+      checkDocumentation: true,
+    });
 
-  // Coverage grid
-  const aligned = components.filter(c =>
-    !drifts.some(d => d.source.entityId === c.id)
-  ).length;
-  const total = components.length;
-  const pct = total > 0 ? Math.round((aligned / total) * 100) : 100;
+    const drifts: DriftSignal[] = [...diffResult.drifts];
 
-  if (total > 0) {
-    const gridSize = Math.min(10, total);
-    const alignedCount = Math.round((aligned / total) * gridSize);
-    const grid = '⛁ '.repeat(alignedCount) + '⛀ '.repeat(gridSize - alignedCount);
-    console.log(`  ${grid.trim()}    ${aligned}/${total} aligned (${pct}%)`);
-  }
+    // Check framework sprawl
+    const sprawlSignal = engine.checkFrameworkSprawl(
+      projectInfo.frameworks.map(f => ({ name: f.name, version: f.version }))
+    );
+    if (sprawlSignal) {
+      drifts.push(sprawlSignal);
+    }
 
-  console.log('');
-  if (critical > 0) {
-    console.log(`  ${chalk.red('Critical:')}  ${critical}`);
-  }
-  if (warning > 0) {
-    console.log(`  ${chalk.yellow('Warning:')}   ${warning}`);
-  }
-  if (infoCount > 0) {
-    console.log(`  ${chalk.blue('Info:')}      ${infoCount}`);
-  }
-  if (critical === 0 && warning === 0 && infoCount === 0) {
-    console.log(chalk.green('  No issues found!'));
+    spin.stop();
+    return { components, drifts, config, projectInfo, autoResult };
+  } catch (err) {
+    spin.stop();
+    throw err;
   }
 }
 
 /**
- * Main menu loop.
+ * Show scan results in a friendly way with clear transparency.
+ */
+function showScanResults(
+  components: Component[],
+  drifts: DriftSignal[],
+  projectInfo: Awaited<ReturnType<ProjectDetector['detect']>>
+): void {
+  console.log('');
+  console.log(chalk.bold('  Scan Results'));
+  console.log('');
+
+  // Framework detection
+  if (projectInfo.frameworks.length > 0) {
+    const frameworkNames = projectInfo.frameworks.map(f => f.name).join(', ');
+    console.log(`  ${chalk.green('✓')} Detected: ${chalk.cyan(frameworkNames)}`);
+  }
+
+  // Components - be transparent about what was scanned
+  if (components.length > 0) {
+    console.log(`  ${chalk.green('✓')} Scanned ${components.length} component${components.length === 1 ? '' : 's'}`);
+  } else {
+    console.log(`  ${chalk.yellow('○')} No components found to scan`);
+    console.log(chalk.dim('    Tip: Run buoy scan --verbose to see what paths are being searched'));
+  }
+
+  // Drift summary - clearer language about severity
+  const critical = drifts.filter(d => d.severity === 'critical').length;
+  const warning = drifts.filter(d => d.severity === 'warning').length;
+  const total = drifts.length;
+
+  console.log('');
+  if (components.length === 0) {
+    console.log(chalk.dim('  (No components to analyze for drift)'));
+  } else if (total === 0) {
+    console.log(`  ${chalk.green('✓')} No drift detected — your code follows consistent patterns!`);
+  } else {
+    console.log(`  ${chalk.yellow('!')} Found ${total} inconsistenc${total === 1 ? 'y' : 'ies'}:`);
+    if (critical > 0) {
+      console.log(`    ${chalk.red('•')} ${critical} ${chalk.red('should fix')} — hardcoded values that bypass design tokens`);
+    }
+    if (warning > 0) {
+      console.log(`    ${chalk.yellow('•')} ${warning} ${chalk.yellow('could improve')} — naming or pattern suggestions`);
+    }
+  }
+  console.log('');
+}
+
+/**
+ * Main menu loop with clear, jargon-free options.
  */
 async function menuLoop(
   cwd: string,
-  config: BuoyConfig,
-  _components: Component[],
-  drifts: DriftSignal[],
-  state: WizardState,
-  autoResult: Awaited<ReturnType<typeof buildAutoConfig>> | undefined
+  state: WizardState
 ): Promise<void> {
+  let scanResult: Awaited<ReturnType<typeof runScan>> | undefined;
+
   while (true) {
-    const action = await showMainMenu(drifts, state);
+    const action = await showMainMenu(state, scanResult);
 
     switch (action) {
-      case 'review-critical': {
-        const result = await reviewIssues(drifts, 'critical');
+      case 'quick-scan': {
+        try {
+          scanResult = await runScan(cwd);
+          state.hasScanned = true;
+          showScanResults(scanResult.components, scanResult.drifts, scanResult.projectInfo);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          errorLog(`Scan failed: ${message}`);
+        }
+        break;
+      }
+
+      case 'review-issues': {
+        if (!scanResult) {
+          console.log(chalk.yellow('\n  Run a scan first to see issues.\n'));
+          break;
+        }
+        if (scanResult.drifts.length === 0) {
+          console.log(chalk.green('\n  No issues to review!\n'));
+          break;
+        }
+        const result = await reviewIssues(scanResult.drifts);
         if (result.completed) {
-          state.criticalReviewed = true;
+          state.issuesReviewed = true;
         }
-        if (!(await askAnythingElse())) return;
         break;
       }
 
-      case 'review-all': {
-        const result = await reviewIssues(drifts);
-        if (result.completed) {
-          state.allReviewed = true;
-        }
-        if (!(await askAnythingElse())) return;
-        break;
-      }
-
-      case 'save-config': {
-        await saveConfiguration(cwd, config, autoResult);
-        state.configSaved = true;
-        if (!(await askAnythingElse())) return;
-        break;
-      }
-
-      case 'setup-ci': {
-        await setupCI(cwd);
-        state.ciSetup = true;
-        if (!(await askAnythingElse())) return;
-        break;
-      }
-
-      case 'setup-ai-guardrails': {
-        const result = await setupAIGuardrails(cwd, config);
-        if (result.skillExported || result.contextGenerated) {
-          state.aiGuardrailsSetup = true;
-        }
-        if (!(await askAnythingElse())) return;
+      case 'setup-prevention': {
+        await showPreventionOptions(cwd, scanResult?.config, state);
         break;
       }
 
       case 'learn-more': {
         showLearnMore();
-        if (!(await askAnythingElse())) return;
         break;
       }
 
@@ -274,82 +263,154 @@ async function menuLoop(
 }
 
 /**
- * Show the main menu with dynamic options.
+ * Show the main menu with friendly options and clear next steps.
  */
 async function showMainMenu(
-  drifts: DriftSignal[],
-  state: WizardState
+  state: WizardState,
+  scanResult?: Awaited<ReturnType<typeof runScan>>
 ): Promise<MenuAction> {
-  const critical = drifts.filter(d => d.severity === 'critical').length;
-  const total = drifts.length;
+  const options: Array<{ label: string; value: MenuAction; description?: string }> = [];
 
-  const options: Array<{ label: string; value: MenuAction; disabled?: boolean }> = [];
-
-  // Critical issues (if any and not reviewed)
-  if (critical > 0 && !state.criticalReviewed) {
+  if (!state.hasScanned) {
+    // First time: simple choice
     options.push({
-      label: `Review critical issues (${critical})`,
-      value: 'review-critical',
+      label: 'Scan my project',
+      value: 'quick-scan',
+      description: 'Find inconsistencies in your code',
     });
+
+    options.push({
+      label: 'Learn more first',
+      value: 'learn-more',
+      description: 'What is design drift and why does it matter?',
+    });
+  } else {
+    // After scan: context-aware options
+    const issueCount = scanResult?.drifts.length ?? 0;
+
+    if (issueCount > 0 && !state.issuesReviewed) {
+      // Issues found - make review the primary action
+      options.push({
+        label: `Review ${issueCount} issue${issueCount === 1 ? '' : 's'} found`,
+        value: 'review-issues',
+        description: 'See the problems and how to fix them',
+      });
+    }
+
+    // Offer prevention setup with clearer description
+    if (!state.ciSetup && !state.aiGuardrailsSetup) {
+      options.push({
+        label: 'Prevent future drift',
+        value: 'setup-prevention',
+        description: 'Add CI checks or help AI tools follow your patterns',
+      });
+    }
+
+    // Re-scan only if useful (e.g., after making changes)
+    if (state.issuesReviewed || issueCount === 0) {
+      options.push({
+        label: 'Scan again',
+        value: 'quick-scan',
+        description: 'Check if anything changed',
+      });
+    }
   }
 
-  // All drift (if any)
-  if (total > 0 && !state.allReviewed) {
-    options.push({
-      label: `Review all drift (${total})`,
-      value: 'review-all',
-    });
-  }
-
-  // Save config (if not already)
-  if (!state.configSaved) {
-    options.push({
-      label: 'Save configuration',
-      value: 'save-config',
-    });
-  }
-
-  // CI setup (if not already)
-  if (!state.ciSetup) {
-    options.push({
-      label: 'Set up CI integration',
-      value: 'setup-ci',
-    });
-  }
-
-  // AI guardrails (if not already)
-  if (!state.aiGuardrailsSetup) {
-    options.push({
-      label: 'Set up AI guardrails',
-      value: 'setup-ai-guardrails',
-    });
-  }
-
-  // Always show learn more
-  options.push({
-    label: 'Learn more about Buoy',
-    value: 'learn-more',
-  });
-
-  // Always show exit
   options.push({
     label: 'Exit',
     value: 'exit',
+    description: state.hasScanned ? 'Done for now' : undefined,
   });
 
-  return showMenu<MenuAction>('What would you like to do?', options);
+  return showMenu<MenuAction>('What next?', options);
 }
 
 /**
- * Ask "Anything else?" and return whether to continue.
+ * Show prevention setup options (CI, AI guardrails, config).
  */
-async function askAnythingElse(): Promise<boolean> {
+async function showPreventionOptions(
+  cwd: string,
+  config: BuoyConfig | undefined,
+  state: WizardState
+): Promise<void> {
   console.log('');
-  const action = await showMenu<'continue' | 'exit'>('Anything else?', [
-    { label: 'Yes, show menu', value: 'continue' },
-    { label: 'No, exit', value: 'exit' },
-  ]);
-  return action === 'continue';
+  console.log(chalk.bold('  Ways to prevent drift:'));
+  console.log('');
+  console.log(chalk.dim('  Choose how you want Buoy to catch issues:'));
+  console.log('');
+
+  type PreventionAction = 'ci' | 'ai' | 'config' | 'back';
+  const options: Array<{ label: string; value: PreventionAction; description?: string }> = [];
+
+  if (!state.ciSetup) {
+    options.push({
+      label: 'Add to CI/CD pipeline',
+      value: 'ci',
+      description: 'Block PRs that introduce drift (GitHub Actions, etc.)',
+    });
+  } else {
+    options.push({
+      label: 'CI/CD already configured ✓',
+      value: 'ci',
+      description: 'View or update your CI setup',
+    });
+  }
+
+  if (!state.aiGuardrailsSetup) {
+    options.push({
+      label: 'Set up AI guardrails',
+      value: 'ai',
+      description: 'Help Copilot & Claude follow your design system',
+    });
+  } else {
+    options.push({
+      label: 'AI guardrails configured ✓',
+      value: 'ai',
+      description: 'View or update AI settings',
+    });
+  }
+
+  if (!state.configSaved) {
+    options.push({
+      label: 'Save configuration',
+      value: 'config',
+      description: 'Customize what Buoy scans and ignores',
+    });
+  }
+
+  options.push({
+    label: 'Back to main menu',
+    value: 'back',
+  });
+
+  const action = await showMenu<PreventionAction>('Prevention options:', options);
+
+  switch (action) {
+    case 'ci':
+      await setupCI(cwd);
+      state.ciSetup = true;
+      break;
+    case 'ai':
+      if (config) {
+        const result = await setupAIGuardrails(cwd, config);
+        if (result.skillExported || result.contextGenerated) {
+          state.aiGuardrailsSetup = true;
+        }
+      } else {
+        console.log(chalk.yellow('\n  Run a scan first to set up AI guardrails.\n'));
+      }
+      break;
+    case 'config':
+      if (config) {
+        await saveConfiguration(cwd, config);
+        state.configSaved = true;
+      } else {
+        console.log(chalk.yellow('\n  Run a scan first to save configuration.\n'));
+      }
+      break;
+    case 'back':
+      break;
+  }
 }
 
 /**
@@ -357,35 +418,17 @@ async function askAnythingElse(): Promise<boolean> {
  */
 async function saveConfiguration(
   cwd: string,
-  config: BuoyConfig,
-  autoResult: Awaited<ReturnType<typeof buildAutoConfig>> | undefined
+  config: BuoyConfig
 ): Promise<void> {
-  sectionHeader('Save Configuration');
-
-  info('Buoy works without config, but saving one lets you:');
   console.log('');
-  bulletList([
-    'Exclude test files and generated code',
-    'Connect Figma or Storybook as sources of truth',
-    'Set severity thresholds for CI',
-    'Track history across your team',
-  ]);
+  console.log(chalk.bold('  Save Configuration'));
+  console.log('');
+  console.log(chalk.dim('  A config file lets you customize what Buoy scans.'));
   console.log('');
 
-  if (autoResult) {
-    info('Detected settings:');
-    for (const d of autoResult.detected) {
-      console.log(`    ${chalk.green('•')} ${d.name} ${chalk.dim(`(${d.evidence})`)}`);
-    }
-    if (autoResult.tokenFiles.length > 0) {
-      console.log(`    ${chalk.green('•')} ${autoResult.tokenFiles.length} token file(s)`);
-    }
-    console.log('');
-  }
-
-  const action = await showMenu<'save' | 'customize' | 'skip'>('', [
-    { label: 'Save and continue', value: 'save' },
-    { label: 'Customize first', value: 'customize' },
+  const action = await showMenu<'save' | 'customize' | 'skip'>('Save buoy.config.mjs?', [
+    { label: 'Save with defaults', value: 'save', description: 'Use auto-detected settings' },
+    { label: 'Customize first', value: 'customize', description: 'Choose what to exclude' },
     { label: 'Skip for now', value: 'skip' },
   ]);
 
@@ -406,13 +449,16 @@ async function saveConfiguration(
 
   console.log('');
   success('Created buoy.config.mjs');
+  console.log('');
 }
 
 /**
  * Customize configuration interactively.
  */
 async function customizeConfig(config: BuoyConfig): Promise<BuoyConfig> {
-  sectionHeader('Customize Configuration');
+  console.log('');
+  console.log(chalk.bold('  Customize Configuration'));
+  console.log('');
 
   const excludePaths = [
     'tests/**/*',
@@ -459,32 +505,29 @@ export default ${JSON.stringify(config, null, 2)};
 }
 
 /**
- * Show learn more section.
+ * Show learn more section - explains drift in plain language.
  */
 function showLearnMore(): void {
-  sectionHeader('About Buoy');
-
-  info('Buoy catches design drift before it ships.');
   console.log('');
-  info('Drift happens when code diverges from your design system:');
-  bulletList([
-    'Hardcoded colors instead of tokens',
-    'Arbitrary spacing (17px vs your 4px scale)',
-    'Inconsistent component naming',
-  ]);
+  console.log(chalk.bold('  What is Design Drift?'));
   console.log('');
-  info('AI coding tools make this worse—they don\'t know your');
-  info('design system exists.');
+  console.log(chalk.dim('  When you have a design system, you want code to follow it.'));
+  console.log(chalk.dim('  But over time, inconsistencies creep in:'));
   console.log('');
-
-  info('Commands to know:');
-  console.log(`    ${chalk.cyan('buoy status')}        Quick health check`);
-  console.log(`    ${chalk.cyan('buoy drift check')}   Detailed drift report`);
-  console.log(`    ${chalk.cyan('buoy ci')}            Run in CI pipelines`);
-  console.log(`    ${chalk.cyan('buoy history')}       View scan history`);
+  console.log(`    ${chalk.red('•')} Someone writes ${chalk.yellow('color: #3b82f6')} instead of using your blue token`);
+  console.log(`    ${chalk.red('•')} A developer uses ${chalk.yellow('padding: 17px')} instead of your 4px spacing scale`);
+  console.log(`    ${chalk.red('•')} AI tools generate code that ignores your design system`);
   console.log('');
-
-  info(`Docs: ${chalk.cyan('https://buoy.design/docs')}`);
+  console.log(chalk.dim('  This is "design drift" — and it adds up fast.'));
+  console.log('');
+  console.log(chalk.bold('  How Buoy Helps'));
+  console.log('');
+  console.log(`    ${chalk.green('1.')} ${chalk.cyan('Scan')} your code to find drift`);
+  console.log(`    ${chalk.green('2.')} ${chalk.cyan('Review')} issues and see suggested fixes`);
+  console.log(`    ${chalk.green('3.')} ${chalk.cyan('Prevent')} future drift with CI checks and AI guardrails`);
+  console.log('');
+  console.log(chalk.dim(`  Docs: ${chalk.cyan('https://buoy.design/docs')}`));
+  console.log('');
 }
 
 /**
@@ -492,14 +535,13 @@ function showLearnMore(): void {
  */
 function showExitMessage(): void {
   console.log('');
-  success('You\'re all set!');
+  console.log(chalk.green('  ✓ You\'re all set!'));
   console.log('');
-
-  info('Quick commands:');
-  console.log(`    ${chalk.cyan('buoy status')}        See health at a glance`);
-  console.log(`    ${chalk.cyan('buoy drift check')}   Detailed drift report`);
+  console.log(chalk.dim('  Quick commands:'));
+  console.log(`    ${chalk.cyan('buoy scan')}     Scan for drift`);
+  console.log(`    ${chalk.cyan('buoy status')}   Quick health overview`);
+  console.log(`    ${chalk.cyan('buoy check')}    Pre-commit validation`);
   console.log('');
-
-  info(`Run ${chalk.cyan('buoy begin')} anytime to return to this wizard.`);
+  console.log(chalk.dim(`  Run ${chalk.cyan('buoy begin')} anytime to return here.`));
   console.log('');
 }
