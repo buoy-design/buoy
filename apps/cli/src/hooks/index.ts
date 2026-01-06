@@ -342,6 +342,12 @@ export function generateStandaloneHook(projectRoot: string): SetupHooksResult {
  */
 export interface ClaudeHooksConfig {
   hooks: {
+    SessionStart?: Array<{
+      hooks: Array<{
+        type: "command";
+        command: string;
+      }>;
+    }>;
     PostToolUse?: Array<{
       matcher: string;
       hooks: Array<{
@@ -360,19 +366,18 @@ export interface ClaudeHooksConfig {
 }
 
 /**
- * Generate Claude Code hooks configuration for design system validation
+ * Generate Claude Code hooks configuration for design system awareness
  */
 export function generateClaudeHooksConfig(): ClaudeHooksConfig {
   return {
     hooks: {
-      PostToolUse: [
+      SessionStart: [
         {
-          matcher: "Write|Edit",
           hooks: [
             {
               type: "command",
               command:
-                'jq -r \'.tool_input.file_path // empty\' | { read file_path; if [ -n "$file_path" ] && echo "$file_path" | grep -qE \'\\.(tsx?|jsx?|vue|svelte|css|scss)$\'; then npx buoy check "$file_path" --format ai-feedback 2>/dev/null || true; fi; }',
+                'echo "🛟 Design system active. Run \\"buoy check\\" to validate compliance, or \\"buoy sweep\\" for full scan."',
             },
           ],
         },
@@ -406,27 +411,31 @@ export function setupClaudeHooks(projectRoot: string): SetupClaudeHooksResult {
       const existing = JSON.parse(readFileSync(settingsPath, "utf-8"));
 
       // Check if hooks are already configured
-      if (existing.hooks?.PostToolUse) {
-        const hasbuoyHook = existing.hooks.PostToolUse.some(
+      const hasbuoyHook =
+        existing.hooks?.SessionStart?.some(
+          (h: { hooks?: Array<{ command?: string }> }) =>
+            h.hooks?.some((hook) => hook.command?.includes("buoy") || hook.command?.includes("Design system")),
+        ) ||
+        existing.hooks?.PostToolUse?.some(
           (h: { hooks?: Array<{ command?: string }> }) =>
             h.hooks?.some((hook) => hook.command?.includes("buoy")),
         );
-        if (hasbuoyHook) {
-          return {
-            success: true,
-            message: "Buoy hooks already configured in .claude/settings.local.json",
-            filePath: settingsPath,
-            created: false,
-          };
-        }
+
+      if (hasbuoyHook) {
+        return {
+          success: true,
+          message: "Buoy hooks already configured in .claude/settings.local.json",
+          filePath: settingsPath,
+          created: false,
+        };
       }
 
       // Merge with existing config
       const buoyConfig = generateClaudeHooksConfig();
       existing.hooks = existing.hooks || {};
-      existing.hooks.PostToolUse = [
-        ...(existing.hooks.PostToolUse || []),
-        ...buoyConfig.hooks.PostToolUse!,
+      existing.hooks.SessionStart = [
+        ...(existing.hooks.SessionStart || []),
+        ...buoyConfig.hooks.SessionStart!,
       ];
 
       writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + "\n");

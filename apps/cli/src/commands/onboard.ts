@@ -213,7 +213,7 @@ export function createOnboardCommand(): Command {
           if (results.claudeHooksCreated) {
             console.log(`  ${chalk.green('✓')} Created Claude Code hooks`);
             console.log(chalk.dim(`      ${results.claudeHooksPath}`));
-            console.log(chalk.dim('      Real-time drift feedback after every file edit'));
+            console.log(chalk.dim('      Session reminder + on-demand validation'));
           }
 
           console.log('');
