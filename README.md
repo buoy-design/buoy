@@ -40,9 +40,9 @@ No config needed. Buoy auto-detects your framework and starts working immediatel
 
 | Command | Purpose |
 |---------|---------|
-| `buoy sweep` | Visual health check—see coverage at a glance |
-| `buoy sweep` | Scan components and tokens |
+| `buoy sweep` | Scan components and tokens, visual health check |
 | `buoy drift check` | Detailed drift signals with fix suggestions |
+| `buoy onboard` | Set up AI guardrails (skills + CLAUDE.md) |
 | `buoy explain [target]` | AI-powered investigation of drift |
 | `buoy tokens` | Generate tokens from existing code |
 
