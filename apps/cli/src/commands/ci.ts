@@ -1,8 +1,9 @@
 // apps/cli/src/commands/ci.ts
 import { Command } from "commander";
+import chalk from "chalk";
 import { loadConfig, getConfigPath } from "../config/loader.js";
 import { setJsonMode } from "../output/reporters.js";
-import type { DriftSignal, Severity } from "@buoy-design/core";
+import type { DriftSignal, Severity, DesignToken } from "@buoy-design/core";
 import {
   GitHubClient,
   parseRepoString,
@@ -16,6 +17,32 @@ import {
 } from "../services/drift-analysis.js";
 import { AIAnalysisService } from "../services/ai-analysis.js";
 import { ScanCache } from "@buoy-design/scanners";
+import {
+  detectAIReviewTools,
+  generateCodeRabbitConfig,
+  generateGreptileConfig,
+} from "../services/ai-tools-detector.js";
+
+/** Extract a string representation of a token value */
+function tokenValueToString(token: DesignToken): string {
+  const v = token.value;
+  switch (v.type) {
+    case 'color':
+      return v.hex;
+    case 'spacing':
+      return `${v.value}${v.unit}`;
+    case 'typography':
+      return `${v.fontSize}px ${v.fontFamily}`;
+    case 'shadow':
+      return `shadow`;
+    case 'border':
+      return `${v.width}px ${v.style} ${v.color}`;
+    case 'raw':
+      return String(v.value);
+    default:
+      return JSON.stringify(v);
+  }
+}
 
 export interface CIOutput {
   version: string;
@@ -149,6 +176,22 @@ export function createCICommand(): Command {
       "--max-warning <n>",
       "Fail if warning drift count exceeds this threshold"
     )
+    .option(
+      "--detect-tools",
+      "Detect existing AI review tools and show integration options"
+    )
+    .option(
+      "--export-coderabbit",
+      "Export design system rules as CodeRabbit config"
+    )
+    .option(
+      "--export-greptile",
+      "Export design system context as Greptile config"
+    )
+    .option(
+      "--cooperative",
+      "Run in cooperative mode - provide data to existing tools, skip AI review"
+    )
     .action(async (options) => {
       // Set JSON mode to ensure any reporter output goes to stderr
       // --json flag takes precedence, but --format also works
@@ -156,10 +199,152 @@ export function createCICommand(): Command {
         setJsonMode(true);
       }
       const log = options.quiet ? () => {} : console.error.bind(console);
+      const cwd = process.cwd();
 
       try {
+        // Handle --detect-tools: show what AI review tools are present
+        if (options.detectTools) {
+          const detection = detectAIReviewTools(cwd);
+
+          if (options.json) {
+            console.log(JSON.stringify(detection, null, 2));
+            return;
+          }
+
+          console.log('');
+          console.log(chalk.cyan.bold('🔍 AI Review Tool Detection'));
+          console.log('');
+
+          if (!detection.hasAnyTool) {
+            console.log(chalk.dim('  No AI review tools detected.'));
+            console.log('');
+            console.log('  Buoy can provide AI-powered design system review.');
+            console.log(chalk.dim('  Run: buoy lighthouse --ai'));
+          } else {
+            console.log(chalk.green(`  Found ${detection.tools.length} AI review tool(s):`));
+            console.log('');
+            for (const tool of detection.tools) {
+              console.log(`  ${chalk.green('✓')} ${chalk.bold(tool.displayName)}`);
+              if (tool.configFile) {
+                console.log(chalk.dim(`      Config: ${tool.configFile}`));
+              }
+              if (tool.supportsCustomRules) {
+                console.log(chalk.dim(`      Supports custom rules - Buoy can provide design system context`));
+              }
+            }
+            console.log('');
+            console.log(chalk.dim('  Recommendations:'));
+            for (const rec of detection.recommendations) {
+              console.log(`    • ${rec}`);
+            }
+            console.log('');
+            console.log(chalk.dim('  Export design system rules:'));
+            const toolsWithRules = detection.tools.filter(t => t.supportsCustomRules);
+            for (const tool of toolsWithRules) {
+              console.log(`    buoy lighthouse --export-${tool.name}`);
+            }
+          }
+          console.log('');
+          return;
+        }
+
+        // Handle exports - need to scan first
+        if (options.exportCoderabbit || options.exportGreptile) {
+          // Load config and scan for design data
+          const configPath = getConfigPath();
+          if (!configPath) {
+            console.error(chalk.red('No buoy config found. Run: buoy begin'));
+            process.exit(1);
+          }
+
+          const { config } = await loadConfig();
+          const { ScanOrchestrator } = await import("../scan/orchestrator.js");
+          const orchestrator = new ScanOrchestrator(config, cwd);
+
+          log('Scanning design system...');
+          const scanResult = await orchestrator.scan({ onProgress: log });
+
+          // Build export data
+          const tokens = scanResult.tokens.map(t => ({
+            name: t.name,
+            value: tokenValueToString(t),
+            category: t.value.type,
+          }));
+
+          const { SemanticDiffEngine } = await import("@buoy-design/core/analysis");
+          const engine = new SemanticDiffEngine();
+          const diffResult = engine.analyzeComponents(scanResult.components, {
+            checkDeprecated: true,
+            checkNaming: true,
+          });
+
+          const antiPatterns = diffResult.drifts
+            .filter(d => d.severity === 'critical' || d.severity === 'warning')
+            .map(d => ({
+              pattern: d.type,
+              message: d.message,
+            }));
+
+          const patterns = scanResult.components
+            .filter(c => c.metadata.documentation)
+            .slice(0, 10)
+            .map(c => ({
+              name: c.name,
+              description: c.metadata.documentation || `${c.name} component`,
+            }));
+
+          if (options.exportCoderabbit) {
+            const configContent = generateCodeRabbitConfig({ tokens, patterns, antiPatterns });
+            if (options.json) {
+              console.log(JSON.stringify({ config: configContent }, null, 2));
+            } else {
+              console.log('');
+              console.log(chalk.cyan.bold('📋 CodeRabbit Configuration'));
+              console.log(chalk.dim('Add this to your .coderabbit.yaml:'));
+              console.log('');
+              console.log(configContent);
+              console.log('');
+              console.log(chalk.dim('Or save directly:'));
+              console.log(chalk.cyan('  buoy lighthouse --export-coderabbit > .coderabbit-buoy.yaml'));
+            }
+            return;
+          }
+
+          if (options.exportGreptile) {
+            const configContent = generateGreptileConfig({
+              tokens,
+              patterns,
+              antiPatterns,
+              projectName: config.project?.name,
+            });
+            if (options.json) {
+              console.log(JSON.stringify({ config: configContent }, null, 2));
+            } else {
+              console.log('');
+              console.log(chalk.cyan.bold('📋 Greptile Configuration'));
+              console.log(chalk.dim('Add this to your greptile.json customContext:'));
+              console.log('');
+              console.log(configContent);
+              console.log('');
+              console.log(chalk.dim('Or save directly:'));
+              console.log(chalk.cyan('  buoy lighthouse --export-greptile > greptile-buoy.json'));
+            }
+            return;
+          }
+        }
+
         // Validate GitHub options early, before any scanning
         const github = validateGitHubOptions(options);
+
+        // Detect existing AI tools for cooperative mode
+        const detection = detectAIReviewTools(cwd);
+        const cooperativeMode = options.cooperative ||
+          (detection.hasAnyTool && options.ai === undefined);
+
+        if (cooperativeMode && detection.hasAnyTool && !options.quiet) {
+          const toolNames = detection.tools.map(t => t.displayName).join(', ');
+          log(`Cooperative mode: ${toolNames} detected. Buoy will provide data, not AI review.`);
+        }
 
         // Check for config
         if (!getConfigPath()) {
@@ -248,8 +433,9 @@ export function createCICommand(): Command {
 
             let comment: string;
 
-            // Use AI analysis if enabled
-            const useAI = options.ai !== false && process.env.ANTHROPIC_API_KEY;
+            // Use AI analysis if explicitly enabled AND not in cooperative mode
+            // In cooperative mode, we let existing AI tools handle the review
+            const useAI = options.ai === true && process.env.ANTHROPIC_API_KEY && !cooperativeMode;
             if (useAI && drifts.length > 0) {
               log("Running AI analysis...");
               const aiService = new AIAnalysisService();
