@@ -18,6 +18,8 @@ export { createAuditCommand } from "./audit.js";
 export { createGraphCommand } from "./graph.js";
 export { createImportCommand } from "./import.js";
 export { createHistoryCommand } from "./history.js";
+export { createBeginCommand } from "./begin.js";
+export { createSkillCommand } from "./skill.js";
 
 // Cloud commands
 export { createLoginCommand } from "./login.js";

@@ -16,6 +16,8 @@ import {
   createGraphCommand,
   createImportCommand,
   createHistoryCommand,
+  createBeginCommand,
+  createSkillCommand,
   // Cloud commands
   createLoginCommand,
   createLogoutCommand,
@@ -52,6 +54,8 @@ export function createCli(): Command {
   program.addCommand(createGraphCommand());
   program.addCommand(createImportCommand());
   program.addCommand(createHistoryCommand());
+  program.addCommand(createBeginCommand());
+  program.addCommand(createSkillCommand());
 
   // Cloud commands
   program.addCommand(createLoginCommand());
