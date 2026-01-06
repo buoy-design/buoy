@@ -31,7 +31,7 @@ export function createTokensCommand(): Command {
   const cmd = new Command('tokens')
     .description('Generate design tokens from your codebase')
     .option('-o, --output <path>', 'Output file path (auto-detected if not specified)')
-    .option('--format <format>', 'Output format: css, json, tailwind (auto-detected if not specified)')
+    .option('--format <format>', 'Output format: css, json, tailwind, ai-context (auto-detected if not specified)')
     .option('--dry-run', 'Preview without writing files')
     .option('--prefix <prefix>', 'Prefix for CSS custom properties (e.g., "ds-")')
     .action(async (options) => {
@@ -52,7 +52,9 @@ export function createTokensCommand(): Command {
           ? 'buoy.tokens.js'
           : format === 'json'
             ? 'design-tokens.json'
-            : 'design-tokens.css';
+            : format === 'ai-context'
+              ? 'tokens-ai-context.json'
+              : 'design-tokens.css';
         const outputPath = resolve(cwd, options.output || defaultOutput);
 
         // Get config (or auto-detect)
@@ -229,6 +231,10 @@ export function createTokensCommand(): Command {
             info('Next: Add to your tailwind.config.js:');
             console.log(chalk.cyan(`  const tokens = require("./${relative(cwd, outputPath)}");`));
             console.log(chalk.cyan('  // Spread into theme.extend'));
+          } else if (format === 'ai-context') {
+            info('Next: Use this file for AI agent context:');
+            console.log(chalk.cyan(`  • Add to .claude/skills/design-system/tokens/`));
+            console.log(chalk.cyan(`  • Or reference in CLAUDE.md`));
           } else {
             info('Next: Import tokens in your build system');
           }
@@ -265,9 +271,186 @@ function getOutput(
       return JSON.stringify(result.json, null, 2);
     case 'tailwind':
       return generateTailwindOutput(result);
+    case 'ai-context':
+      return generateAIContextOutput(result);
     default:
       return result.css;
   }
+}
+
+/**
+ * Generate AI context format output.
+ * This format includes intent metadata to help AI understand token usage.
+ */
+function generateAIContextOutput(result: ReturnType<typeof generateTokens>): string {
+  interface AIToken {
+    $value: string;
+    $type: string;
+    $intent?: {
+      hierarchy?: string;
+      relationship?: string;
+      density?: string;
+    };
+    $usage?: string;
+    $avoid?: string;
+    $examples?: string[];
+    $deprecated?: boolean;
+  }
+
+  const tokens: Record<string, Record<string, AIToken>> = {
+    color: {},
+    spacing: {},
+    typography: {},
+    radius: {},
+  };
+
+  // Color intent mapping based on naming patterns
+  const getColorIntent = (name: string): { hierarchy?: string; usage?: string; avoid?: string } => {
+    const lower = name.toLowerCase();
+    if (lower.includes('primary')) {
+      return {
+        hierarchy: 'primary-action',
+        usage: 'Primary CTAs, submit buttons, main actions',
+        avoid: 'Decorative elements, backgrounds, secondary text',
+      };
+    }
+    if (lower.includes('secondary')) {
+      return {
+        hierarchy: 'secondary-action',
+        usage: 'Secondary buttons, less prominent actions',
+        avoid: 'Primary call-to-action contexts',
+      };
+    }
+    if (lower.includes('error') || lower.includes('danger') || lower.includes('destructive')) {
+      return {
+        hierarchy: 'destructive',
+        usage: 'Error states, delete actions, warnings',
+        avoid: 'Success states, neutral information',
+      };
+    }
+    if (lower.includes('success') || lower.includes('positive')) {
+      return {
+        hierarchy: 'positive-feedback',
+        usage: 'Success messages, confirmations, positive states',
+        avoid: 'Primary actions, warnings',
+      };
+    }
+    if (lower.includes('warning') || lower.includes('caution')) {
+      return {
+        hierarchy: 'cautionary',
+        usage: 'Warning messages, pending states, caution indicators',
+        avoid: 'Success or error states',
+      };
+    }
+    if (lower.includes('muted') || lower.includes('subtle') || lower.includes('disabled')) {
+      return {
+        hierarchy: 'de-emphasized',
+        usage: 'Disabled states, placeholder text, subtle backgrounds',
+        avoid: 'Interactive elements, important information',
+      };
+    }
+    return {};
+  };
+
+  // Spacing intent mapping
+  const getSpacingIntent = (value: string): { relationship?: string; density?: string; usage?: string } => {
+    const numericValue = parseFloat(value);
+    if (isNaN(numericValue)) return {};
+
+    if (numericValue <= 4) {
+      return {
+        relationship: 'tightly-coupled',
+        density: 'compact',
+        usage: 'Between inline elements, tight groupings',
+      };
+    }
+    if (numericValue <= 8) {
+      return {
+        relationship: 'related-elements',
+        density: 'standard',
+        usage: 'Between related form fields, list items',
+      };
+    }
+    if (numericValue <= 16) {
+      return {
+        relationship: 'grouped-sections',
+        density: 'comfortable',
+        usage: 'Card padding, section margins',
+      };
+    }
+    if (numericValue <= 32) {
+      return {
+        relationship: 'distinct-sections',
+        density: 'spacious',
+        usage: 'Between major page sections',
+      };
+    }
+    return {
+      relationship: 'page-level',
+      density: 'expansive',
+      usage: 'Page margins, major layout gaps',
+    };
+  };
+
+  for (const token of result.tokens) {
+    const category = token.category === 'font-size' ? 'typography' : token.category;
+    const targetCategory = tokens[category] || (tokens[category] = {});
+
+    const aiToken: AIToken = {
+      $value: token.value,
+      $type: token.category,
+      $deprecated: false,
+    };
+
+    // Add intent based on category
+    if (category === 'color') {
+      const intent = getColorIntent(token.name);
+      if (intent.hierarchy) {
+        aiToken.$intent = { hierarchy: intent.hierarchy };
+      }
+      if (intent.usage) aiToken.$usage = intent.usage;
+      if (intent.avoid) aiToken.$avoid = intent.avoid;
+      aiToken.$examples = [`className="text-${token.name}"`, `style={{ color: tokens.${token.name} }}`];
+    } else if (category === 'spacing') {
+      const intent = getSpacingIntent(token.value);
+      if (intent.relationship || intent.density) {
+        aiToken.$intent = {
+          relationship: intent.relationship,
+          density: intent.density,
+        };
+      }
+      if (intent.usage) aiToken.$usage = intent.usage;
+      aiToken.$examples = [`className="p-${token.name}"`, `style={{ padding: tokens.${token.name} }}`];
+    } else if (category === 'radius') {
+      aiToken.$usage = 'Border radius for rounded corners';
+      aiToken.$examples = [`className="rounded-${token.name}"`, `style={{ borderRadius: tokens.${token.name} }}`];
+    } else if (category === 'typography') {
+      aiToken.$usage = 'Font size for text elements';
+      aiToken.$examples = [`className="text-${token.name}"`, `style={{ fontSize: tokens.${token.name} }}`];
+    }
+
+    targetCategory[token.name] = aiToken;
+  }
+
+  const output = {
+    $schema: 'https://buoy.design/schemas/ai-context-tokens.json',
+    version: '1.0',
+    generatedAt: new Date().toISOString(),
+    generatedBy: 'buoy tokens --format ai-context',
+    tokens,
+    rules: {
+      colors: 'NEVER hardcode hex colors. Always use color tokens.',
+      spacing: 'NEVER use arbitrary pixel values. Use spacing scale tokens.',
+      typography: 'NEVER hardcode font sizes. Use typography tokens.',
+      radius: 'NEVER hardcode border-radius. Use radius tokens.',
+    },
+    validation: {
+      command: 'buoy check',
+      description: 'Run before committing to validate design system compliance',
+    },
+  };
+
+  return JSON.stringify(output, null, 2);
 }
 
 function generateTailwindOutput(result: ReturnType<typeof generateTokens>): string {

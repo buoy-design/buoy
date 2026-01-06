@@ -9,6 +9,67 @@ import {
   calculateDriftSummary,
 } from "../services/drift-analysis.js";
 
+export type OutputFormat = "text" | "json" | "ai-feedback";
+
+/**
+ * Format drift signals as AI-friendly JSON feedback
+ */
+export function formatAiFeedback(
+  drifts: DriftSignal[],
+  exitCode: number,
+  summary: { critical: number; warning: number; info: number; total: number }
+): string {
+  const issues = drifts.map((drift) => {
+    const location = drift.source.location || "";
+    const [file, lineStr, colStr] = location.split(":");
+
+    // Extract fix suggestion from details if available
+    const suggestions = drift.details?.suggestions as string[] | undefined;
+    const firstSuggestion = suggestions?.[0];
+    const fix = firstSuggestion
+      ? {
+          type: "replace" as const,
+          old: drift.details?.actual as string | undefined,
+          new: firstSuggestion,
+        }
+      : undefined;
+
+    return {
+      file: file || drift.source.entityName,
+      line: lineStr ? parseInt(lineStr, 10) : undefined,
+      column: colStr ? parseInt(colStr, 10) : undefined,
+      type: drift.type,
+      severity: drift.severity,
+      message: drift.message,
+      entity: drift.source.entityName,
+      current: drift.details?.actual,
+      suggested: firstSuggestion || drift.details?.expected,
+      fix,
+    };
+  });
+
+  const output = {
+    passed: exitCode === 0,
+    issues,
+    summary: {
+      total: summary.total,
+      critical: summary.critical,
+      warning: summary.warning,
+      info: summary.info,
+      fixable: issues.filter((i) => i.fix).length,
+    },
+    instructions: exitCode === 0
+      ? "All checks passed. Code is design system compliant."
+      : [
+          "Design system violations detected.",
+          "Fix each issue by replacing the current value with the suggested token.",
+          "Re-run `buoy check` after making changes to verify fixes.",
+        ].join(" "),
+  };
+
+  return JSON.stringify(output, null, 2);
+}
+
 /**
  * Get list of staged files from git
  */
@@ -95,6 +156,11 @@ export function createCheckCommand(): Command {
     .option("--staged", "Only check staged files (for pre-commit hooks)")
     .option("--quiet", "Suppress all output except errors")
     .option("-v, --verbose", "Show detailed output")
+    .option(
+      "--format <format>",
+      "Output format: text, json, ai-feedback",
+      "text"
+    )
     .action(async (options) => {
       const log = options.quiet
         ? () => {}
@@ -149,7 +215,33 @@ export function createCheckCommand(): Command {
         // Summary counts using shared utility
         const summary = calculateDriftSummary(drifts);
 
-        // Output
+        // Output based on format
+        const format = options.format as OutputFormat;
+
+        if (format === "ai-feedback") {
+          console.log(formatAiFeedback(drifts, exitCode, summary));
+          process.exit(exitCode);
+          return;
+        }
+
+        if (format === "json") {
+          console.log(JSON.stringify({
+            passed: exitCode === 0,
+            drifts: drifts.map((d) => ({
+              id: d.id,
+              type: d.type,
+              severity: d.severity,
+              message: d.message,
+              source: d.source,
+              details: d.details,
+            })),
+            summary,
+          }, null, 2));
+          process.exit(exitCode);
+          return;
+        }
+
+        // Default text format
         if (!options.quiet) {
           if (exitCode === 0) {
             if (summary.total === 0) {

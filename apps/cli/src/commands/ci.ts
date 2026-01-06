@@ -15,6 +15,7 @@ import {
   sortDriftsBySeverity,
 } from "../services/drift-analysis.js";
 import { AIAnalysisService } from "../services/ai-analysis.js";
+import { ScanCache } from "@buoy-design/scanners";
 
 export interface CIOutput {
   version: string;
@@ -133,6 +134,20 @@ export function createCICommand(): Command {
       "--no-ai",
       "Disable AI analysis even if ANTHROPIC_API_KEY is set",
     )
+    .option("--no-cache", "Disable incremental scanning cache")
+    .option("--clear-cache", "Clear cache before scanning")
+    .option(
+      "--max-drift <n>",
+      "Fail if total drift count exceeds this threshold"
+    )
+    .option(
+      "--max-critical <n>",
+      "Fail if critical drift count exceeds this threshold"
+    )
+    .option(
+      "--max-warning <n>",
+      "Fail if warning drift count exceeds this threshold"
+    )
     .action(async (options) => {
       // Set JSON mode to ensure any reporter output goes to stderr
       // --json flag takes precedence, but --format also works
@@ -163,12 +178,30 @@ export function createCICommand(): Command {
 
         log("Scanning for drift...");
 
+        // Initialize cache if enabled
+        let cache: ScanCache | undefined;
+        if (options.cache !== false) {
+          cache = new ScanCache(process.cwd());
+          await cache.load();
+
+          if (options.clearCache) {
+            cache.clear();
+            log("Cache cleared");
+          }
+        }
+
         // Use consolidated drift analysis service
         const service = new DriftAnalysisService(config);
         const result = await service.analyze({
           onProgress: log,
           includeBaseline: options.includeBaseline,
+          cache,
         });
+
+        // Save cache after scan
+        if (cache) {
+          await cache.save();
+        }
 
         const drifts = result.drifts;
 
@@ -298,9 +331,17 @@ export function createCICommand(): Command {
   return cmd;
 }
 
+interface CIBuildOptions {
+  failOn: string;
+  top: string;
+  maxDrift?: string;
+  maxCritical?: string;
+  maxWarning?: string;
+}
+
 function buildCIOutput(
   drifts: DriftSignal[],
-  options: { failOn: string; top: string },
+  options: CIBuildOptions,
 ): CIOutput {
   const summary = {
     total: drifts.length,
@@ -326,9 +367,36 @@ function buildCIOutput(
     };
   });
 
-  // Determine exit code using shared utility
-  const failOn = options.failOn as Severity | "none";
-  const exitCode = hasDriftsAboveThreshold(drifts, failOn) ? 1 : 0;
+  // Determine exit code - check thresholds first, then severity
+  let exitCode = 0;
+
+  // Check threshold-based failures
+  if (options.maxDrift !== undefined) {
+    const maxDrift = parseInt(options.maxDrift, 10);
+    if (!isNaN(maxDrift) && summary.total > maxDrift) {
+      exitCode = 1;
+    }
+  }
+
+  if (options.maxCritical !== undefined) {
+    const maxCritical = parseInt(options.maxCritical, 10);
+    if (!isNaN(maxCritical) && summary.critical > maxCritical) {
+      exitCode = 1;
+    }
+  }
+
+  if (options.maxWarning !== undefined) {
+    const maxWarning = parseInt(options.maxWarning, 10);
+    if (!isNaN(maxWarning) && summary.warning > maxWarning) {
+      exitCode = 1;
+    }
+  }
+
+  // If no threshold failures, check severity-based failure
+  if (exitCode === 0) {
+    const failOn = options.failOn as Severity | "none";
+    exitCode = hasDriftsAboveThreshold(drifts, failOn) ? 1 : 0;
+  }
 
   return {
     version: "0.0.1",

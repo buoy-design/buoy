@@ -5,13 +5,18 @@ import {
   getStagedFiles,
   filterScannableFiles,
   isFromStagedFile,
+  formatAiFeedback,
 } from "../check.js";
 import type { DriftSignal } from "@buoy-design/core";
 
 // Mock execSync for git commands
-vi.mock("node:child_process", () => ({
-  execSync: vi.fn(),
-}));
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    execSync: vi.fn(),
+  };
+});
 
 describe("check command", () => {
   beforeEach(() => {
@@ -204,6 +209,150 @@ describe("check command", () => {
       expect(calculateExitCode([], "critical")).toBe(0);
       expect(calculateExitCode([], "warning")).toBe(0);
       expect(calculateExitCode([], "info")).toBe(0);
+    });
+  });
+
+  describe("formatAiFeedback", () => {
+    const createMockDrift = (overrides?: Partial<DriftSignal>): DriftSignal => ({
+      id: "test-drift",
+      type: "hardcoded-value",
+      severity: "warning",
+      source: {
+        entityType: "component",
+        entityId: "test",
+        entityName: "Button",
+        location: "src/Button.tsx:10:5",
+      },
+      message: "Hardcoded color #ff0000",
+      details: {
+        actual: "#ff0000",
+        suggestions: ["color-error", "color-danger"],
+      },
+      detectedAt: new Date(),
+      ...overrides,
+    });
+
+    it("returns valid JSON", () => {
+      const drifts = [createMockDrift()];
+      const summary = { critical: 0, warning: 1, info: 0, total: 1 };
+
+      const result = formatAiFeedback(drifts, 1, summary);
+      const parsed = JSON.parse(result);
+
+      expect(parsed).toHaveProperty("passed");
+      expect(parsed).toHaveProperty("issues");
+      expect(parsed).toHaveProperty("summary");
+      expect(parsed).toHaveProperty("instructions");
+    });
+
+    it("sets passed to true when exitCode is 0", () => {
+      const summary = { critical: 0, warning: 0, info: 0, total: 0 };
+
+      const result = formatAiFeedback([], 0, summary);
+      const parsed = JSON.parse(result);
+
+      expect(parsed.passed).toBe(true);
+    });
+
+    it("sets passed to false when exitCode is 1", () => {
+      const drifts = [createMockDrift()];
+      const summary = { critical: 0, warning: 1, info: 0, total: 1 };
+
+      const result = formatAiFeedback(drifts, 1, summary);
+      const parsed = JSON.parse(result);
+
+      expect(parsed.passed).toBe(false);
+    });
+
+    it("includes file, line, and column from location", () => {
+      const drifts = [createMockDrift()];
+      const summary = { critical: 0, warning: 1, info: 0, total: 1 };
+
+      const result = formatAiFeedback(drifts, 1, summary);
+      const parsed = JSON.parse(result);
+
+      expect(parsed.issues[0].file).toBe("src/Button.tsx");
+      expect(parsed.issues[0].line).toBe(10);
+      expect(parsed.issues[0].column).toBe(5);
+    });
+
+    it("includes fix object when suggestions available", () => {
+      const drifts = [createMockDrift()];
+      const summary = { critical: 0, warning: 1, info: 0, total: 1 };
+
+      const result = formatAiFeedback(drifts, 1, summary);
+      const parsed = JSON.parse(result);
+
+      expect(parsed.issues[0].fix).toEqual({
+        type: "replace",
+        old: "#ff0000",
+        new: "color-error",
+      });
+    });
+
+    it("uses first suggestion from suggestions array", () => {
+      const drifts = [createMockDrift({
+        details: {
+          actual: "#123456",
+          suggestions: ["color-primary", "color-secondary"],
+        },
+      })];
+      const summary = { critical: 0, warning: 1, info: 0, total: 1 };
+
+      const result = formatAiFeedback(drifts, 1, summary);
+      const parsed = JSON.parse(result);
+
+      expect(parsed.issues[0].suggested).toBe("color-primary");
+    });
+
+    it("includes summary counts", () => {
+      const drifts = [
+        createMockDrift({ severity: "critical" }),
+        createMockDrift({ severity: "warning" }),
+        createMockDrift({ severity: "info" }),
+      ];
+      const summary = { critical: 1, warning: 1, info: 1, total: 3 };
+
+      const result = formatAiFeedback(drifts, 1, summary);
+      const parsed = JSON.parse(result);
+
+      expect(parsed.summary.total).toBe(3);
+      expect(parsed.summary.critical).toBe(1);
+      expect(parsed.summary.warning).toBe(1);
+      expect(parsed.summary.info).toBe(1);
+    });
+
+    it("counts fixable issues correctly", () => {
+      const drifts = [
+        createMockDrift({ details: { suggestions: ["token-1"] } }),
+        createMockDrift({ details: {} }), // No suggestions
+      ];
+      const summary = { critical: 0, warning: 2, info: 0, total: 2 };
+
+      const result = formatAiFeedback(drifts, 1, summary);
+      const parsed = JSON.parse(result);
+
+      expect(parsed.summary.fixable).toBe(1);
+    });
+
+    it("provides success instructions when passed", () => {
+      const summary = { critical: 0, warning: 0, info: 0, total: 0 };
+
+      const result = formatAiFeedback([], 0, summary);
+      const parsed = JSON.parse(result);
+
+      expect(parsed.instructions).toContain("passed");
+    });
+
+    it("provides fix instructions when failed", () => {
+      const drifts = [createMockDrift()];
+      const summary = { critical: 0, warning: 1, info: 0, total: 1 };
+
+      const result = formatAiFeedback(drifts, 1, summary);
+      const parsed = JSON.parse(result);
+
+      expect(parsed.instructions).toContain("violations detected");
+      expect(parsed.instructions).toContain("buoy check");
     });
   });
 });

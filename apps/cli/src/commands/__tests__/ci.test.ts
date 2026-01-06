@@ -1,6 +1,6 @@
 // apps/cli/src/commands/__tests__/ci.test.ts
 import { describe, it, expect } from 'vitest';
-import { buildCIResult, calculateExitCode } from '../ci.logic.js';
+import { buildCIResult, calculateExitCode, type CIThresholds } from '../ci.logic.js';
 import type { DriftSignal } from '@buoy-design/core';
 
 describe('CI command logic', () => {
@@ -43,6 +43,71 @@ describe('CI command logic', () => {
     it('returns 0 when no issues and fail-on is info', () => {
       const summary = { critical: 0, warning: 0, info: 0 };
       expect(calculateExitCode(summary, 'info')).toBe(0);
+    });
+
+    describe('with thresholds', () => {
+      it('returns 1 when total exceeds maxDrift', () => {
+        const summary = { critical: 0, warning: 5, info: 10, total: 15 };
+        const thresholds: CIThresholds = { maxDrift: 10 };
+        expect(calculateExitCode(summary, 'none', thresholds)).toBe(1);
+      });
+
+      it('returns 0 when total equals maxDrift', () => {
+        const summary = { critical: 0, warning: 5, info: 5, total: 10 };
+        const thresholds: CIThresholds = { maxDrift: 10 };
+        expect(calculateExitCode(summary, 'none', thresholds)).toBe(0);
+      });
+
+      it('returns 0 when total is under maxDrift', () => {
+        const summary = { critical: 0, warning: 3, info: 2, total: 5 };
+        const thresholds: CIThresholds = { maxDrift: 10 };
+        expect(calculateExitCode(summary, 'none', thresholds)).toBe(0);
+      });
+
+      it('returns 1 when critical exceeds maxCritical', () => {
+        const summary = { critical: 3, warning: 0, info: 0 };
+        const thresholds: CIThresholds = { maxCritical: 2 };
+        expect(calculateExitCode(summary, 'none', thresholds)).toBe(1);
+      });
+
+      it('returns 0 when critical equals maxCritical', () => {
+        const summary = { critical: 2, warning: 0, info: 0 };
+        const thresholds: CIThresholds = { maxCritical: 2 };
+        expect(calculateExitCode(summary, 'none', thresholds)).toBe(0);
+      });
+
+      it('returns 1 when warning exceeds maxWarning', () => {
+        const summary = { critical: 0, warning: 6, info: 0 };
+        const thresholds: CIThresholds = { maxWarning: 5 };
+        expect(calculateExitCode(summary, 'none', thresholds)).toBe(1);
+      });
+
+      it('returns 0 when warning equals maxWarning', () => {
+        const summary = { critical: 0, warning: 5, info: 0 };
+        const thresholds: CIThresholds = { maxWarning: 5 };
+        expect(calculateExitCode(summary, 'none', thresholds)).toBe(0);
+      });
+
+      it('threshold failure takes precedence over severity pass', () => {
+        const summary = { critical: 0, warning: 0, info: 15, total: 15 };
+        const thresholds: CIThresholds = { maxDrift: 10 };
+        // With fail-on critical and no critical issues, severity check would pass
+        // But threshold check should fail
+        expect(calculateExitCode(summary, 'critical', thresholds)).toBe(1);
+      });
+
+      it('allows combining multiple thresholds', () => {
+        const summary = { critical: 1, warning: 3, info: 5, total: 9 };
+        const thresholds: CIThresholds = { maxDrift: 10, maxCritical: 0, maxWarning: 5 };
+        // maxCritical: 0 means critical: 1 exceeds threshold
+        expect(calculateExitCode(summary, 'none', thresholds)).toBe(1);
+      });
+
+      it('passes when all thresholds satisfied', () => {
+        const summary = { critical: 0, warning: 3, info: 5, total: 8 };
+        const thresholds: CIThresholds = { maxDrift: 10, maxCritical: 0, maxWarning: 5 };
+        expect(calculateExitCode(summary, 'none', thresholds)).toBe(0);
+      });
     });
   });
 
