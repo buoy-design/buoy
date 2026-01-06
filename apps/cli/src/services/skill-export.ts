@@ -698,6 +698,54 @@ Run \`buoy check\` to see current violations with fix suggestions.
   }
 
   /**
+   * Format token value for display
+   * Handles all token types: color, spacing, typography, shadow, border, etc.
+   */
+  private formatTokenValue(token: DesignToken): string {
+    const value = token.value;
+
+    if (typeof value !== 'object' || value === null) {
+      return String(value);
+    }
+
+    // Handle typed token values
+    if ('type' in value) {
+      switch (value.type) {
+        case 'color':
+          return value.hex || String(value);
+        case 'spacing':
+          return `${value.value}${value.unit}`;
+        case 'typography':
+          return `${value.fontFamily || 'inherit'}, ${value.fontSize || 16}px`;
+        case 'shadow':
+          // Format shadow as CSS-like value
+          if (value.x !== undefined && value.y !== undefined) {
+            return `${value.x}px ${value.y}px ${value.blur || 0}px ${value.color || '#000'}`;
+          }
+          return 'shadow';
+        case 'border':
+          // Format border as CSS-like value
+          return `${value.width || 1}px ${value.style || 'solid'} ${value.color || '#000'}`;
+        default:
+          // Unknown type - try to extract meaningful properties
+          if ('value' in value) {
+            return String(value.value);
+          }
+      }
+    }
+
+    // Fallback for objects without type - try to find meaningful properties
+    const valueObj = value as Record<string, unknown>;
+    if ('hex' in valueObj) return String(valueObj.hex);
+    if ('value' in valueObj && 'unit' in valueObj) return `${valueObj.value}${valueObj.unit}`;
+    if ('value' in valueObj) return String(valueObj.value);
+
+    // Last resort - JSON stringify but truncate
+    const json = JSON.stringify(value);
+    return json.length > 50 ? json.slice(0, 47) + '...' : json;
+  }
+
+  /**
    * Generate condensed context for session hook injection
    * Contains all crucial info in a compact format (~500-1500 tokens)
    *
@@ -739,8 +787,7 @@ Run \`buoy check\` to see current violations with fix suggestions.
       if (colorTokens.length > 0) {
         lines.push('**Colors:**');
         for (const token of colorTokens.slice(0, 20)) {
-          const value = token.value.type === 'color' ? token.value.hex : String(token.value);
-          lines.push(`- \`${token.name}\` = ${value}`);
+          lines.push(`- \`${token.name}\` = ${this.formatTokenValue(token)}`);
         }
         if (colorTokens.length > 20) {
           lines.push(`- ... and ${colorTokens.length - 20} more`);
@@ -751,11 +798,7 @@ Run \`buoy check\` to see current violations with fix suggestions.
       if (spacingTokens.length > 0) {
         lines.push('**Spacing:**');
         for (const token of spacingTokens.slice(0, 15)) {
-          let value = '';
-          if (token.value.type === 'spacing') {
-            value = `${token.value.value}${token.value.unit}`;
-          }
-          lines.push(`- \`${token.name}\` = ${value}`);
+          lines.push(`- \`${token.name}\` = ${this.formatTokenValue(token)}`);
         }
         if (spacingTokens.length > 15) {
           lines.push(`- ... and ${spacingTokens.length - 15} more`);
@@ -766,11 +809,7 @@ Run \`buoy check\` to see current violations with fix suggestions.
       if (typographyTokens.length > 0) {
         lines.push('**Typography:**');
         for (const token of typographyTokens.slice(0, 10)) {
-          let value = '';
-          if (token.value.type === 'typography') {
-            value = `${token.value.fontFamily}, ${token.value.fontSize}px`;
-          }
-          lines.push(`- \`${token.name}\` = ${value}`);
+          lines.push(`- \`${token.name}\` = ${this.formatTokenValue(token)}`);
         }
         if (typographyTokens.length > 10) {
           lines.push(`- ... and ${typographyTokens.length - 10} more`);
@@ -780,17 +819,27 @@ Run \`buoy check\` to see current violations with fix suggestions.
     }
 
     // Guidelines - what to do (not what's broken)
-    lines.push('## Guidelines');
-    lines.push('When writing UI code:');
-    if (data.components.length > 0) {
-      lines.push('- Use existing components from the list above');
-      lines.push('- Extend existing components rather than duplicating');
+    // Only show guidelines section if we have components or tokens
+    if (data.components.length > 0 || data.tokens.length > 0) {
+      lines.push('## Guidelines');
+      lines.push('When writing UI code:');
+      if (data.components.length > 0) {
+        lines.push('- Use existing components from the list above');
+        lines.push('- Extend existing components rather than duplicating');
+      }
+      if (data.tokens.length > 0) {
+        lines.push('- Use design tokens for colors, spacing, typography');
+        lines.push('- Never hardcode values that have token equivalents');
+      }
+      lines.push('');
+    } else {
+      // No data yet - provide helpful guidance
+      lines.push('## Getting Started');
+      lines.push('No components or tokens detected yet.');
+      lines.push('Run `buoy sweep` to scan your codebase.');
+      lines.push('');
     }
-    if (data.tokens.length > 0) {
-      lines.push('- Use design tokens for colors, spacing, typography');
-      lines.push('- Never hardcode values that have token equivalents');
-    }
-    lines.push('');
+
     lines.push('To validate compliance: `buoy check`');
 
     return lines.join('\n');

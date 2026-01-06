@@ -368,8 +368,13 @@ export interface ClaudeHooksConfig {
 /**
  * Generate Claude Code hooks configuration for design system awareness
  * Injects condensed design system context at session start
+ *
+ * Uses cross-platform Node.js command instead of `cat` for Windows compatibility
  */
 export function generateClaudeHooksConfig(): ClaudeHooksConfig {
+  // Cross-platform command that works on Windows, macOS, and Linux
+  const crossPlatformRead = `node -e "const fs=require('fs');const p='.claude/buoy-context.md';fs.existsSync(p)?console.log(fs.readFileSync(p,'utf8')):console.log('🛟 Design system active. Run buoy onboard to set up context.')"`;
+
   return {
     hooks: {
       SessionStart: [
@@ -377,8 +382,7 @@ export function generateClaudeHooksConfig(): ClaudeHooksConfig {
           hooks: [
             {
               type: "command",
-              command:
-                'cat .claude/buoy-context.md 2>/dev/null || echo "🛟 Design system active. Run buoy onboard to set up context."',
+              command: crossPlatformRead,
             },
           ],
         },
@@ -392,6 +396,21 @@ export interface SetupClaudeHooksResult {
   message: string;
   filePath?: string;
   created: boolean;
+}
+
+/**
+ * Validate that a parsed JSON object has valid Claude settings structure
+ */
+function isValidClaudeSettings(obj: unknown): obj is Record<string, unknown> {
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+    return false;
+  }
+  const settings = obj as Record<string, unknown>;
+  // If hooks exists, it must be an object
+  if ('hooks' in settings && (typeof settings.hooks !== 'object' || settings.hooks === null || Array.isArray(settings.hooks))) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -409,17 +428,34 @@ export function setupClaudeHooks(projectRoot: string): SetupClaudeHooksResult {
   // Check if settings.local.json already exists
   if (existsSync(settingsPath)) {
     try {
-      const existing = JSON.parse(readFileSync(settingsPath, "utf-8"));
+      const parsed = JSON.parse(readFileSync(settingsPath, "utf-8"));
+
+      // Validate structure before merging
+      if (!isValidClaudeSettings(parsed)) {
+        return {
+          success: false,
+          message: "Invalid structure in .claude/settings.local.json - expected object with optional hooks property",
+          filePath: settingsPath,
+          created: false,
+        };
+      }
+
+      const existing = parsed as Record<string, unknown>;
 
       // Check if hooks are already configured
+      const hooks = existing.hooks as Record<string, unknown[]> | undefined;
       const hasbuoyHook =
-        existing.hooks?.SessionStart?.some(
-          (h: { hooks?: Array<{ command?: string }> }) =>
-            h.hooks?.some((hook) => hook.command?.includes("buoy") || hook.command?.includes("Design system")),
+        hooks?.SessionStart?.some(
+          (h: unknown) => {
+            const hook = h as { hooks?: Array<{ command?: string }> };
+            return hook.hooks?.some((hk) => hk.command?.includes("buoy") || hk.command?.includes("Design system"));
+          },
         ) ||
-        existing.hooks?.PostToolUse?.some(
-          (h: { hooks?: Array<{ command?: string }> }) =>
-            h.hooks?.some((hook) => hook.command?.includes("buoy")),
+        hooks?.PostToolUse?.some(
+          (h: unknown) => {
+            const hook = h as { hooks?: Array<{ command?: string }> };
+            return hook.hooks?.some((hk) => hk.command?.includes("buoy"));
+          },
         );
 
       if (hasbuoyHook) {
@@ -434,8 +470,9 @@ export function setupClaudeHooks(projectRoot: string): SetupClaudeHooksResult {
       // Merge with existing config
       const buoyConfig = generateClaudeHooksConfig();
       existing.hooks = existing.hooks || {};
-      existing.hooks.SessionStart = [
-        ...(existing.hooks.SessionStart || []),
+      const existingHooks = existing.hooks as Record<string, unknown[]>;
+      existingHooks.SessionStart = [
+        ...(existingHooks.SessionStart || []),
         ...buoyConfig.hooks.SessionStart!,
       ];
 
@@ -447,10 +484,13 @@ export function setupClaudeHooks(projectRoot: string): SetupClaudeHooksResult {
         filePath: settingsPath,
         created: false,
       };
-    } catch {
+    } catch (err) {
+      const message = err instanceof SyntaxError
+        ? "Invalid JSON in .claude/settings.local.json"
+        : "Failed to read .claude/settings.local.json";
       return {
         success: false,
-        message: "Failed to parse existing .claude/settings.local.json",
+        message,
         filePath: settingsPath,
         created: false,
       };

@@ -153,9 +153,12 @@ export function createOnboardCommand(): Command {
 
             if (existsSync(claudeMdPath)) {
               existingContent = readFileSync(claudeMdPath, 'utf-8');
-              hasDesignSystemSection = existingContent.includes(designSystemHeader) ||
-                                       existingContent.includes('## design-system') ||
-                                       existingContent.includes('# Design System');
+
+              // Remove code blocks before checking for headers to avoid false positives
+              const contentWithoutCodeBlocks = existingContent.replace(/```[\s\S]*?```/g, '');
+
+              // Check for design system header at start of line (not inside code blocks)
+              hasDesignSystemSection = /^##?\s*[Dd]esign\s*[Ss]ystem/m.test(contentWithoutCodeBlocks);
             }
 
             if (!hasDesignSystemSection) {
@@ -201,6 +204,13 @@ export function createOnboardCommand(): Command {
             if (claudeResult.success) {
               results.claudeHooksCreated = claudeResult.created;
               results.claudeHooksPath = claudeResult.filePath || '';
+              // Track if hooks were already configured (for output)
+              if (!claudeResult.created) {
+                (results as Record<string, unknown>).claudeHooksAlreadyConfigured = true;
+              }
+            } else {
+              // Show error when hooks setup fails
+              console.log(chalk.yellow(`  ⚠ Could not setup Claude hooks: ${claudeResult.message}`));
             }
           }
         }
@@ -231,6 +241,9 @@ export function createOnboardCommand(): Command {
             console.log(`  ${chalk.green('✓')} Created Claude Code hooks`);
             console.log(chalk.dim(`      ${results.claudeHooksPath}`));
             console.log(chalk.dim(`      .claude/buoy-context.md (injected at session start)`));
+          } else if ((results as Record<string, unknown>).claudeHooksAlreadyConfigured) {
+            console.log(`  ${chalk.green('✓')} Claude Code hooks already configured`);
+            console.log(chalk.dim(`      Updated .claude/buoy-context.md`));
           }
 
           console.log('');
