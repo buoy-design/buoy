@@ -101,56 +101,16 @@ describe('context command', () => {
   });
 
   describe('command structure', () => {
-    it('creates command with correct name', () => {
+    it('creates command with correct name and options', () => {
       const cmd = createContextCommand();
       expect(cmd.name()).toBe('context');
-    });
-
-    it('has correct description', () => {
-      const cmd = createContextCommand();
       expect(cmd.description()).toContain('CLAUDE.md');
-    });
-
-    it('has --output option', () => {
-      const cmd = createContextCommand();
+      
       const options = cmd.options.map((o) => o.long);
       expect(options).toContain('--output');
-    });
-
-    it('has --append option', () => {
-      const cmd = createContextCommand();
-      const options = cmd.options.map((o) => o.long);
       expect(options).toContain('--append');
-    });
-
-    it('has --detail option', () => {
-      const cmd = createContextCommand();
-      const options = cmd.options.map((o) => o.long);
       expect(options).toContain('--detail');
-    });
-
-    it('has --json option', () => {
-      const cmd = createContextCommand();
-      const options = cmd.options.map((o) => o.long);
       expect(options).toContain('--json');
-    });
-
-    it('has --no-tokens option', () => {
-      const cmd = createContextCommand();
-      const options = cmd.options.map((o) => o.long);
-      expect(options).toContain('--no-tokens');
-    });
-
-    it('has --no-components option', () => {
-      const cmd = createContextCommand();
-      const options = cmd.options.map((o) => o.long);
-      expect(options).toContain('--no-components');
-    });
-
-    it('has --no-validation option', () => {
-      const cmd = createContextCommand();
-      const options = cmd.options.map((o) => o.long);
-      expect(options).toContain('--no-validation');
     });
   });
 

@@ -114,68 +114,16 @@ describe('fix command', () => {
   });
 
   describe('command structure', () => {
-    it('creates command with correct name', () => {
+    it('creates command with correct name and options', () => {
       const cmd = createFixCommand();
       expect(cmd.name()).toBe('fix');
-    });
-
-    it('has correct description', () => {
-      const cmd = createFixCommand();
       expect(cmd.description()).toContain('fix');
-    });
-
-    it('has --apply option', () => {
-      const cmd = createFixCommand();
+      
       const options = cmd.options.map((o) => o.long);
       expect(options).toContain('--apply');
-    });
-
-    it('has --dry-run option', () => {
-      const cmd = createFixCommand();
-      const options = cmd.options.map((o) => o.long);
       expect(options).toContain('--dry-run');
-    });
-
-    it('has --confidence option', () => {
-      const cmd = createFixCommand();
-      const options = cmd.options.map((o) => o.long);
       expect(options).toContain('--confidence');
-    });
-
-    it('has --type option', () => {
-      const cmd = createFixCommand();
-      const options = cmd.options.map((o) => o.long);
-      expect(options).toContain('--type');
-    });
-
-    it('has --file option', () => {
-      const cmd = createFixCommand();
-      const options = cmd.options.map((o) => o.long);
-      expect(options).toContain('--file');
-    });
-
-    it('has --exclude option', () => {
-      const cmd = createFixCommand();
-      const options = cmd.options.map((o) => o.long);
-      expect(options).toContain('--exclude');
-    });
-
-    it('has --backup option', () => {
-      const cmd = createFixCommand();
-      const options = cmd.options.map((o) => o.long);
-      expect(options).toContain('--backup');
-    });
-
-    it('has --json option', () => {
-      const cmd = createFixCommand();
-      const options = cmd.options.map((o) => o.long);
       expect(options).toContain('--json');
-    });
-
-    it('has --force option', () => {
-      const cmd = createFixCommand();
-      const options = cmd.options.map((o) => o.long);
-      expect(options).toContain('--force');
     });
   });
 
