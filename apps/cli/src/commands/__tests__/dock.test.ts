@@ -387,7 +387,7 @@ describe("dock command", () => {
   });
 
   describe("hooks setup", () => {
-    it("sets up hooks when --hooks flag is provided", async () => {
+    it("sets up hooks when --commit flag is provided", async () => {
       const { setupHooks, detectHookSystem } =
         await import("../../hooks/index.js");
 
@@ -399,7 +399,7 @@ describe("dock command", () => {
       });
 
       const program = createTestProgram();
-      await program.parseAsync(["node", "test", "dock", "hooks"]);
+      await program.parseAsync(["node", "test", "dock", "hooks", "--commit"]);
 
       expect(detectHookSystem).toHaveBeenCalled();
       expect(setupHooks).toHaveBeenCalled();

@@ -201,7 +201,7 @@ describe("scan command", () => {
 
       expect(cmd.name()).toBe("scan");
       expect(cmd.description()).toBe(
-        "Sweep your codebase for components and tokens",
+        "Scan your codebase for components and tokens",
       );
 
       const options = cmd.options;
