@@ -38,16 +38,16 @@ export function scoreConfidence(
   original: string,
   replacement: string,
   token: DesignToken
-): { level: 'high' | 'medium' | 'low'; score: number; reason: string };
+): { level: 'exact' | 'high' | 'medium' | 'low'; score: number; reason: string };
 ```
 
 **Subtasks:**
-- [ ] Exact match = 100% confidence
-- [ ] 1-2 char difference (typo) = 95%+ confidence
-- [ ] Color within deltaE < 5 = 85%+ confidence
-- [ ] Spacing within 2px = 80%+ confidence
-- [ ] Multiple possible matches = medium confidence
-- [ ] No clear match = low confidence
+- [x] Exact match = 100% confidence ('exact' level)
+- [x] 1-2 char difference (typo) = 95%+ confidence ('high' level)
+- [x] Color within deltaE < 5 = 85%+ confidence ('high' level)
+- [x] Spacing within 2px = 80%+ confidence ('high' level)
+- [x] Multiple possible matches = medium confidence
+- [x] No clear match = low confidence
 
 ### 3. Create Fix Command
 

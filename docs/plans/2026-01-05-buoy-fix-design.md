@@ -92,7 +92,8 @@ $ buoy fix
 
 | Level | Criteria | Auto-fixable with --apply? |
 |-------|----------|---------------------------|
-| **High** (95%+) | Exact token match, unambiguous | Yes |
+| **Exact** (100%) | Value exactly matches a design token | Yes (safest) |
+| **High** (95-99%) | Very close match, unambiguous | Yes |
 | **Medium** (70-94%) | Close match, might be intentional | Only with --interactive |
 | **Low** (<70%) | Ambiguous, multiple possibilities | No, manual only |
 

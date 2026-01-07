@@ -21,30 +21,42 @@ This scans your project and walks you through setup.
 | Command | Purpose |
 |---------|---------|
 | `buoy begin` | Interactive setup wizard |
-| `buoy sweep` | Scan for components and tokens |
-| `buoy drift check` | Detailed drift report |
-| `buoy check` | Pre-commit validation |
-| `buoy onboard` | Set up AI guardrails |
+| `buoy show all` | Scan for components, tokens, and drift |
+| `buoy check` | Pre-commit drift validation |
+| `buoy fix` | Auto-fix drift issues |
+| `buoy dock` | Configure project (agents, hooks, etc.) |
+| `buoy ship` | Cloud features (login, GitHub bot, billing) |
+
+## Fix Command
+
+The `buoy fix` command suggests and applies fixes for design drift:
+
+```bash
+buoy fix                    # Preview fixable issues
+buoy fix --dry-run          # Show detailed diffs
+buoy fix --apply            # Apply high-confidence fixes
+buoy fix --confidence=exact # Only exact matches (safest)
+```
+
+### Confidence Levels
+
+| Level | Score | Description |
+|-------|-------|-------------|
+| **exact** | 100% | Value exactly matches a design token |
+| **high** | 95-99% | Very close match, safe to auto-apply |
+| **medium** | 70-94% | Close match, review recommended |
+| **low** | <70% | Ambiguous, manual review required |
 
 ## AI Integration
 
 Buoy works great with AI coding tools:
 
 ```bash
-# Onboard AI to your design system (creates skills + updates CLAUDE.md)
-buoy onboard
+# Set up AI agents with design system context
+buoy dock agents
 
-# Or run them separately:
-buoy skill spill     # Generate skill files only
-buoy context         # Update CLAUDE.md only
-```
-
-## CI/CD
-
-Block PRs that introduce drift:
-
-```bash
-buoy lighthouse --init
+# Generate CLAUDE.md context
+buoy dock context
 ```
 
 ## Zero Config
