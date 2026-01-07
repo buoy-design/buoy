@@ -129,6 +129,21 @@ Smart walkthrough that sets up:
 3. CLAUDE.md context — Design system documentation
 4. Git hooks — Pre-commit drift checking
 
+### Configure severities per drift type
+
+```js
+// buoy.config.mjs
+export default {
+  project: { name: "my-app" },
+  drift: {
+    severity: {
+      "hardcoded-value": "critical",
+      "naming-inconsistency": "warning",
+    },
+  },
+};
+```
+
 ## Drift Detection
 
 ### Quick Check

@@ -144,6 +144,20 @@ export function filterByType(
 }
 
 /**
+ * Apply per-type severity overrides from config
+ */
+export function applySeverityOverrides(
+  drifts: DriftSignal[],
+  overrides: BuoyConfig["drift"]["severity"],
+): DriftSignal[] {
+  if (!overrides || Object.keys(overrides).length === 0) return drifts;
+  return drifts.map((d) => {
+    const override = overrides[d.type];
+    return override ? { ...d, severity: override } : d;
+  });
+}
+
+/**
  * DriftAnalysisService - Main entry point for drift detection
  */
 export class DriftAnalysisService {
@@ -152,12 +166,17 @@ export class DriftAnalysisService {
   /**
    * Run full drift analysis pipeline
    */
-  async analyze(options: DriftAnalysisOptions = {}): Promise<DriftAnalysisResult> {
-    const { onProgress, includeBaseline, minSeverity, filterType, cache } = options;
+  async analyze(
+    options: DriftAnalysisOptions = {},
+  ): Promise<DriftAnalysisResult> {
+    const { onProgress, includeBaseline, minSeverity, filterType, cache } =
+      options;
 
     // Step 1: Scan components
     onProgress?.("Scanning components...");
-    const orchestrator = new ScanOrchestrator(this.config, process.cwd(), { cache });
+    const orchestrator = new ScanOrchestrator(this.config, process.cwd(), {
+      cache,
+    });
     const { components } = await orchestrator.scanComponents({
       onProgress,
     });
@@ -172,7 +191,10 @@ export class DriftAnalysisService {
       checkDocumentation: true,
     });
 
-    let drifts: DriftSignal[] = diffResult.drifts;
+    let drifts: DriftSignal[] = applySeverityOverrides(
+      diffResult.drifts,
+      this.config.drift.severity,
+    );
 
     // Step 2.5: Run Tailwind arbitrary value detection if tailwind is configured
     if (this.config.sources.tailwind?.enabled) {
@@ -186,8 +208,16 @@ export class DriftAnalysisService {
 
       const tailwindResult = await tailwindScanner.scan();
       if (tailwindResult.drifts.length > 0) {
-        drifts = [...drifts, ...tailwindResult.drifts];
-        onProgress?.(`Found ${tailwindResult.drifts.length} Tailwind arbitrary value issues`);
+        drifts = [
+          ...drifts,
+          ...applySeverityOverrides(
+            tailwindResult.drifts,
+            this.config.drift.severity,
+          ),
+        ];
+        onProgress?.(
+          `Found ${tailwindResult.drifts.length} Tailwind arbitrary value issues`,
+        );
       }
     }
 
@@ -209,9 +239,8 @@ export class DriftAnalysisService {
     // Step 6: Apply baseline filtering
     let baselinedCount = 0;
     if (!includeBaseline) {
-      const { loadBaseline, filterBaseline } = await import(
-        "../commands/baseline.js"
-      );
+      const { loadBaseline, filterBaseline } =
+        await import("../commands/baseline.js");
       const baseline = await loadBaseline();
       const filtered = filterBaseline(drifts, baseline);
       drifts = filtered.newDrifts;
