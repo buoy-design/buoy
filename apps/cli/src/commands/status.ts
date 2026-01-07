@@ -354,6 +354,24 @@ export function createStatusCommand(): Command {
           );
         }
 
+        // Show upgrade prompt when drift is detected (conversion opportunity)
+        if (drifts.length > 0) {
+          console.log("");
+          console.log(chalk.dim("─".repeat(50)));
+          console.log(
+            chalk.dim("💡 ") +
+              "Upgrade to " +
+              chalk.cyan("Team") +
+              " to post these findings to GitHub PRs"
+          );
+          console.log(
+            chalk.dim("   ") +
+              "Run " +
+              chalk.cyan("buoy plans") +
+              " to compare plans"
+          );
+        }
+
         // Cleanup store connection
         store?.close();
       } catch (err) {

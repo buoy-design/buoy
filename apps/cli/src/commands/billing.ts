@@ -2,7 +2,7 @@
  * buoy billing - Manage subscription and billing
  *
  * buoy billing           - Show current plan and usage
- * buoy billing upgrade   - Upgrade to Pro plan
+ * buoy billing upgrade   - Upgrade to Team plan
  * buoy billing portal    - Open billing portal (manage payment method, view invoices)
  * buoy billing invoices  - List recent invoices
  */
@@ -83,7 +83,7 @@ async function showBillingStatus(options: { json?: boolean }): Promise<void> {
     newline();
 
     // Plan info
-    const planColor = billing.plan.id === 'pro' ? chalk.green : billing.plan.id === 'enterprise' ? chalk.magenta : chalk.gray;
+    const planColor = billing.plan.id === 'team' ? chalk.green : billing.plan.id === 'enterprise' ? chalk.magenta : chalk.gray;
     keyValue('Plan', planColor(billing.plan.name));
 
     // User limit
@@ -145,7 +145,7 @@ async function showBillingStatus(options: { json?: boolean }): Promise<void> {
         chalk.dim('💡 ') +
         'Run ' +
         chalk.cyan('buoy billing upgrade') +
-        ' to unlock Pro features'
+        ' to unlock Team features'
       );
     }
   } catch (err) {
@@ -158,7 +158,7 @@ async function showBillingStatus(options: { json?: boolean }): Promise<void> {
 
 function createUpgradeCommand(): Command {
   return new Command('upgrade')
-    .description('Upgrade to Pro plan ($299/month)')
+    .description('Upgrade to Team plan ($25/dev/month)')
     .action(async () => {
       if (!isLoggedIn()) {
         error('Not logged in');
@@ -171,9 +171,9 @@ function createUpgradeCommand(): Command {
       try {
         // Check current plan first
         const statusResult = await getBillingStatus();
-        if (statusResult.ok && statusResult.data?.plan.id === 'pro') {
+        if (statusResult.ok && statusResult.data?.plan.id === 'team') {
           spin.stop();
-          info('You are already on the Pro plan');
+          info('You are already on the Team plan');
           info('Run `buoy billing portal` to manage your subscription');
           return;
         }
@@ -199,14 +199,14 @@ function createUpgradeCommand(): Command {
         }
 
         newline();
-        console.log(chalk.bold('Pro Plan - $299/month'));
+        console.log(chalk.bold('Team Plan - $25/dev/month'));
+        console.log(chalk.dim('  ($20/dev/month billed annually)'));
         console.log('');
-        console.log('  • Unlimited users');
-        console.log('  • Web dashboard');
-        console.log('  • Historical drift trends');
-        console.log('  • GitHub App integration');
-        console.log('  • Figma sync');
-        console.log('  • Priority support');
+        console.log('  • Unlimited repos');
+        console.log('  • GitHub PR comments');
+        console.log('  • Slack & Teams alerts');
+        console.log('  • Cloud history & trends');
+        console.log('  • Figma Monitor plugin');
       } catch (err) {
         spin.fail('Failed to start upgrade');
         const message = err instanceof Error ? err.message : String(err);
@@ -236,7 +236,7 @@ function createPortalCommand(): Command {
         if (!result.ok) {
           if (result.error?.includes('No billing account')) {
             info('No billing account found');
-            info('Run `buoy billing upgrade` to subscribe to Pro');
+            info('Run `buoy billing upgrade` to subscribe to Team');
             return;
           }
           error(result.error || 'Failed to open billing portal');

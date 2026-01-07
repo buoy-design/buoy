@@ -11,7 +11,6 @@ export {
   loadBaseline,
   filterBaseline,
 } from "./baseline.js";
-export { createExplainCommand } from "./explain.js";
 export { createCompareCommand } from "./compare.js";
 export { createAuditCommand } from "./audit.js";
 export { createGraphCommand } from "./graph.js";
@@ -34,3 +33,4 @@ export { createUnlinkCommand } from "./unlink.js";
 export { createSyncCommand } from "./sync.js";
 export { createGitHubCommand } from "./github.js";
 export { createBillingCommand } from "./billing.js";
+export { createPlansCommand } from "./plans.js";

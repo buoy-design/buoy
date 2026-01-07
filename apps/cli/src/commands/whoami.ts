@@ -5,8 +5,10 @@
  */
 
 import { Command } from 'commander';
+import chalk from 'chalk';
 import { isLoggedIn, readCloudConfig, clearCloudConfig } from '../cloud/config.js';
 import { getMe } from '../cloud/client.js';
+import { getBillingStatus } from '../cloud/index.js';
 import { spinner, success, error, info, warning, keyValue, newline } from '../output/reporters.js';
 
 export function createWhoamiCommand(): Command {
@@ -54,6 +56,22 @@ export function createWhoamiCommand(): Command {
       const { user, account } = result.data;
 
       if (options.json) {
+        // Also fetch billing for JSON output
+        let billing = null;
+        try {
+          const billingResult = await getBillingStatus();
+          if (billingResult.ok && billingResult.data) {
+            billing = {
+              plan: billingResult.data.plan,
+              trial: billingResult.data.trial,
+              subscription: billingResult.data.subscription ? true : false,
+              paymentAlert: billingResult.data.paymentAlert,
+            };
+          }
+        } catch {
+          // Ignore billing errors for JSON
+        }
+
         console.log(JSON.stringify({
           loggedIn: true,
           user: {
@@ -69,6 +87,7 @@ export function createWhoamiCommand(): Command {
             slug: account.slug,
             plan: account.plan,
           },
+          billing,
         }, null, 2));
         return;
       }
@@ -85,8 +104,44 @@ export function createWhoamiCommand(): Command {
 
       newline();
       keyValue('Account', account.name);
-      keyValue('Plan', account.plan);
       keyValue('Slug', account.slug);
+
+      // Fetch billing status for plan and trial info
+      try {
+        const billingResult = await getBillingStatus();
+        if (billingResult.ok && billingResult.data) {
+          const billing = billingResult.data;
+          const planColor = billing.plan.id === 'team' ? chalk.green :
+                           billing.plan.id === 'enterprise' ? chalk.magenta :
+                           chalk.gray;
+          keyValue('Plan', planColor(billing.plan.name));
+
+          // Show trial status
+          if (billing.trial?.active) {
+            keyValue('Status', chalk.yellow(`Trial (${billing.trial.daysRemaining} days left)`));
+            newline();
+            info(`Run ${chalk.cyan('buoy billing upgrade')} to keep Team features`);
+          } else if (billing.subscription) {
+            keyValue('Status', chalk.green('Active subscription'));
+          } else if (billing.plan.id === 'free') {
+            keyValue('Status', chalk.dim('Free plan'));
+            newline();
+            info(`Run ${chalk.cyan('buoy plans')} to see upgrade options`);
+          }
+
+          // Payment alert
+          if (billing.paymentAlert) {
+            newline();
+            warning(`Payment ${billing.paymentAlert.status}`);
+            info(`${billing.paymentAlert.daysRemaining} days until account restriction`);
+            info(`Run ${chalk.cyan('buoy billing portal')} to update payment method`);
+          }
+        } else {
+          keyValue('Plan', account.plan);
+        }
+      } catch {
+        keyValue('Plan', account.plan);
+      }
 
       // Show API endpoint if not default
       if (config.apiEndpoint && !config.apiEndpoint.includes('api.buoy.design')) {

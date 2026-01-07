@@ -11,7 +11,6 @@ import {
   createCICommand,
   createCheckCommand,
   createBaselineCommand,
-  createExplainCommand,
   createCompareCommand,
   createAuditCommand,
   createGraphCommand,
@@ -33,6 +32,7 @@ import {
   createSyncCommand,
   createGitHubCommand,
   createBillingCommand,
+  createPlansCommand,
 } from "./commands/index.js";
 
 export function createCli(): Command {
@@ -50,10 +50,10 @@ export function createCli(): Command {
 Command Groups:
   Getting Started    begin, sweep, dock
   Drift Detection    drift, lighthouse, check, fix, baseline
-  AI Integration     onboard, skill, context, explain
+  AI Integration     onboard, skill, context
   Design Tokens      tokens, anchor, compare, import
   Analysis           audit, graph, history, learn, plugins
-  Cloud              login, logout, whoami, link, unlink, sync, billing
+  Cloud              login, logout, whoami, link, unlink, sync, billing, plans
   GitHub             github
 
 Quick Start:
@@ -80,7 +80,6 @@ Quick Start:
   program.addCommand(createOnboardCommand());
   program.addCommand(createSkillCommand());
   program.addCommand(createContextCommand());
-  program.addCommand(createExplainCommand());
   program.addCommand(createCommandsCommand());
 
   // === Design Tokens ===
@@ -104,6 +103,7 @@ Quick Start:
   program.addCommand(createUnlinkCommand());
   program.addCommand(createSyncCommand());
   program.addCommand(createBillingCommand());
+  program.addCommand(createPlansCommand());
 
   // === GitHub ===
   program.addCommand(createGitHubCommand());
