@@ -1,0 +1,38 @@
+name: Buoy Drift Check
+
+on:
+  pull_request:
+    branches: [master, development]
+
+jobs:
+  drift-check:
+    name: Design System Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Buoy
+        run: npm install -g @buoy-design/cli
+
+      - name: Run Buoy Drift Check
+        run: buoy check --fail-on critical
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Buoy AI Summary
+        if: failure()
+        run: |
+          echo "Drift detected. Running AI summary..."
+          buoy show drift --json > drift.json
+          # AI summary would go here
+        continue-on-error: true
