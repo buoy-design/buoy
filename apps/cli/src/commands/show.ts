@@ -23,7 +23,8 @@ export function createShowCommand(): Command {
   const cmd = new Command("show")
     .description("Show design system information")
     .option("--json", "Output as JSON (default)")
-    .option("--no-cache", "Disable incremental scanning cache");
+    .option("--no-cache", "Disable incremental scanning cache")
+    .option("--experimental", "Enable experimental features");
 
   // show components
   cmd

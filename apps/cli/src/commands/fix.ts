@@ -62,6 +62,7 @@ export function createFixCommand(): Command {
     .option("--backup", "Create .bak backup files before modifying")
     .option("--json", "Output as JSON")
     .option("--force", "Skip safety checks")
+    .option("--experimental", "Enable experimental features")
     .action(async (options) => {
       if (options.json) {
         setJsonMode(true);

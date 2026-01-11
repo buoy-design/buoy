@@ -45,6 +45,7 @@ export function createScanCommand(): Command {
     .option("--no-persist", "Skip saving results to local database")
     .option("--no-cache", "Disable incremental scanning cache")
     .option("--clear-cache", "Clear cache before scanning")
+    .option("--experimental", "Enable experimental features")
     .action(async (options) => {
       // Set JSON mode before creating spinner to redirect spinner to stderr
       if (options.json) {

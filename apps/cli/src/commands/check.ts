@@ -219,6 +219,7 @@ export function createCheckCommand(): Command {
     .option("--report", "Report results to Buoy Cloud (requires login)")
     .option("--repo <repo>", "Repository name (owner/repo) for cloud reporting")
     .option("--pr <number>", "PR number for cloud reporting", parseInt)
+    .option("--experimental", "Enable experimental features")
     .action(async (options) => {
       const log = options.quiet
         ? () => {}
