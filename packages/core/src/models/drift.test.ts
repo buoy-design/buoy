@@ -4,6 +4,9 @@ import {
   createDriftId,
   getSeverityWeight,
   getDefaultSeverity,
+  DriftTypeSchema,
+  DRIFT_TYPE_LABELS,
+  DRIFT_TYPE_DESCRIPTIONS,
 } from './drift.js';
 
 describe('drift model helpers', () => {
@@ -57,5 +60,24 @@ describe('drift model helpers', () => {
     it('returns info for unused-token', () => {
       expect(getDefaultSeverity('unused-token')).toBe('info');
     });
+  });
+});
+
+describe('repeated-pattern drift type', () => {
+  it('should be a valid drift type', () => {
+    const result = DriftTypeSchema.safeParse('repeated-pattern');
+    expect(result.success).toBe(true);
+  });
+
+  it('should have info as default severity', () => {
+    expect(getDefaultSeverity('repeated-pattern')).toBe('info');
+  });
+
+  it('should have a label', () => {
+    expect(DRIFT_TYPE_LABELS['repeated-pattern']).toBe('Repeated Pattern');
+  });
+
+  it('should have a description', () => {
+    expect(DRIFT_TYPE_DESCRIPTIONS['repeated-pattern']).toBeDefined();
   });
 });

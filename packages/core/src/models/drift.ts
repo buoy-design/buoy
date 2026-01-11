@@ -15,6 +15,7 @@ export const DriftTypeSchema = z.enum([
   "unused-component",
   "unused-token",
   "color-contrast",
+  "repeated-pattern",
 ]);
 
 // Severity levels
@@ -206,6 +207,7 @@ export function getDefaultSeverity(type: DriftType): Severity {
     case "naming-inconsistency":
     case "missing-documentation":
     case "unused-token":
+    case "repeated-pattern":
       return "info";
   }
 }
@@ -225,6 +227,7 @@ export const DRIFT_TYPE_LABELS: Record<DriftType, string> = {
   "unused-component": "Unused Component",
   "unused-token": "Unused Token",
   "color-contrast": "Color Contrast",
+  "repeated-pattern": "Repeated Pattern",
 };
 
 /**
@@ -259,6 +262,8 @@ export const DRIFT_TYPE_DESCRIPTIONS: Record<DriftType, string> = {
     "Design token is defined but never referenced in components or stylesheets",
   "color-contrast":
     "Color combinations fail WCAG accessibility contrast ratio requirements",
+  "repeated-pattern":
+    "ClassName pattern appears multiple times across the codebase and could be extracted into a reusable component or utility class",
 };
 
 // Human-readable severity labels
