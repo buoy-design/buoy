@@ -24,7 +24,27 @@ describe("Config Loader", () => {
   });
 
   describe("getConfigPath", () => {
-    it("finds buoy.config.mjs first", () => {
+    it("finds .buoy.yaml first (highest priority)", () => {
+      vi.mocked(existsSync).mockImplementation((path) => {
+        return String(path).endsWith(".buoy.yaml");
+      });
+
+      const result = getConfigPath("/test/project");
+
+      expect(result).toBe(resolve("/test/project", ".buoy.yaml"));
+    });
+
+    it("finds .buoy.yml as alternate YAML extension", () => {
+      vi.mocked(existsSync).mockImplementation((path) => {
+        return String(path).endsWith(".buoy.yml");
+      });
+
+      const result = getConfigPath("/test/project");
+
+      expect(result).toBe(resolve("/test/project", ".buoy.yml"));
+    });
+
+    it("finds legacy buoy.config.mjs when YAML not present", () => {
       vi.mocked(existsSync).mockImplementation((path) => {
         return String(path).endsWith("buoy.config.mjs");
       });
@@ -34,7 +54,7 @@ describe("Config Loader", () => {
       expect(result).toBe(resolve("/test/project", "buoy.config.mjs"));
     });
 
-    it("finds buoy.config.js when mjs not present", () => {
+    it("finds legacy buoy.config.js when mjs not present", () => {
       vi.mocked(existsSync).mockImplementation((path) => {
         return String(path).endsWith("buoy.config.js");
       });
@@ -44,7 +64,7 @@ describe("Config Loader", () => {
       expect(result).toBe(resolve("/test/project", "buoy.config.js"));
     });
 
-    it("finds buoy.config.ts", () => {
+    it("finds legacy buoy.config.ts", () => {
       vi.mocked(existsSync).mockImplementation((path) => {
         return String(path).endsWith("buoy.config.ts");
       });
@@ -103,6 +123,42 @@ describe("Config Loader", () => {
       expect(result.configPath).toBeNull();
       expect(result.config).toBeDefined();
       expect(result.config.project.name).toBe("project");
+    });
+
+    it("loads YAML config from .buoy.yaml", async () => {
+      vi.mocked(existsSync).mockImplementation((path) => {
+        return String(path).endsWith(".buoy.yaml");
+      });
+
+      vi.mocked(readFileSync).mockReturnValue(`
+project:
+  name: yaml-project
+
+sources:
+  react:
+    enabled: true
+`);
+
+      const result = await loadConfig("/test/project");
+
+      expect(result.configPath).toBe(resolve("/test/project", ".buoy.yaml"));
+      expect(result.config.project.name).toBe("yaml-project");
+    });
+
+    it("loads YAML config from .buoy.yml", async () => {
+      vi.mocked(existsSync).mockImplementation((path) => {
+        return String(path).endsWith(".buoy.yml");
+      });
+
+      vi.mocked(readFileSync).mockReturnValue(`
+project:
+  name: yml-project
+`);
+
+      const result = await loadConfig("/test/project");
+
+      expect(result.configPath).toBe(resolve("/test/project", ".buoy.yml"));
+      expect(result.config.project.name).toBe("yml-project");
     });
 
     it("loads JSON config from .buoyrc.json", async () => {

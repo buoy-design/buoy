@@ -52,7 +52,7 @@ buoy
 ├── commands                # Install/list Claude slash commands
 ├── begin                   # Interactive wizard
 ├── dock                    # Configure project
-│   ├── config              # Create buoy.config.mjs
+│   ├── config              # Create .buoy.yaml
 │   ├── skills              # Create AI agent skills
 │   ├── agents              # Set up AI agents
 │   ├── context             # Generate CLAUDE.md context
@@ -128,24 +128,22 @@ buoy dock
 
 Smart walkthrough that sets up:
 
-1. `buoy.config.mjs` — Project configuration
+1. `.buoy.yaml` — Project configuration
 2. AI agent skills — For Claude Code, Copilot, etc.
 3. CLAUDE.md context — Design system documentation
 4. Git hooks — Pre-commit drift checking
 
 ### Configure severities per drift type
 
-```js
-// buoy.config.mjs
-export default {
-  project: { name: "my-app" },
-  drift: {
-    severity: {
-      "hardcoded-value": "critical",
-      "naming-inconsistency": "warning",
-    },
-  },
-};
+```yaml
+# .buoy.yaml
+project:
+  name: my-app
+
+drift:
+  severity:
+    hardcoded-value: critical
+    naming-inconsistency: warning
 ```
 
 ## Drift Detection
@@ -271,23 +269,23 @@ Works without config, but you can save settings:
 buoy dock config
 ```
 
-Creates `buoy.config.mjs`:
+Creates `.buoy.yaml`:
 
-```js
-export default {
-  project: { name: "my-app" },
-  sources: {
-    react: {
-      enabled: true,
-      include: ["src/**/*.tsx"],
-      exclude: ["**/*.test.*"],
-    },
-    tokens: {
-      enabled: true,
-      files: ["design-tokens.css"],
-    },
-  },
-};
+```yaml
+project:
+  name: my-app
+
+sources:
+  react:
+    enabled: true
+    include:
+      - src/**/*.tsx
+    exclude:
+      - "**/*.test.*"
+  tokens:
+    enabled: true
+    files:
+      - design-tokens.css
 ```
 
 ## Buoy Cloud

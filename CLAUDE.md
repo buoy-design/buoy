@@ -88,7 +88,7 @@ buoy
 │   └── all                 # Everything combined
 ├── begin                   # Interactive wizard
 ├── dock                    # Configure project
-│   ├── config              # Create buoy.config.mjs
+│   ├── config              # Create .buoy.yaml
 │   ├── skills              # Create AI agent skills
 │   ├── agents              # Set up AI agents
 │   ├── context             # Generate CLAUDE.md context
@@ -130,7 +130,7 @@ All `show` subcommands output JSON by default.
 |---------|---------|
 | `buoy begin` | Interactive wizard to get started |
 | `buoy dock` | Configure project (config, agents, hooks) |
-| `buoy dock config` | Create buoy.config.mjs |
+| `buoy dock config` | Create .buoy.yaml |
 | `buoy dock agents` | Set up AI agents with design system |
 | `buoy dock hooks` | Set up git hooks |
 | `buoy check` | Fast pre-commit hook drift check |
@@ -147,7 +147,7 @@ All `show` subcommands output JSON by default.
 
 ## Configuration
 
-Config lives in `buoy.config.mjs` (ESM). Schema defined in `apps/cli/src/config/schema.ts`.
+Config lives in `.buoy.yaml` (YAML format). Schema defined in `apps/cli/src/config/schema.ts`. Legacy JS/JSON configs are still supported.
 
 ## Adding Features
 

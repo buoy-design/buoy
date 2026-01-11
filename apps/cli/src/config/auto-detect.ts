@@ -147,7 +147,7 @@ function expandForMonorepo(basePatterns: string[], monorepo: MonorepoInfo): stri
 
 /**
  * Build a config automatically from detected frameworks.
- * Used when no buoy.config.mjs exists - zero-config mode.
+ * Used when no .buoy.yaml exists - zero-config mode.
  */
 export async function buildAutoConfig(projectRoot: string = process.cwd()): Promise<{
   config: BuoyConfig;
