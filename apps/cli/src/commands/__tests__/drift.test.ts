@@ -205,7 +205,7 @@ describe("drift command", () => {
             react: { enabled: true, include: ["src/**/*.tsx"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -273,7 +273,7 @@ describe("drift command", () => {
             tokens: { enabled: true, files: ["design-tokens.css"] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockEngine = {
@@ -318,7 +318,7 @@ describe("drift command", () => {
             react: { enabled: true, include: ["src/**/*.tsx"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -413,7 +413,7 @@ describe("drift command", () => {
             react: { enabled: true, include: ["src/**/*.tsx"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -535,7 +535,7 @@ describe("drift command", () => {
             react: { enabled: true, include: ["src/**/*.tsx"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -629,7 +629,7 @@ describe("drift command", () => {
             severity: {},
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -678,7 +678,7 @@ describe("drift command", () => {
             severity: {},
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -745,7 +745,7 @@ describe("drift command", () => {
             tokens: { enabled: true, files: ["design-tokens.css"] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -817,7 +817,7 @@ describe("drift command", () => {
             react: { enabled: true, include: ["src/**/*.tsx"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -867,7 +867,7 @@ describe("drift command", () => {
             react: { enabled: false, include: ["src/**/*.tsx"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -913,7 +913,7 @@ describe("drift command", () => {
             },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -962,7 +962,7 @@ describe("drift command", () => {
             react: { enabled: true, include: ["src/**/*.tsx"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {

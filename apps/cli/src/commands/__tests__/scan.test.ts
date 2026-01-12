@@ -182,7 +182,7 @@ describe("scan command", () => {
     process.cwd = vi.fn().mockReturnValue("/test/project");
 
     // Default: assume config file exists (getConfigPath returns path)
-    mockGetConfigPath.mockReturnValue("/test/buoy.config.js");
+    mockGetConfigPath.mockReturnValue("/test/.buoy.yaml");
 
     // Default auto-config mock (used when no config file exists)
     mockBuildAutoConfig.mockResolvedValue({
@@ -223,7 +223,7 @@ describe("scan command", () => {
             react: { enabled: true, include: ["src/**/*.tsx"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -252,7 +252,7 @@ describe("scan command", () => {
             tokens: { enabled: true, files: ["tokens.css"] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -303,7 +303,7 @@ describe("scan command", () => {
             vue: { enabled: true, include: ["src/**/*.vue"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -344,7 +344,7 @@ describe("scan command", () => {
             vue: { enabled: false, include: ["src/**/*.vue"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -386,7 +386,7 @@ describe("scan command", () => {
             react: { enabled: true, include: ["src/**/*.tsx"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -451,7 +451,7 @@ describe("scan command", () => {
             react: { enabled: true, include, exclude },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -490,7 +490,7 @@ describe("scan command", () => {
             },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -525,7 +525,7 @@ describe("scan command", () => {
             },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockTokenScanner = {
@@ -576,9 +576,9 @@ describe("scan command", () => {
     it("handles config with no enabled sources", async () => {
       mockLoadConfig.mockResolvedValue({
         config: createMockConfig({ sources: {} }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
-      mockGetConfigPath.mockReturnValue("/test/buoy.config.js");
+      mockGetConfigPath.mockReturnValue("/test/.buoy.yaml");
 
       const program = createTestProgram();
       await program.parseAsync(["node", "test", "scan"]);
@@ -595,7 +595,7 @@ describe("scan command", () => {
             react: { enabled: true, include: ["src/**/*.tsx"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -630,7 +630,7 @@ describe("scan command", () => {
             react: { enabled: true, include: ["src/**/*.tsx"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -678,7 +678,7 @@ describe("scan command", () => {
             vue: { enabled: true, include: ["src/**/*.vue"], exclude: [] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockReactScanner = {
@@ -727,7 +727,7 @@ describe("scan command", () => {
             tokens: { enabled: true, files: ["tokens.css"] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockTokenScanner = {
@@ -766,7 +766,7 @@ describe("scan command", () => {
             },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockScanner = {
@@ -799,7 +799,7 @@ describe("scan command", () => {
             },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockScanner = {
@@ -833,7 +833,7 @@ describe("scan command", () => {
             },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockScanner = {
@@ -867,7 +867,7 @@ describe("scan command", () => {
             },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockTemplateScanner = {
@@ -903,7 +903,7 @@ describe("scan command", () => {
             },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockWebComponentScanner = {
@@ -937,7 +937,7 @@ describe("scan command", () => {
             tokens: { enabled: true, files: ["tokens.css"] },
           },
         }),
-        configPath: "/test/buoy.config.js",
+        configPath: "/test/.buoy.yaml",
       });
 
       const mockComponent = createMockComponent("Button");
