@@ -121,7 +121,7 @@ export function detectRepeatedPatterns(
   occurrences: ClassOccurrence[],
   options: PatternAnalyzerOptions = {}
 ): DriftSignal[] {
-  const { minOccurrences = 3, matching = "exact" } = options;
+  const { minOccurrences = 2, matching = "exact" } = options;
   const groups = groupPatterns(occurrences, matching);
   const drifts: DriftSignal[] = [];
 

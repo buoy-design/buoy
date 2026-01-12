@@ -325,7 +325,7 @@ export class DriftAnalysisService {
     }
 
     return detectRepeatedPatterns(occurrences, {
-      minOccurrences: config.minOccurrences ?? 3,
+      minOccurrences: config.minOccurrences ?? 2,
       matching: config.matching ?? "exact",
     });
   }

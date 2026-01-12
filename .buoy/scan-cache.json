@@ -1,8 +1,8 @@
 {
   "version": 1,
   "projectRoot": "/Users/dylantarre/dev/buoy",
-  "lastFullScanCommit": "69bd08d7090fc596c532c1c42b29abc9e02371a1",
-  "lastFullScanTime": 1768169435817,
+  "lastFullScanCommit": "47a16c14e65fe8a216eedfa3eb055abe4564ca91",
+  "lastFullScanTime": 1768176234682,
   "entries": {
     "react:apps/figma-plugin/src/components/Header.tsx": {
       "path": "apps/figma-plugin/src/components/Header.tsx",
