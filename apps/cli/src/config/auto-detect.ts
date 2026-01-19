@@ -12,6 +12,13 @@ export interface MonorepoInfo {
 }
 
 /**
+ * Common nested frontend directory names.
+ * These are subdirectories that contain a separate frontend app (e.g., in full-stack repos
+ * where a Go/Python/etc backend has a React/Vue/etc frontend in a subdirectory).
+ */
+const NESTED_FRONTEND_DIRS = ['frontend', 'client', 'web', 'ui', 'app', 'dashboard'];
+
+/**
  * Detect if this is a monorepo and return workspace patterns.
  */
 async function detectMonorepo(projectRoot: string): Promise<MonorepoInfo | null> {
@@ -88,6 +95,75 @@ async function detectMonorepo(projectRoot: string): Promise<MonorepoInfo | null>
   return null;
 }
 
+export interface NestedFrontendInfo {
+  dir: string;       // e.g., 'frontend', 'client', 'web'
+  hasPackageJson: boolean;
+  hasSrcDir: boolean;
+}
+
+/**
+ * Detect if this project has a nested frontend directory.
+ * Common in full-stack apps where a Go/Python/etc backend has a frontend/ subdirectory.
+ */
+async function detectNestedFrontend(projectRoot: string): Promise<NestedFrontendInfo | null> {
+  for (const dir of NESTED_FRONTEND_DIRS) {
+    const dirPath = resolve(projectRoot, dir);
+    const pkgPath = resolve(dirPath, 'package.json');
+
+    // Check if the directory has a package.json with a frontend framework
+    if (existsSync(pkgPath)) {
+      try {
+        const content = JSON.parse(await readFile(pkgPath, 'utf-8'));
+        const deps = { ...content.dependencies, ...content.devDependencies };
+
+        // Check for common frontend framework indicators
+        const hasFrontendFramework = Boolean(
+          deps['react'] ||
+          deps['react-dom'] ||
+          deps['vue'] ||
+          deps['svelte'] ||
+          deps['@angular/core'] ||
+          deps['next'] ||
+          deps['nuxt'] ||
+          deps['@sveltejs/kit']
+        );
+
+        if (hasFrontendFramework) {
+          const srcPath = resolve(dirPath, 'src');
+          return {
+            dir,
+            hasPackageJson: true,
+            hasSrcDir: existsSync(srcPath),
+          };
+        }
+      } catch {
+        // Invalid JSON, continue checking other directories
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Expand include patterns for nested frontend directory.
+ * Prefixes patterns with the frontend directory path.
+ */
+function expandForNestedFrontend(basePatterns: string[], nested: NestedFrontendInfo): string[] {
+  const expanded: string[] = [];
+
+  for (const pattern of basePatterns) {
+    // Add the nested prefix to the pattern
+    // e.g., 'src/**/*.tsx' -> 'frontend/src/**/*.tsx'
+    expanded.push(`${nested.dir}/${pattern}`);
+  }
+
+  // Also include the base patterns in case there's code at the root level too
+  expanded.push(...basePatterns);
+
+  return [...new Set(expanded)];  // Deduplicate
+}
+
 /**
  * Expand include patterns for monorepo structure.
  * Adds patterns like packages/[star]/src/[star][star]/[star].tsx for monorepos.
@@ -146,6 +222,30 @@ function expandForMonorepo(basePatterns: string[], monorepo: MonorepoInfo): stri
 }
 
 /**
+ * Expand patterns for project structure (monorepo or nested frontend).
+ * Returns the appropriate patterns based on detected structure.
+ */
+function expandPatterns(
+  basePatterns: string[],
+  monorepo: MonorepoInfo | null,
+  nestedFrontend: NestedFrontendInfo | null
+): string[] {
+  let patterns = basePatterns;
+
+  // Apply monorepo expansion first
+  if (monorepo) {
+    patterns = expandForMonorepo(patterns, monorepo);
+  }
+
+  // Apply nested frontend expansion
+  if (nestedFrontend) {
+    patterns = expandForNestedFrontend(patterns, nestedFrontend);
+  }
+
+  return patterns;
+}
+
+/**
  * Build a config automatically from detected frameworks.
  * Used when no .buoy.yaml exists - zero-config mode.
  */
@@ -154,10 +254,26 @@ export async function buildAutoConfig(projectRoot: string = process.cwd()): Prom
   detected: DetectedFramework[];
   tokenFiles: string[];
   monorepo: MonorepoInfo | null;
+  nestedFrontend: NestedFrontendInfo | null;
 }> {
-  // Detect monorepo first, then frameworks (passing monorepo info for workspace scanning)
+  // Detect monorepo and nested frontend structures
   const monorepo = await detectMonorepo(projectRoot);
-  const detected = await detectFrameworks(projectRoot, monorepo);
+  const nestedFrontend = await detectNestedFrontend(projectRoot);
+
+  // Detect frameworks - check nested frontend directory if present
+  // This ensures we find frameworks in frontend/ subdirectories
+  let detected: DetectedFramework[];
+  if (nestedFrontend) {
+    const nestedRoot = resolve(projectRoot, nestedFrontend.dir);
+    // Detect frameworks in nested frontend first
+    detected = await detectFrameworks(nestedRoot, monorepo);
+    // If no frameworks found in nested, try root
+    if (detected.length === 0) {
+      detected = await detectFrameworks(projectRoot, monorepo);
+    }
+  } else {
+    detected = await detectFrameworks(projectRoot, monorepo);
+  }
 
   // Find token files
   const tokenFiles = await findTokenFiles(projectRoot);
@@ -193,7 +309,7 @@ export async function buildAutoConfig(projectRoot: string = process.cwd()): Prom
         const baseInclude = ['src/**/*.tsx', 'src/**/*.jsx', 'app/**/*.tsx', 'app/**/*.jsx', 'components/**/*.tsx', 'components/**/*.jsx'];
         config.sources.react = {
           enabled: true,
-          include: monorepo ? expandForMonorepo(baseInclude, monorepo) : baseInclude,
+          include: expandPatterns(baseInclude, monorepo, nestedFrontend),
           exclude: ['**/*.test.*', '**/*.spec.*', '**/*.stories.*', '**/node_modules/**'],
         };
         break;
@@ -203,7 +319,7 @@ export async function buildAutoConfig(projectRoot: string = process.cwd()): Prom
         const baseInclude = ['src/**/*.vue', 'components/**/*.vue'];
         config.sources.vue = {
           enabled: true,
-          include: monorepo ? expandForMonorepo(baseInclude, monorepo) : baseInclude,
+          include: expandPatterns(baseInclude, monorepo, nestedFrontend),
           exclude: ['**/*.test.*', '**/*.spec.*', '**/*.stories.*', '**/node_modules/**'],
         };
         break;
@@ -213,7 +329,7 @@ export async function buildAutoConfig(projectRoot: string = process.cwd()): Prom
         const baseInclude = ['src/**/*.svelte', 'lib/**/*.svelte'];
         config.sources.svelte = {
           enabled: true,
-          include: monorepo ? expandForMonorepo(baseInclude, monorepo) : baseInclude,
+          include: expandPatterns(baseInclude, monorepo, nestedFrontend),
           exclude: ['**/*.test.*', '**/*.spec.*', '**/*.stories.*', '**/node_modules/**'],
         };
         break;
@@ -225,7 +341,7 @@ export async function buildAutoConfig(projectRoot: string = process.cwd()): Prom
         const baseInclude = ['src/**/*.ts'];
         config.sources.angular = {
           enabled: true,
-          include: monorepo ? expandForMonorepo(baseInclude, monorepo) : baseInclude,
+          include: expandPatterns(baseInclude, monorepo, nestedFrontend),
           exclude: ['**/*.spec.*', '**/*.test.*', '**/node_modules/**'],
         };
         break;
@@ -235,7 +351,7 @@ export async function buildAutoConfig(projectRoot: string = process.cwd()): Prom
         const baseInclude = ['src/**/*.ts'];
         config.sources.webcomponent = {
           enabled: true,
-          include: monorepo ? expandForMonorepo(baseInclude, monorepo) : baseInclude,
+          include: expandPatterns(baseInclude, monorepo, nestedFrontend),
           exclude: ['**/*.test.*', '**/*.spec.*', '**/node_modules/**'],
           framework: 'auto',
         };
@@ -247,7 +363,7 @@ export async function buildAutoConfig(projectRoot: string = process.cwd()): Prom
         const baseInclude = ['src/**/*.tsx', 'src/**/*.jsx', 'src/**/*.vue', 'src/**/*.svelte', 'app/**/*.tsx', 'components/**/*.tsx'];
         config.sources.tailwind = {
           enabled: true,
-          files: monorepo ? expandForMonorepo(baseInclude, monorepo) : baseInclude,
+          files: expandPatterns(baseInclude, monorepo, nestedFrontend),
           exclude: ['**/node_modules/**', '**/dist/**', '**/.next/**'],
         };
         break;
@@ -258,7 +374,7 @@ export async function buildAutoConfig(projectRoot: string = process.cwd()): Prom
         const baseInclude = ['src/**/*.astro', 'components/**/*.astro'];
         config.sources.templates = {
           enabled: true,
-          include: monorepo ? expandForMonorepo(baseInclude, monorepo) : baseInclude,
+          include: expandPatterns(baseInclude, monorepo, nestedFrontend),
           exclude: ['**/node_modules/**', '**/dist/**'],
           type: 'astro',
         };
@@ -275,7 +391,7 @@ export async function buildAutoConfig(projectRoot: string = process.cwd()): Prom
     };
   }
 
-  return { config, detected, tokenFiles, monorepo };
+  return { config, detected, tokenFiles, monorepo, nestedFrontend };
 }
 
 /**
