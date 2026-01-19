@@ -90,6 +90,9 @@ export const ComponentMetadataSchema = z.object({
   accessibility: AccessibilityInfoSchema.optional(),
   documentation: z.string().optional(),
   hardcodedValues: z.array(HardcodedValueSchema).optional(),
+  // Compound component grouping - allows consumers to understand logical groupings
+  compoundGroup: z.string().optional(), // e.g., "Select" for SelectTrigger, SelectContent
+  isCompoundRoot: z.boolean().optional(), // true for the root component of a compound group
 });
 
 // Main Component schema

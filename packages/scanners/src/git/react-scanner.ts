@@ -78,24 +78,117 @@ export class ReactComponentScanner extends SignalAwareScanner<
   ReactScannerConfig
 > {
   /** Default file patterns for React components */
-  private static readonly DEFAULT_PATTERNS = ["**/*.tsx", "**/*.jsx"];
+  private static readonly DEFAULT_PATTERNS = ["**/*.tsx", "**/*.jsx", "**/*.ts"];
 
   async scan(): Promise<ScanResult<Component>> {
     // Clear signals from previous scan
     this.clearSignals();
 
     // Use cache if available
+    let result: ScanResult<Component>;
     if (this.config.cache) {
-      return this.runScanWithCache(
+      result = await this.runScanWithCache(
+        (file) => this.parseFile(file),
+        ReactComponentScanner.DEFAULT_PATTERNS,
+      );
+    } else {
+      result = await this.runScan(
         (file) => this.parseFile(file),
         ReactComponentScanner.DEFAULT_PATTERNS,
       );
     }
 
-    return this.runScan(
-      (file) => this.parseFile(file),
-      ReactComponentScanner.DEFAULT_PATTERNS,
-    );
+    // Post-process: detect and mark compound component groups based on shared prefixes
+    result.items = this.detectCompoundGroups(result.items);
+
+    return result;
+  }
+
+  /**
+   * Detect compound component groups based on shared prefixes from the same file.
+   * e.g., Select, SelectTrigger, SelectContent from select.tsx → group under "Select"
+   */
+  private detectCompoundGroups(components: Component[]): Component[] {
+    // Group components by source file
+    const byFile = new Map<string, Component[]>();
+    for (const comp of components) {
+      if (comp.source.type !== "react") continue;
+      const filePath = comp.source.path;
+      if (!byFile.has(filePath)) {
+        byFile.set(filePath, []);
+      }
+      byFile.get(filePath)!.push(comp);
+    }
+
+    // For each file, detect shared prefix groups
+    for (const [_filePath, fileComponents] of byFile) {
+      if (fileComponents.length < 2) continue;
+
+      // Skip if already has compound component tags (processed by Object.assign or namespace detection)
+      const hasExistingCompound = fileComponents.some(
+        (c) =>
+          c.metadata.tags?.includes("compound-component") ||
+          c.metadata.tags?.includes("compound-component-namespace"),
+      );
+      if (hasExistingCompound) continue;
+
+      // Find potential root components (shortest names that are prefixes of others)
+      const names = fileComponents.map((c) => c.name);
+      const potentialRoots = this.findCompoundRoots(names);
+
+      // Mark components with their compound group
+      for (const root of potentialRoots) {
+        const groupMembers = fileComponents.filter(
+          (c) => c.name === root || c.name.startsWith(root),
+        );
+
+        // Only create a group if there are at least 2 members (root + 1 sub-component)
+        if (groupMembers.length >= 2) {
+          for (const member of groupMembers) {
+            member.metadata.compoundGroup = root;
+            if (member.name === root) {
+              member.metadata.isCompoundRoot = true;
+            }
+          }
+        }
+      }
+    }
+
+    return components;
+  }
+
+  /**
+   * Find potential compound component roots from a list of names.
+   * A root is a name that is a prefix of at least one other name.
+   * e.g., ["Select", "SelectTrigger", "SelectContent"] → ["Select"]
+   */
+  private findCompoundRoots(names: string[]): string[] {
+    const roots: string[] = [];
+    const sortedNames = [...names].sort((a, b) => a.length - b.length);
+
+    for (const name of sortedNames) {
+      // Check if this name is a prefix of any other name
+      const hasSubComponents = sortedNames.some(
+        (other) =>
+          other !== name &&
+          other.startsWith(name) &&
+          // Ensure it's a proper prefix (next char is uppercase = new word)
+          other.length > name.length &&
+          /^[A-Z]/.test(other[name.length]!),
+      );
+
+      if (hasSubComponents) {
+        // Don't add if it's already a sub-component of an existing root
+        const isSubOfExisting = roots.some(
+          (root) => name.startsWith(root) && name.length > root.length,
+        );
+        if (!isSubOfExisting) {
+          roots.push(name);
+        }
+      }
+    }
+
+    return roots;
   }
 
   getSourceType(): string {
@@ -129,12 +222,22 @@ export class ReactComponentScanner extends SignalAwareScanner<
 
   private async parseFile(filePath: string): Promise<Component[]> {
     const content = await readFile(filePath, "utf-8");
+    // Determine script kind based on file extension
+    let scriptKind: ts.ScriptKind;
+    if (filePath.endsWith(".tsx")) {
+      scriptKind = ts.ScriptKind.TSX;
+    } else if (filePath.endsWith(".jsx")) {
+      scriptKind = ts.ScriptKind.JSX;
+    } else {
+      scriptKind = ts.ScriptKind.TS;
+    }
+
     const sourceFile = ts.createSourceFile(
       filePath,
       content,
       ts.ScriptTarget.Latest,
       true,
-      filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.JSX,
+      scriptKind,
     );
 
     const components: Component[] = [];
@@ -209,6 +312,48 @@ export class ReactComponentScanner extends SignalAwareScanner<
                 componentNames.add(comp.name);
               }
             }
+          }
+        }
+      }
+
+      // Namespace export: export * as Accordion from "./namespace"
+      // This creates compound component namespaces like Accordion.Root, Accordion.Item
+      if (ts.isExportDeclaration(node) && node.exportClause) {
+        // Check for namespace export: export * as X from "..."
+        if (ts.isNamespaceExport(node.exportClause)) {
+          const namespaceName = node.exportClause.name.getText(sourceFile);
+          // Only process if uppercase (component naming convention)
+          if (/^[A-Z]/.test(namespaceName)) {
+            const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+            const source: ReactSource = {
+              type: "react",
+              path: relativePath,
+              exportName: namespaceName,
+              line,
+            };
+
+            // Create namespace component
+            const namespaceComponent: Component = {
+              id: createComponentId(source, namespaceName),
+              name: namespaceName,
+              source,
+              props: [],
+              variants: [],
+              tokens: [],
+              dependencies: [],
+              metadata: {
+                tags: ["compound-component-namespace", "namespace-export"],
+              },
+              scannedAt: new Date(),
+            };
+            components.push(namespaceComponent);
+            componentNames.add(namespaceName);
+
+            // Emit signal for namespace component
+            signalCollector.collectComponentDef(namespaceName, line, {
+              isCompoundNamespace: true,
+              isNamespaceExport: true,
+            });
           }
         }
       }
@@ -371,7 +516,25 @@ export class ReactComponentScanner extends SignalAwareScanner<
     if (!/^[A-Z]/.test(name)) return false;
 
     // Check if it returns JSX
-    return this.returnsJsx(node);
+    if (this.returnsJsx(node)) {
+      return true;
+    }
+
+    // Check if it has a React-related return type (for .ts files without JSX)
+    if (node.type) {
+      const returnType = node.type.getText(sourceFile);
+      if (
+        returnType.includes("ReactNode") ||
+        returnType.includes("ReactElement") ||
+        returnType.includes("JSX.Element") ||
+        returnType.includes("React.FC") ||
+        returnType.includes("React.FunctionComponent")
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private isReactComponentExpression(
@@ -391,7 +554,24 @@ export class ReactComponentScanner extends SignalAwareScanner<
 
     // Arrow function or function expression
     if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
-      return this.returnsJsx(node);
+      // Check for JSX first
+      if (this.returnsJsx(node)) {
+        return true;
+      }
+      // Check for React-related return type (for .ts files without JSX)
+      if (node.type) {
+        const returnType = node.type.getText(sourceFile);
+        if (
+          returnType.includes("ReactNode") ||
+          returnType.includes("ReactElement") ||
+          returnType.includes("JSX.Element") ||
+          returnType.includes("React.FC") ||
+          returnType.includes("React.FunctionComponent")
+        ) {
+          return true;
+        }
+      }
+      return false;
     }
 
     // Call expressions: forwardRef, memo, factory patterns, etc.
@@ -438,6 +618,34 @@ export class ReactComponentScanner extends SignalAwareScanner<
 
       // React.lazy() for code splitting
       if (callText === "lazy" || callText === "React.lazy") {
+        return true;
+      }
+
+      // styled-components and emotion patterns: styled(), styled.div, etc.
+      if (
+        callText === "styled" ||
+        callText.startsWith("styled.") ||
+        callText.includes("styled(")
+      ) {
+        return true;
+      }
+
+      // Generic component creation patterns
+      if (
+        callText.includes("createComponent") ||
+        callText.includes("createStyledComponent") ||
+        callText.includes("createBox") ||
+        callText.includes("createIcon")
+      ) {
+        return true;
+      }
+
+      // Radix UI and Ark UI patterns
+      if (
+        callText.includes("Primitive.") ||
+        callText.includes("ark.") ||
+        callText.includes("Ark.")
+      ) {
         return true;
       }
     }
