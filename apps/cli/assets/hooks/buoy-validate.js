@@ -8,8 +8,10 @@
  * @see https://code.claude.com/docs/en/hooks
  */
 
-const { execSync } = require('child_process');
-const path = require('path');
+import { spawnSync } from 'child_process';
+import { readFileSync, unlinkSync } from 'fs';
+import path from 'path';
+import { tmpdir } from 'os';
 
 // Read hook input from stdin
 let inputData = '';
@@ -56,7 +58,6 @@ function isUIFile(filePath) {
     /\.config\./
   ];
 
-  const ext = path.extname(filePath);
   const isUIExt = uiExtensions.some(e => filePath.endsWith(e));
   const isExcluded = excludePatterns.some(p => p.test(filePath));
 
@@ -76,21 +77,36 @@ function validateFile(input) {
   }
 
   try {
-    // Run buoy check with AI feedback format
-    const output = execSync(
-      'npx buoy check --format ai-feedback --json 2>/dev/null',
-      {
-        encoding: 'utf8',
-        cwd: input.cwd || process.cwd(),
-        timeout: 30000
-      }
-    );
+    // Run buoy check with JSON format via temp file to avoid Node.js pipe buffer limits
+    const tempFile = path.join(tmpdir(), `buoy-check-${process.pid}.json`);
+    const result = spawnSync('sh', ['-c', `npx buoy check --format json > "${tempFile}" 2>/dev/null`], {
+      cwd: input.cwd || process.cwd(),
+      timeout: 30000,
+      shell: false
+    });
+
+    if (result.error) {
+      return null;
+    }
+
+    let output;
+    try {
+      output = readFileSync(tempFile, 'utf8');
+      unlinkSync(tempFile);
+    } catch (e) {
+      return null;
+    }
 
     const checkResult = JSON.parse(output);
 
     // Filter to only issues in the modified file
-    const fileIssues = (checkResult.issues || []).filter(
-      issue => issue.file === filePath || issue.file?.endsWith(path.basename(filePath))
+    const fileIssues = (checkResult.issues || checkResult.drifts || []).filter(
+      issue => {
+        // Extract path from source.location (format: "path/to/file.tsx:123")
+        const location = issue.source?.location || '';
+        const issuePath = location.split(':')[0] || issue.file || issue.source?.path;
+        return issuePath === filePath || filePath.endsWith(issuePath) || issuePath?.endsWith(path.basename(filePath));
+      }
     );
 
     if (fileIssues.length === 0) {
@@ -98,7 +114,7 @@ function validateFile(input) {
     }
 
     // Format feedback for Claude
-    const feedback = formatFeedback(filePath, fileIssues, checkResult.fixes || []);
+    const feedback = formatFeedback(filePath, fileIssues);
 
     return {
       hookSpecificOutput: {
@@ -116,32 +132,25 @@ function validateFile(input) {
 /**
  * Format drift issues as actionable feedback for Claude
  */
-function formatFeedback(filePath, issues, fixes) {
+function formatFeedback(filePath, issues) {
   const lines = [
-    `⚠️ Design drift detected in ${path.basename(filePath)}:`,
+    '⚠️ Design drift detected in ' + path.basename(filePath) + ':',
     ''
   ];
 
   for (const issue of issues.slice(0, 5)) { // Limit to 5 issues
-    const location = issue.line ? `:${issue.line}` : '';
-    lines.push(`• ${issue.type}: ${issue.message}`);
+    const type = issue.type || issue.driftType || 'drift';
+    const msg = issue.message || issue.description || 'Design system violation';
+    lines.push('• ' + type + ': ' + msg);
 
-    // Find matching fix suggestion
-    const fix = fixes.find(f =>
-      f.file === issue.file && f.line === issue.line
-    );
-
-    if (fix && fix.suggestion) {
-      lines.push(`  Fix: ${fix.suggestion}`);
-      if (fix.replacement) {
-        lines.push(`  Replace: \`${fix.old}\` → \`${fix.new}\``);
-      }
+    if (issue.suggestion || issue.fix) {
+      lines.push('  Fix: ' + (issue.suggestion || issue.fix));
     }
     lines.push('');
   }
 
   if (issues.length > 5) {
-    lines.push(`... and ${issues.length - 5} more issues`);
+    lines.push('... and ' + (issues.length - 5) + ' more issues');
     lines.push('');
   }
 

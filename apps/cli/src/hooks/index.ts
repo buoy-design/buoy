@@ -446,8 +446,10 @@ function getValidationScript(): string {
  * @see https://code.claude.com/docs/en/hooks
  */
 
-const { execSync } = require('child_process');
-const path = require('path');
+import { spawnSync } from 'child_process';
+import { readFileSync, unlinkSync } from 'fs';
+import path from 'path';
+import { tmpdir } from 'os';
 
 // Read hook input from stdin
 let inputData = '';
@@ -513,23 +515,35 @@ function validateFile(input) {
   }
 
   try {
-    // Run buoy check with JSON format
-    const output = execSync(
-      'npx buoy check --json 2>/dev/null',
-      {
-        encoding: 'utf8',
-        cwd: input.cwd || process.cwd(),
-        timeout: 30000
-      }
-    );
+    // Run buoy check with JSON format via temp file to avoid Node.js pipe buffer limits
+    const tempFile = path.join(tmpdir(), \\\`buoy-check-\\\${process.pid}.json\\\`);
+    const result = spawnSync('sh', ['-c', \\\`npx buoy check --format json > "\\\${tempFile}" 2>/dev/null\\\`], {
+      cwd: input.cwd || process.cwd(),
+      timeout: 30000,
+      shell: false
+    });
+
+    if (result.error) {
+      return null;
+    }
+
+    let output;
+    try {
+      output = readFileSync(tempFile, 'utf8');
+      unlinkSync(tempFile);
+    } catch (e) {
+      return null;
+    }
 
     const checkResult = JSON.parse(output);
 
     // Filter to only issues in the modified file
     const fileIssues = (checkResult.issues || checkResult.drifts || []).filter(
       issue => {
-        const issuePath = issue.file || issue.source?.path;
-        return issuePath === filePath || issuePath?.endsWith(path.basename(filePath));
+        // Extract path from source.location (format: "path/to/file.tsx:123")
+        const location = issue.source?.location || '';
+        const issuePath = location.split(':')[0] || issue.file || issue.source?.path;
+        return issuePath === filePath || filePath.endsWith(issuePath) || issuePath?.endsWith(path.basename(filePath));
       }
     );
 
@@ -578,7 +592,7 @@ function formatFeedback(filePath, issues) {
     lines.push('');
   }
 
-  lines.push('Run \`buoy show drift\` for full details.');
+  lines.push('Run \\\`buoy show drift\\\` for full details.');
 
   return lines.join('\\n');
 }
