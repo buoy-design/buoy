@@ -1,7 +1,7 @@
 {
   "name": "ahoybuoy",
-  "version": "0.2.0",
-  "description": "Design drift detection for the AI era",
+  "version": "0.2.21",
+  "description": "Catch design drift before it ships",
   "type": "module",
   "license": "MIT",
   "author": "Buoy <hello@buoy.design>",
@@ -26,6 +26,6 @@
     "buoy": "./bin.js"
   },
   "dependencies": {
-    "@buoy-design/cli": "^0.2.0"
+    "@buoy-design/cli": "^0.2.21"
   }
 }

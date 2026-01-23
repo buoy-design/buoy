@@ -2,7 +2,7 @@
   "name": "buoy",
   "version": "0.0.9",
   "private": true,
-  "description": "Design drift detection for the AI era",
+  "description": "Catch design drift before it ships",
   "keywords": [
     "design-system",
     "drift-detection",

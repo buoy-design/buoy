@@ -1,6 +1,6 @@
 # ahoybuoy
 
-Design drift detection for the AI era.
+Catch design drift before it ships.
 
 ## Quick Start
 

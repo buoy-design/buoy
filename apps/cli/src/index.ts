@@ -21,7 +21,7 @@ export function createCli(): Command {
 
   program
     .name("buoy")
-    .description("Design drift detection for the AI era")
+    .description("Catch design drift before it ships")
     .version(pkg.version)
     .configureHelp({
       sortSubcommands: false,
