@@ -315,6 +315,19 @@ export async function buildAutoConfig(projectRoot: string = process.cwd()): Prom
         break;
       }
 
+      case 'nextjs': {
+        const baseInclude = ['src/**/*.tsx', 'src/**/*.jsx', 'app/**/*.tsx', 'app/**/*.jsx', 'components/**/*.tsx', 'components/**/*.jsx'];
+        config.sources.nextjs = {
+          enabled: true,
+          include: expandPatterns(baseInclude, monorepo, nestedFrontend),
+          exclude: ['**/*.test.*', '**/*.spec.*', '**/*.stories.*', '**/node_modules/**', '**/.next/**'],
+          appRouter: true,
+          cssModules: true,
+          validateImage: true,
+        };
+        break;
+      }
+
       case 'vue': {
         // Include Laravel-style paths (resources/js, resources/assets/js) for PHP full-stack apps
         const baseInclude = [

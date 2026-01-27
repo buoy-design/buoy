@@ -22,6 +22,7 @@ export interface PluginInfo {
 // Built-in scanners - no plugins needed for these
 export const BUILTIN_SCANNERS: Record<string, { description: string; detects: string }> = {
   react: { description: 'React/JSX component scanning', detects: 'React components' },
+  nextjs: { description: 'Next.js App Router scanning', detects: 'Next.js server/client components, routes, CSS modules' },
   vue: { description: 'Vue SFC scanning', detects: 'Vue components' },
   svelte: { description: 'Svelte component scanning', detects: 'Svelte components' },
   angular: { description: 'Angular component scanning', detects: 'Angular components' },
@@ -63,7 +64,7 @@ const FRAMEWORK_PATTERNS: Array<{
 }> = [
   // React ecosystem - built-in scanner
   { name: 'react', scanner: 'react', packages: ['react', 'react-dom'] },
-  { name: 'next', scanner: 'react', packages: ['next'] },
+  { name: 'next', scanner: 'nextjs', packages: ['next'] },
   { name: 'remix', scanner: 'react', packages: ['@remix-run/react'] },
   { name: 'gatsby', scanner: 'react', packages: ['gatsby'] },
 
