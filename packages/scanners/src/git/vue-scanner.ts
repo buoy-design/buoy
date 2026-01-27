@@ -16,6 +16,38 @@ import {
 
 export interface VueScannerConfig extends ScannerConfig {
   designSystemPackage?: string;
+  /** Whether to enable Nuxt-specific scanning (auto-detected if not specified) */
+  nuxt?: boolean;
+  /** Custom component directories for Nuxt (default: ['components']) */
+  nuxtComponentDirs?: string[];
+}
+
+/**
+ * Nuxt project information
+ */
+export interface NuxtProjectInfo {
+  /** Whether Nuxt was detected */
+  isNuxt: boolean;
+  /** Nuxt version (if detectable from package.json) */
+  version?: string;
+  /** Component directories configured */
+  componentDirs: string[];
+  /** Composables found */
+  composables: string[];
+  /** Pages found */
+  pages: string[];
+  /** Layouts found */
+  layouts: string[];
+}
+
+/**
+ * Extended Vue scan result with Nuxt info
+ */
+export interface VueScanResult extends ScanResult<Component> {
+  /** Nuxt project info (if Nuxt detected) */
+  nuxtInfo?: NuxtProjectInfo;
+  /** Composables found in the project */
+  composables: Component[];
 }
 
 interface VueMetadata {
@@ -39,12 +71,20 @@ export class VueComponentScanner extends SignalAwareScanner<Component, VueScanne
   /** Default file patterns for Vue components (includes TSX for defineComponent) */
   private static readonly DEFAULT_PATTERNS = ["**/*.vue", "**/*.tsx"];
 
-  async scan(): Promise<ScanResult<Component>> {
+  async scan(): Promise<VueScanResult> {
     // Clear signals from previous scan
     this.clearSignals();
 
+    // Detect if this is a Nuxt project
+    const isNuxt = this.config.nuxt ?? this.detectNuxtProject();
+    let nuxtInfo: NuxtProjectInfo | undefined;
+
+    if (isNuxt) {
+      nuxtInfo = await this.scanNuxtProject();
+    }
+
     // Use cache if available
-    const result = this.config.cache
+    const baseResult = this.config.cache
       ? await this.runScanWithCache(
           (file) => this.parseFile(file),
           VueComponentScanner.DEFAULT_PATTERNS,
@@ -55,12 +95,149 @@ export class VueComponentScanner extends SignalAwareScanner<Component, VueScanne
         );
 
     // Post-process: resolve extends inheritance
-    this.resolveExtendsInheritance(result.items);
+    this.resolveExtendsInheritance(baseResult.items);
 
     // Post-process: detect compound component groups
-    this.detectCompoundGroups(result.items);
+    this.detectCompoundGroups(baseResult.items);
 
-    return result;
+    // Tag Nuxt-specific components
+    if (isNuxt) {
+      this.tagNuxtComponents(baseResult.items);
+    }
+
+    // Separate composables from components
+    const composables = baseResult.items.filter(c =>
+      c.metadata.tags?.includes("composable")
+    );
+
+    return {
+      ...baseResult,
+      nuxtInfo,
+      composables,
+    };
+  }
+
+  /**
+   * Detect if this is a Nuxt project
+   */
+  private detectNuxtProject(): boolean {
+    const nuxtConfigPaths = [
+      resolve(this.config.projectRoot, "nuxt.config.ts"),
+      resolve(this.config.projectRoot, "nuxt.config.js"),
+      resolve(this.config.projectRoot, "nuxt.config.mjs"),
+    ];
+
+    return nuxtConfigPaths.some(p => existsSync(p));
+  }
+
+  /**
+   * Scan Nuxt-specific directories and gather info
+   */
+  private async scanNuxtProject(): Promise<NuxtProjectInfo> {
+    const componentDirs = this.config.nuxtComponentDirs || ["components"];
+    const composables: string[] = [];
+    const pages: string[] = [];
+    const layouts: string[] = [];
+
+    // Detect Nuxt version from package.json
+    let version: string | undefined;
+    try {
+      const pkgPath = resolve(this.config.projectRoot, "package.json");
+      if (existsSync(pkgPath)) {
+        const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
+        version = pkg.dependencies?.nuxt || pkg.devDependencies?.nuxt;
+      }
+    } catch {
+      // Ignore errors
+    }
+
+    // Scan composables directory
+    try {
+      const { glob } = await import("glob");
+      const composableFiles = await glob("composables/**/*.{ts,js}", {
+        cwd: this.config.projectRoot,
+        ignore: ["**/node_modules/**"],
+      });
+      for (const file of composableFiles) {
+        const name = basename(file).replace(/\.(ts|js)$/, "");
+        if (name.startsWith("use")) {
+          composables.push(name);
+        }
+      }
+
+      // Scan pages directory
+      const pageFiles = await glob("pages/**/*.vue", {
+        cwd: this.config.projectRoot,
+        ignore: ["**/node_modules/**"],
+      });
+      pages.push(...pageFiles);
+
+      // Scan layouts directory
+      const layoutFiles = await glob("layouts/**/*.vue", {
+        cwd: this.config.projectRoot,
+        ignore: ["**/node_modules/**"],
+      });
+      layouts.push(...layoutFiles);
+    } catch {
+      // Glob not available or failed
+    }
+
+    return {
+      isNuxt: true,
+      version,
+      componentDirs,
+      composables,
+      pages,
+      layouts,
+    };
+  }
+
+  /**
+   * Tag components based on Nuxt conventions
+   */
+  private tagNuxtComponents(components: Component[]): void {
+    for (const comp of components) {
+      if (comp.source.type !== "vue") continue;
+
+      const path = comp.source.path;
+
+      // Tag pages
+      if (path.startsWith("pages/")) {
+        comp.metadata.tags = comp.metadata.tags || [];
+        comp.metadata.tags.push("nuxt-page");
+
+        // Detect dynamic routes
+        if (path.includes("[") && path.includes("]")) {
+          comp.metadata.tags.push("dynamic-route");
+        }
+      }
+
+      // Tag layouts
+      if (path.startsWith("layouts/")) {
+        comp.metadata.tags = comp.metadata.tags || [];
+        comp.metadata.tags.push("nuxt-layout");
+      }
+
+      // Tag composables
+      if (path.startsWith("composables/") || comp.name.startsWith("use")) {
+        comp.metadata.tags = comp.metadata.tags || [];
+        if (!comp.metadata.tags.includes("composable")) {
+          comp.metadata.tags.push("composable");
+        }
+      }
+
+      // Tag server components
+      if (path.startsWith("server/")) {
+        comp.metadata.tags = comp.metadata.tags || [];
+        comp.metadata.tags.push("server-component");
+      }
+
+      // Tag auto-imported components
+      if (path.startsWith("components/")) {
+        comp.metadata.tags = comp.metadata.tags || [];
+        comp.metadata.tags.push("auto-import");
+      }
+    }
   }
 
   /**

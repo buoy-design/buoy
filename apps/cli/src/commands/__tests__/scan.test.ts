@@ -16,6 +16,7 @@ vi.mock("../../config/auto-detect.js", () => ({
 
 vi.mock("@buoy-design/scanners/git", () => ({
   ReactComponentScanner: vi.fn(),
+  NextJSScanner: vi.fn(),
   VueComponentScanner: vi.fn(),
   SvelteComponentScanner: vi.fn(),
   AngularComponentScanner: vi.fn(),

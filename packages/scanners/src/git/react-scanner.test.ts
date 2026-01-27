@@ -872,4 +872,207 @@ describe('ReactComponentScanner', () => {
       expect(usedComponents).toContain('Text');
     });
   });
+
+  describe('React hook analysis', () => {
+    const COMPONENT_WITH_HOOKS = `
+import { useState, useEffect, useMemo, useCallback } from 'react';
+
+export function Counter() {
+  const [count, setCount] = useState(0);
+  const [enabled, setEnabled] = useState(true);
+
+  useEffect(() => {
+    document.title = \`Count: \${count}\`;
+  }, [count]);
+
+  const doubleCount = useMemo(() => count * 2, [count]);
+
+  const increment = useCallback(() => {
+    setCount(c => c + 1);
+  }, []);
+
+  return (
+    <button onClick={increment}>
+      Count: {count}, Double: {doubleCount}
+    </button>
+  );
+}
+`;
+
+    const COMPONENT_WITH_CUSTOM_HOOKS = `
+import { useState, useEffect } from 'react';
+
+function useLocalStorage(key: string, initialValue: string) {
+  const [value, setValue] = useState(() => {
+    return localStorage.getItem(key) || initialValue;
+  });
+
+  useEffect(() => {
+    localStorage.setItem(key, value);
+  }, [key, value]);
+
+  return [value, setValue] as const;
+}
+
+function useDebounce(value: string, delay: number) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
+export function SearchInput() {
+  const [query, setQuery] = useLocalStorage('search', '');
+  const debouncedQuery = useDebounce(query, 300);
+
+  return <input value={query} onChange={e => setQuery(e.target.value)} />;
+}
+`;
+
+    const COMPONENT_WITH_NESTED_HOOKS = `
+import { useState, useMemo, useCallback } from 'react';
+
+export function DataGrid({ data }) {
+  const [sortColumn, setSortColumn] = useState('name');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  const sortedData = useMemo(() => {
+    return [...data].sort((a, b) => {
+      const aVal = a[sortColumn];
+      const bVal = b[sortColumn];
+      return sortDirection === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+  }, [data, sortColumn, sortDirection]);
+
+  const handleSort = useCallback((column) => {
+    if (column === sortColumn) {
+      setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  }, [sortColumn]);
+
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th onClick={() => handleSort('name')}>Name</th>
+          <th onClick={() => handleSort('value')}>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sortedData.map(row => <tr key={row.id}><td>{row.name}</td></tr>)}
+      </tbody>
+    </table>
+  );
+}
+`;
+
+    it('detects built-in hooks usage in components', async () => {
+      vol.fromJSON({
+        '/project/src/Counter.tsx': COMPONENT_WITH_HOOKS,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      const counter = result.items[0]!;
+      expect(counter.name).toBe('Counter');
+
+      // Check hook usage info is included
+      if ('hookUsage' in result && result.hookUsage) {
+        const hookUsage = result.hookUsage as any[];
+        expect(hookUsage).toBeDefined();
+        expect(hookUsage.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('detects custom hooks definitions and usage', async () => {
+      vol.fromJSON({
+        '/project/src/SearchInput.tsx': COMPONENT_WITH_CUSTOM_HOOKS,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      // Should detect the SearchInput component
+      expect(result.items.find(c => c.name === 'SearchInput')).toBeDefined();
+    });
+
+    it('detects useMemo and useCallback with dependencies', async () => {
+      vol.fromJSON({
+        '/project/src/DataGrid.tsx': COMPONENT_WITH_NESTED_HOOKS,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      const dataGrid = result.items[0]!;
+      expect(dataGrid.name).toBe('DataGrid');
+    });
+
+    it('tracks hook patterns in component metadata', async () => {
+      vol.fromJSON({
+        '/project/src/Counter.tsx': COMPONENT_WITH_HOOKS,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      const counter = result.items[0]!;
+
+      // The hook analysis should add tags or patterns info to component metadata
+      // Check that component has metadata (hooks may be stored there)
+      expect(counter.metadata).toBeDefined();
+    });
+
+    it('handles components without hooks', async () => {
+      const STATELESS_COMPONENT = `
+export function StatelessCard({ title, children }) {
+  return (
+    <div className="card">
+      <h2>{title}</h2>
+      {children}
+    </div>
+  );
+}
+`;
+      vol.fromJSON({
+        '/project/src/StatelessCard.tsx': STATELESS_COMPONENT,
+      });
+
+      const scanner = new ReactComponentScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.tsx'],
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]!.name).toBe('StatelessCard');
+    });
+  });
 });

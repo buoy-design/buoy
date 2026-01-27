@@ -13,6 +13,17 @@ export const ReactConfigSchema = ComponentSourceConfigSchema.extend({
   include: z.array(z.string()).default(['src/**/*.tsx', 'src/**/*.jsx']),
 });
 
+// Next.js source config
+export const NextJSConfigSchema = ComponentSourceConfigSchema.extend({
+  include: z.array(z.string()).default(['app/**/*.tsx', 'app/**/*.jsx', 'src/**/*.tsx', 'src/**/*.jsx', 'components/**/*.tsx', 'components/**/*.jsx']),
+  /** Whether to scan App Router structure (default: true) */
+  appRouter: z.boolean().default(true),
+  /** Whether to scan CSS modules (default: true) */
+  cssModules: z.boolean().default(true),
+  /** Whether to validate next/image usage (default: true) */
+  validateImage: z.boolean().default(true),
+});
+
 // Vue source config
 export const VueConfigSchema = ComponentSourceConfigSchema.extend({
   include: z.array(z.string()).default(['src/**/*.vue']),
@@ -94,6 +105,7 @@ export const TailwindConfigSchema = z.object({
 export const SourcesConfigSchema = z.object({
   // JS Frameworks
   react: ReactConfigSchema.optional(),
+  nextjs: NextJSConfigSchema.optional(),
   vue: VueConfigSchema.optional(),
   svelte: SvelteConfigSchema.optional(),
   angular: AngularConfigSchema.optional(),
@@ -183,6 +195,7 @@ export const BuoyConfigSchema = z.object({
 // Types
 export type ComponentSourceConfig = z.infer<typeof ComponentSourceConfigSchema>;
 export type ReactConfig = z.infer<typeof ReactConfigSchema>;
+export type NextJSConfig = z.infer<typeof NextJSConfigSchema>;
 export type VueConfig = z.infer<typeof VueConfigSchema>;
 export type SvelteConfig = z.infer<typeof SvelteConfigSchema>;
 export type AngularConfig = z.infer<typeof AngularConfigSchema>;

@@ -44,6 +44,7 @@ export interface ScanOrchestratorOptions {
  */
 export type ScannerSource =
   | "react"
+  | "nextjs"
   | "vue"
   | "svelte"
   | "angular"
@@ -83,6 +84,22 @@ const SCANNER_REGISTRY: ScannerDefinition[] = [
       projectRoot,
       include: files?.length ? files : cfg.include,
       exclude: cfg.exclude,
+      designSystemPackage: cfg.designSystemPackage,
+      cache,
+    }),
+  },
+  {
+    source: "nextjs",
+    configKey: "nextjs",
+    scannerKey: "NextJSScanner",
+    resultType: "components",
+    getOptions: (cfg, projectRoot, cache, files) => ({
+      projectRoot,
+      include: files?.length ? files : cfg.include,
+      exclude: cfg.exclude,
+      appRouter: cfg.appRouter,
+      cssModules: cfg.cssModules,
+      validateImage: cfg.validateImage,
       designSystemPackage: cfg.designSystemPackage,
       cache,
     }),
@@ -225,6 +242,7 @@ export class ScanOrchestrator {
 
     // JS Frameworks
     if (this.config.sources.react?.enabled) sources.push("react");
+    if (this.config.sources.nextjs?.enabled) sources.push("nextjs");
     if (this.config.sources.vue?.enabled) sources.push("vue");
     if (this.config.sources.svelte?.enabled) sources.push("svelte");
     if (this.config.sources.angular?.enabled) sources.push("angular");
@@ -335,6 +353,7 @@ export class ScanOrchestrator {
   private async importScanners() {
     const {
       ReactComponentScanner,
+      NextJSScanner,
       VueComponentScanner,
       SvelteComponentScanner,
       AngularComponentScanner,
@@ -348,6 +367,7 @@ export class ScanOrchestrator {
 
     return {
       ReactComponentScanner,
+      NextJSScanner,
       VueComponentScanner,
       SvelteComponentScanner,
       AngularComponentScanner,

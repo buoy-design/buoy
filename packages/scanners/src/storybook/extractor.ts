@@ -35,6 +35,30 @@ export interface StoryFileScannerConfig extends ScannerConfig {
   include?: string[];
   /** Patterns to exclude */
   exclude?: string[];
+  /** Whether to scan MDX files (default: true) */
+  scanMdx?: boolean;
+  /** Whether to validate story args against prop types (default: false) */
+  validateArgs?: boolean;
+}
+
+/**
+ * MDX story information
+ */
+export interface MdxStoryInfo {
+  /** File path */
+  file: string;
+  /** Title extracted from Meta */
+  title?: string;
+  /** Component referenced in Meta */
+  component?: string;
+  /** Story names found in the MDX */
+  stories: string[];
+  /** Whether it uses Canvas blocks */
+  hasCanvas: boolean;
+  /** Whether it uses Story blocks */
+  hasStoryBlocks: boolean;
+  /** Whether it has prose documentation */
+  hasDocumentation: boolean;
 }
 
 interface StoryMeta {
@@ -54,6 +78,43 @@ interface ArgTypeInfo {
   control?: string | { type: string };
   options?: string[];
   description?: string;
+  type?: { name: string; required?: boolean };
+}
+
+/**
+ * Args validation issue found in a story
+ */
+export interface ArgsValidationIssue {
+  /** Story name where the issue was found */
+  storyName: string;
+  /** Property name with the issue */
+  propName: string;
+  /** Type of validation issue */
+  issueType: 'type-mismatch' | 'missing-required' | 'unknown-prop' | 'invalid-option';
+  /** Description of the issue */
+  message: string;
+  /** Expected type (for type mismatches) */
+  expectedType?: string;
+  /** Actual type found */
+  actualType?: string;
+  /** Value that caused the issue */
+  actualValue?: unknown;
+}
+
+/**
+ * Validation result for a story file
+ */
+export interface StoryArgsValidation {
+  /** File path of the story */
+  file: string;
+  /** Component name */
+  componentName: string;
+  /** Issues found */
+  issues: ArgsValidationIssue[];
+  /** Total args validated */
+  argsValidated: number;
+  /** Whether all args are valid */
+  isValid: boolean;
 }
 
 interface StoryVariant {
@@ -79,6 +140,20 @@ const STORY_SCANNER_EXCLUDES = [
  * Scans .stories.{ts,tsx,js,jsx} files to extract component metadata.
  * This scanner parses Component Story Format (CSF) files directly from source code.
  */
+/**
+ * Extended scan result with MDX info
+ */
+export interface StoryFileScanResult extends ScanResult<Component> {
+  /** MDX story files found */
+  mdxStories: MdxStoryInfo[];
+  /** Components with stories */
+  documentedComponents: string[];
+  /** Total story count */
+  storyCount: number;
+  /** Args validation results (when validateArgs is enabled) */
+  argsValidation?: StoryArgsValidation[];
+}
+
 export class StoryFileScanner extends Scanner<Component, StoryFileScannerConfig> {
   /** Default file patterns for story files */
   private static readonly DEFAULT_PATTERNS = [
@@ -88,19 +163,61 @@ export class StoryFileScanner extends Scanner<Component, StoryFileScannerConfig>
     '**/*.stories.js',
   ];
 
+  /** MDX file patterns */
+  private static readonly MDX_PATTERNS = [
+    '**/*.stories.mdx',
+    '**/*.mdx',
+  ];
+
   constructor(config: StoryFileScannerConfig) {
     // Override exclude patterns to not exclude story files
     super({
       ...config,
+      scanMdx: config.scanMdx !== false,
       exclude: config.exclude ?? STORY_SCANNER_EXCLUDES,
     });
   }
 
-  async scan(): Promise<ScanResult<Component>> {
-    return this.runScan(
+  // Store parsed meta for validation
+  private parsedMetas: Map<string, { meta: StoryMeta; variants: StoryVariant[]; file: string; componentName: string }> = new Map();
+
+  async scan(): Promise<StoryFileScanResult> {
+    // Clear the metas map for each scan
+    this.parsedMetas.clear();
+
+    const baseResult = await this.runScan(
       (file) => this.parseStoryFile(file),
       StoryFileScanner.DEFAULT_PATTERNS,
     );
+
+    // Scan MDX files if enabled
+    let mdxStories: MdxStoryInfo[] = [];
+    if (this.config.scanMdx !== false) {
+      mdxStories = await this.scanMdxFiles();
+    }
+
+    // Calculate documented components
+    const documentedComponents = baseResult.items.map(c => c.name);
+
+    // Calculate total story count
+    const storyCount = baseResult.items.reduce(
+      (sum, c) => sum + c.variants.length,
+      0
+    ) + mdxStories.reduce((sum, m) => sum + m.stories.length, 0);
+
+    // Validate args if enabled
+    let argsValidation: StoryArgsValidation[] | undefined;
+    if (this.config.validateArgs) {
+      argsValidation = this.validateAllStoryArgs();
+    }
+
+    return {
+      ...baseResult,
+      mdxStories,
+      documentedComponents,
+      storyCount,
+      argsValidation,
+    };
   }
 
   getSourceType(): string {
@@ -160,6 +277,115 @@ export class StoryFileScanner extends Scanner<Component, StoryFileScannerConfig>
 
     ts.forEachChild(sourceFile, visit);
     return patterns;
+  }
+
+  /**
+   * Scan MDX story files
+   */
+  private async scanMdxFiles(): Promise<MdxStoryInfo[]> {
+    const mdxStories: MdxStoryInfo[] = [];
+    const { glob } = await import('glob');
+
+    for (const pattern of StoryFileScanner.MDX_PATTERNS) {
+      try {
+        const files = await glob(pattern, {
+          cwd: this.config.projectRoot,
+          ignore: this.config.exclude || STORY_SCANNER_EXCLUDES,
+          absolute: true,
+        });
+
+        for (const file of files) {
+          try {
+            const content = await readFile(file, 'utf-8');
+            const relativePath = relative(this.config.projectRoot, file);
+            const mdxInfo = this.parseMdxFile(content, relativePath);
+            if (mdxInfo) {
+              mdxStories.push(mdxInfo);
+            }
+          } catch {
+            // Continue on read errors
+          }
+        }
+      } catch {
+        // Continue to next pattern
+      }
+    }
+
+    return mdxStories;
+  }
+
+  /**
+   * Parse an MDX file for story information
+   */
+  private parseMdxFile(content: string, filePath: string): MdxStoryInfo | null {
+    const info: MdxStoryInfo = {
+      file: filePath,
+      stories: [],
+      hasCanvas: false,
+      hasStoryBlocks: false,
+      hasDocumentation: false,
+    };
+
+    // Check for Meta component (required for story MDX)
+    const metaMatch = content.match(/<Meta\s+([^>]+)>/);
+    if (metaMatch) {
+      const metaProps = metaMatch[1]!;
+
+      // Extract title
+      const titleMatch = metaProps.match(/title\s*=\s*["']([^"']+)["']/);
+      if (titleMatch) {
+        info.title = titleMatch[1];
+      }
+
+      // Extract component (either as string or JSX reference)
+      const componentMatch = metaProps.match(/component\s*=\s*\{?([A-Za-z]+)\}?/);
+      if (componentMatch) {
+        info.component = componentMatch[1];
+      }
+    }
+
+    // Check for Canvas blocks
+    if (/<Canvas\s*[^>]*>/.test(content)) {
+      info.hasCanvas = true;
+    }
+
+    // Check for Story blocks and extract names
+    const storyRegex = /<Story\s+(?:[^>]*?)name\s*=\s*["']([^"']+)["'](?:[^>]*?)>/g;
+    let storyMatch;
+    while ((storyMatch = storyRegex.exec(content)) !== null) {
+      info.stories.push(storyMatch[1]!);
+      info.hasStoryBlocks = true;
+    }
+
+    // Also check for export const story pattern in MDX2
+    const exportStoryRegex = /export\s+const\s+([A-Z][a-zA-Z0-9]*)\s*=/g;
+    while ((storyMatch = exportStoryRegex.exec(content)) !== null) {
+      const storyName = storyMatch[1]!;
+      if (!info.stories.includes(storyName)) {
+        info.stories.push(storyName);
+      }
+    }
+
+    // Check for prose documentation (markdown content outside of code blocks)
+    // Simple heuristic: if there's text content that's not in JSX or code blocks
+    const proseContent = content
+      .replace(/<[^>]+>/g, '') // Remove JSX tags
+      .replace(/```[\s\S]*?```/g, '') // Remove code blocks
+      .replace(/`[^`]+`/g, '') // Remove inline code
+      .replace(/import\s+.+;?/g, '') // Remove imports
+      .replace(/export\s+.+;?/g, '') // Remove exports
+      .trim();
+
+    if (proseContent.length > 50) {
+      info.hasDocumentation = true;
+    }
+
+    // Only return if this looks like a story MDX (has Meta, Canvas, or Story blocks)
+    if (info.title || info.component || info.hasCanvas || info.hasStoryBlocks || info.stories.length > 0) {
+      return info;
+    }
+
+    return null;
   }
 
   private async parseStoryFile(filePath: string): Promise<Component[]> {
@@ -285,6 +511,14 @@ export class StoryFileScanner extends Scanner<Component, StoryFileScannerConfig>
       },
       scannedAt: new Date(),
     };
+
+    // Store meta for validation
+    this.parsedMetas.set(relativePath, {
+      meta,
+      variants,
+      file: relativePath,
+      componentName,
+    });
 
     return [component];
   }
@@ -858,6 +1092,26 @@ export class StoryFileScanner extends Scanner<Component, StoryFileScannerConfig>
               }
             }
           }
+
+          // Parse type: { name: 'string', required: true }
+          if (argPropName === 'type' && ts.isObjectLiteralExpression(argProp.initializer)) {
+            argInfo.type = { name: '' };
+            for (const typeProp of argProp.initializer.properties) {
+              if (!ts.isPropertyAssignment(typeProp) || !typeProp.name) continue;
+
+              const typePropName = typeProp.name.getText(sourceFile);
+              if (typePropName === 'name' && ts.isStringLiteral(typeProp.initializer)) {
+                argInfo.type.name = typeProp.initializer.text;
+              }
+              if (typePropName === 'required') {
+                if (typeProp.initializer.kind === ts.SyntaxKind.TrueKeyword) {
+                  argInfo.type.required = true;
+                } else if (typeProp.initializer.kind === ts.SyntaxKind.FalseKeyword) {
+                  argInfo.type.required = false;
+                }
+              }
+            }
+          }
         }
       }
 
@@ -1146,6 +1400,199 @@ export class StoryFileScanner extends Scanner<Component, StoryFileScannerConfig>
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     const normalizedName = storyName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     return `${normalizedTitle}--${normalizedName}`;
+  }
+
+  /**
+   * Validate all story args against their argTypes
+   */
+  private validateAllStoryArgs(): StoryArgsValidation[] {
+    const validations: StoryArgsValidation[] = [];
+
+    for (const [, data] of this.parsedMetas) {
+      const validation = this.validateStoryArgs(data);
+      validations.push(validation);
+    }
+
+    return validations;
+  }
+
+  /**
+   * Validate args for a single story file
+   */
+  private validateStoryArgs(data: {
+    meta: StoryMeta;
+    variants: StoryVariant[];
+    file: string;
+    componentName: string;
+  }): StoryArgsValidation {
+    const issues: ArgsValidationIssue[] = [];
+    let argsValidated = 0;
+
+    const { meta, variants, file, componentName } = data;
+    const argTypes = meta.argTypes || {};
+
+    for (const variant of variants) {
+      if (!variant.args) continue;
+
+      for (const [propName, value] of Object.entries(variant.args)) {
+        argsValidated++;
+
+        // Check if prop is defined in argTypes
+        const argType = argTypes[propName];
+
+        if (!argType) {
+          // Unknown prop - might be intentional but worth noting
+          issues.push({
+            storyName: variant.name,
+            propName,
+            issueType: 'unknown-prop',
+            message: `Prop '${propName}' is not defined in argTypes`,
+            actualValue: value,
+          });
+          continue;
+        }
+
+        // Check type if defined
+        const expectedType = this.getExpectedType(argType);
+        if (expectedType) {
+          const actualType = this.getActualType(value);
+          const isValid = this.isTypeCompatible(expectedType, actualType, value);
+
+          if (!isValid) {
+            issues.push({
+              storyName: variant.name,
+              propName,
+              issueType: 'type-mismatch',
+              message: `Type mismatch for '${propName}': expected ${expectedType}, got ${actualType}`,
+              expectedType,
+              actualType,
+              actualValue: value,
+            });
+          }
+        }
+
+        // Check options constraint
+        if (argType.options && argType.options.length > 0) {
+          if (typeof value === 'string' && !argType.options.includes(value)) {
+            issues.push({
+              storyName: variant.name,
+              propName,
+              issueType: 'invalid-option',
+              message: `Invalid option for '${propName}': '${value}' is not in [${argType.options.join(', ')}]`,
+              actualValue: value,
+            });
+          }
+        }
+      }
+
+      // Check for missing required props
+      for (const [propName, argType] of Object.entries(argTypes)) {
+        if (argType.type?.required && (!variant.args || !(propName in variant.args))) {
+          issues.push({
+            storyName: variant.name,
+            propName,
+            issueType: 'missing-required',
+            message: `Required prop '${propName}' is missing in story '${variant.name}'`,
+          });
+        }
+      }
+    }
+
+    return {
+      file,
+      componentName,
+      issues,
+      argsValidated,
+      isValid: issues.length === 0,
+    };
+  }
+
+  /**
+   * Get the expected type string from an argType
+   */
+  private getExpectedType(argType: ArgTypeInfo): string | undefined {
+    // Check explicit type
+    if (argType.type?.name) {
+      return argType.type.name;
+    }
+
+    // Infer from control
+    if (argType.control) {
+      if (typeof argType.control === 'string') {
+        return this.controlToType(argType.control);
+      }
+      if (typeof argType.control === 'object' && argType.control.type) {
+        return this.controlToType(argType.control.type);
+      }
+    }
+
+    // Infer from options
+    if (argType.options && argType.options.length > 0) {
+      return 'string';
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Map Storybook control types to basic types
+   */
+  private controlToType(control: string): string {
+    switch (control) {
+      case 'text':
+      case 'color':
+      case 'date':
+      case 'select':
+      case 'radio':
+        return 'string';
+      case 'number':
+      case 'range':
+        return 'number';
+      case 'boolean':
+        return 'boolean';
+      case 'object':
+        return 'object';
+      case 'array':
+        return 'array';
+      case 'file':
+        return 'object';
+      default:
+        return control;
+    }
+  }
+
+  /**
+   * Get the actual type of a value
+   */
+  private getActualType(value: unknown): string {
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+    if (Array.isArray(value)) return 'array';
+    return typeof value;
+  }
+
+  /**
+   * Check if a value is compatible with an expected type
+   */
+  private isTypeCompatible(expectedType: string, actualType: string, value: unknown): boolean {
+    // Direct type match
+    if (expectedType === actualType) return true;
+
+    // Allow string for enum types (quoted union types)
+    if (expectedType.includes("'") && actualType === 'string') return true;
+
+    // Allow number coercion
+    if (expectedType === 'number' && actualType === 'string') {
+      return !isNaN(Number(value));
+    }
+
+    // Allow any for object types
+    if (expectedType === 'object' && actualType === 'object') return true;
+
+    // Allow function references (string in AST parsed form)
+    if (expectedType === 'function' && actualType === 'string') return true;
+
+    return false;
   }
 }
 

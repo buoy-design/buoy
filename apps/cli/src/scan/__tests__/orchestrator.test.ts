@@ -7,6 +7,7 @@ import type { BuoyConfig } from "../../config/schema.js";
 const { mockScanners, mockState } = vi.hoisted(() => {
   const state = {
     react: { items: [{ id: "comp:react:Button", name: "Button", source: { type: "react", path: "src/Button.tsx" } }], errors: [] as unknown[], reject: null as Error | null },
+    nextjs: { items: [{ id: "comp:nextjs:Page", name: "Page", source: { type: "react", path: "app/page.tsx" } }], errors: [] as unknown[], reject: null as Error | null },
     vue: { items: [{ id: "comp:vue:Card", name: "Card", source: { type: "vue", path: "src/Card.vue" } }], errors: [] as unknown[], reject: null as Error | null },
     svelte: { items: [] as unknown[], errors: [] as unknown[], reject: null as Error | null },
     angular: { items: [] as unknown[], errors: [] as unknown[], reject: null as Error | null },
@@ -31,6 +32,7 @@ const { mockScanners, mockState } = vi.hoisted(() => {
     mockState: state,
     mockScanners: {
       ReactComponentScanner: createScanner("react"),
+      NextJSScanner: createScanner("nextjs"),
       VueComponentScanner: createScanner("vue"),
       SvelteComponentScanner: createScanner("svelte"),
       AngularComponentScanner: createScanner("angular"),
@@ -44,11 +46,30 @@ const { mockScanners, mockState } = vi.hoisted(() => {
 // Mock the @buoy-design/scanners/git module
 vi.mock("@buoy-design/scanners/git", () => mockScanners);
 
+// Mock the @buoy-design/scanners/figma module
+vi.mock("@buoy-design/scanners/figma", () => ({
+  FigmaComponentScanner: class {
+    scan() {
+      return Promise.resolve({ items: [], errors: [] });
+    }
+  },
+}));
+
+// Mock the @buoy-design/scanners/storybook module
+vi.mock("@buoy-design/scanners/storybook", () => ({
+  StorybookScanner: class {
+    scan() {
+      return Promise.resolve({ items: [], errors: [] });
+    }
+  },
+}));
+
 describe("ScanOrchestrator", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset all mock state to defaults
     mockState.react.reject = null;
+    mockState.nextjs.reject = null;
     mockState.vue.reject = null;
     mockState.svelte.reject = null;
     mockState.angular.reject = null;

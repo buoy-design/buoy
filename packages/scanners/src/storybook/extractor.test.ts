@@ -1132,4 +1132,302 @@ describe('StoryFileScanner', () => {
       expect(buttonStories?.metadata?.tags).toContain('has-decorators');
     });
   });
+
+  describe('args validation', () => {
+    const STORY_WITH_VALID_ARGS = `
+import { Button } from './Button';
+import type { Meta, StoryObj } from '@storybook/react';
+
+const meta = {
+  title: 'Components/Button',
+  component: Button,
+  argTypes: {
+    variant: { control: 'select', options: ['primary', 'secondary', 'danger'] },
+    size: { control: 'select', options: ['sm', 'md', 'lg'] },
+    disabled: { control: 'boolean' },
+    label: { control: 'text' },
+    count: { control: 'number' },
+  },
+} satisfies Meta<typeof Button>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const Primary: Story = {
+  args: {
+    variant: 'primary',
+    size: 'md',
+    disabled: false,
+    label: 'Click me',
+    count: 5,
+  },
+};
+
+export const Secondary: Story = {
+  args: {
+    variant: 'secondary',
+    size: 'lg',
+    disabled: true,
+    label: 'Submit',
+    count: 10,
+  },
+};
+`;
+
+    const STORY_WITH_TYPE_MISMATCH = `
+import { Button } from './Button';
+import type { Meta, StoryObj } from '@storybook/react';
+
+const meta = {
+  title: 'Components/Button',
+  component: Button,
+  argTypes: {
+    count: { control: 'number' },
+    disabled: { control: 'boolean' },
+  },
+} satisfies Meta<typeof Button>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const Invalid: Story = {
+  args: {
+    count: 'not-a-number',
+    disabled: 'yes',
+  },
+};
+`;
+
+    const STORY_WITH_INVALID_OPTIONS = `
+import { Button } from './Button';
+import type { Meta, StoryObj } from '@storybook/react';
+
+const meta = {
+  title: 'Components/Button',
+  component: Button,
+  argTypes: {
+    variant: { control: 'select', options: ['primary', 'secondary', 'danger'] },
+  },
+} satisfies Meta<typeof Button>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const BadVariant: Story = {
+  args: {
+    variant: 'invalid-variant',
+  },
+};
+`;
+
+    const STORY_WITH_UNKNOWN_PROPS = `
+import { Button } from './Button';
+import type { Meta, StoryObj } from '@storybook/react';
+
+const meta = {
+  title: 'Components/Button',
+  component: Button,
+  argTypes: {
+    label: { control: 'text' },
+  },
+} satisfies Meta<typeof Button>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const ExtraProps: Story = {
+  args: {
+    label: 'Hello',
+    unknownProp: 'value',
+    anotherUnknown: true,
+  },
+};
+`;
+
+    const STORY_WITH_REQUIRED_PROPS = `
+import { Button } from './Button';
+import type { Meta, StoryObj } from '@storybook/react';
+
+const meta = {
+  title: 'Components/Button',
+  component: Button,
+  argTypes: {
+    label: { control: 'text', type: { name: 'string', required: true } },
+    onClick: { type: { name: 'function', required: true } },
+    optional: { control: 'text' },
+  },
+} satisfies Meta<typeof Button>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const MissingRequired: Story = {
+  args: {
+    optional: 'some value',
+  },
+};
+`;
+
+    it('validates args when validateArgs is enabled', async () => {
+      vol.fromJSON({
+        '/project/src/Button.stories.tsx': STORY_WITH_VALID_ARGS,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+        validateArgs: true,
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.argsValidation).toBeDefined();
+      expect(result.argsValidation!.length).toBe(1);
+      expect(result.argsValidation![0]!.isValid).toBe(true);
+      expect(result.argsValidation![0]!.issues).toHaveLength(0);
+      expect(result.argsValidation![0]!.argsValidated).toBe(10); // 5 args per story * 2 stories
+    });
+
+    it('does not validate args when validateArgs is false', async () => {
+      vol.fromJSON({
+        '/project/src/Button.stories.tsx': STORY_WITH_VALID_ARGS,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+        validateArgs: false,
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.argsValidation).toBeUndefined();
+    });
+
+    it('detects type mismatches in args', async () => {
+      vol.fromJSON({
+        '/project/src/Button.stories.tsx': STORY_WITH_TYPE_MISMATCH,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+        validateArgs: true,
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.argsValidation).toBeDefined();
+      const validation = result.argsValidation![0]!;
+      expect(validation.isValid).toBe(false);
+
+      const typeMismatchIssues = validation.issues.filter(i => i.issueType === 'type-mismatch');
+      expect(typeMismatchIssues.length).toBeGreaterThan(0);
+
+      // Check count type mismatch
+      const countIssue = typeMismatchIssues.find(i => i.propName === 'count');
+      expect(countIssue).toBeDefined();
+      expect(countIssue!.expectedType).toBe('number');
+      expect(countIssue!.actualType).toBe('string');
+
+      // Check disabled type mismatch
+      const disabledIssue = typeMismatchIssues.find(i => i.propName === 'disabled');
+      expect(disabledIssue).toBeDefined();
+      expect(disabledIssue!.expectedType).toBe('boolean');
+      expect(disabledIssue!.actualType).toBe('string');
+    });
+
+    it('detects invalid option values', async () => {
+      vol.fromJSON({
+        '/project/src/Button.stories.tsx': STORY_WITH_INVALID_OPTIONS,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+        validateArgs: true,
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.argsValidation).toBeDefined();
+      const validation = result.argsValidation![0]!;
+      expect(validation.isValid).toBe(false);
+
+      const optionIssues = validation.issues.filter(i => i.issueType === 'invalid-option');
+      expect(optionIssues.length).toBe(1);
+      expect(optionIssues[0]!.propName).toBe('variant');
+      expect(optionIssues[0]!.message).toContain('invalid-variant');
+      expect(optionIssues[0]!.message).toContain('primary');
+    });
+
+    it('detects unknown props', async () => {
+      vol.fromJSON({
+        '/project/src/Button.stories.tsx': STORY_WITH_UNKNOWN_PROPS,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+        validateArgs: true,
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.argsValidation).toBeDefined();
+      const validation = result.argsValidation![0]!;
+      expect(validation.isValid).toBe(false);
+
+      const unknownPropIssues = validation.issues.filter(i => i.issueType === 'unknown-prop');
+      expect(unknownPropIssues.length).toBe(2);
+
+      const unknownNames = unknownPropIssues.map(i => i.propName);
+      expect(unknownNames).toContain('unknownProp');
+      expect(unknownNames).toContain('anotherUnknown');
+    });
+
+    it('detects missing required props', async () => {
+      vol.fromJSON({
+        '/project/src/Button.stories.tsx': STORY_WITH_REQUIRED_PROPS,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+        validateArgs: true,
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.argsValidation).toBeDefined();
+      const validation = result.argsValidation![0]!;
+      expect(validation.isValid).toBe(false);
+
+      const missingRequiredIssues = validation.issues.filter(i => i.issueType === 'missing-required');
+      expect(missingRequiredIssues.length).toBe(2);
+
+      const missingNames = missingRequiredIssues.map(i => i.propName);
+      expect(missingNames).toContain('label');
+      expect(missingNames).toContain('onClick');
+    });
+
+    it('provides component and file info in validation result', async () => {
+      vol.fromJSON({
+        '/project/src/Button.stories.tsx': STORY_WITH_VALID_ARGS,
+      });
+
+      const scanner = new StoryFileScanner({
+        projectRoot: '/project',
+        include: ['src/**/*.stories.tsx'],
+        validateArgs: true,
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.argsValidation).toBeDefined();
+      const validation = result.argsValidation![0]!;
+      expect(validation.componentName).toBe('Button');
+      expect(validation.file).toBe('src/Button.stories.tsx');
+    });
+  });
 });

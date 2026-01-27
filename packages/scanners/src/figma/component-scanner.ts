@@ -7,6 +7,48 @@ export interface FigmaScannerConfig extends ScannerConfig {
   accessToken: string;
   fileKeys: string[];
   componentPageName?: string;
+  /** Previous scan result for version tracking */
+  previousScan?: FigmaScanResult;
+  /** Code components to compare against for orphan detection */
+  codeComponents?: string[];
+}
+
+/**
+ * Version change information
+ */
+export interface FigmaVersionChange {
+  /** Component name */
+  component: string;
+  /** Type of change */
+  changeType: "added" | "removed" | "modified";
+  /** Previous version (for modified) */
+  previousVersion?: string;
+  /** Current version */
+  currentVersion?: string;
+}
+
+/**
+ * Orphan detection result
+ */
+export interface FigmaOrphanReport {
+  /** Components in Figma but not in code */
+  figmaOnly: string[];
+  /** Components in code but not in Figma */
+  codeOnly: string[];
+  /** Components present in both */
+  matched: string[];
+}
+
+/**
+ * Extended Figma scan result with version tracking
+ */
+export interface FigmaScanResult extends ScanResult<Component> {
+  /** File version information */
+  fileVersions: Record<string, { version: string; lastModified: string }>;
+  /** Components that changed since last scan */
+  versionChanges: FigmaVersionChange[];
+  /** Orphan report (if codeComponents provided) */
+  orphanReport?: FigmaOrphanReport;
 }
 
 export class FigmaComponentScanner extends Scanner<Component, FigmaScannerConfig> {
@@ -17,10 +59,11 @@ export class FigmaComponentScanner extends Scanner<Component, FigmaScannerConfig
     this.client = new FigmaClient(config.accessToken);
   }
 
-  async scan(): Promise<ScanResult<Component>> {
+  async scan(): Promise<FigmaScanResult> {
     const startTime = Date.now();
     const components: Component[] = [];
     const errors: ScanError[] = [];
+    const fileVersions: Record<string, { version: string; lastModified: string }> = {};
     let filesScanned = 0;
 
     for (const fileKey of this.config.fileKeys) {
@@ -28,6 +71,13 @@ export class FigmaComponentScanner extends Scanner<Component, FigmaScannerConfig
         const file = await this.client.getFile(fileKey);
         const fileComponents = this.extractComponents(file, fileKey);
         components.push(...fileComponents);
+
+        // Track file version for version tracking
+        fileVersions[fileKey] = {
+          version: file.version || "unknown",
+          lastModified: file.lastModified || new Date().toISOString(),
+        };
+
         filesScanned++;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -42,13 +92,29 @@ export class FigmaComponentScanner extends Scanner<Component, FigmaScannerConfig
     // Post-processing: detect potential variants (orphan components that should be in a COMPONENT_SET)
     this.detectPotentialVariants(components);
 
+    // Detect version changes if previous scan provided
+    const versionChanges = this.detectVersionChanges(components);
+
+    // Detect orphans if code components provided
+    let orphanReport: FigmaOrphanReport | undefined;
+    if (this.config.codeComponents && this.config.codeComponents.length > 0) {
+      orphanReport = this.detectOrphans(components);
+    }
+
     const stats: ScanStats = {
       filesScanned,
       itemsFound: components.length,
       duration: Date.now() - startTime,
     };
 
-    return { items: components, errors, stats };
+    return {
+      items: components,
+      errors,
+      stats,
+      fileVersions,
+      versionChanges,
+      orphanReport,
+    };
   }
 
   getSourceType(): string {
@@ -1444,5 +1510,176 @@ export class FigmaComponentScanner extends Scanner<Component, FigmaScannerConfig
     }
 
     return false;
+  }
+
+  /**
+   * Detect version changes between current and previous scan
+   */
+  private detectVersionChanges(currentComponents: Component[]): FigmaVersionChange[] {
+    const changes: FigmaVersionChange[] = [];
+
+    if (!this.config.previousScan) {
+      return changes;
+    }
+
+    const previousComponents = new Map<string, Component>();
+    for (const comp of this.config.previousScan.items) {
+      previousComponents.set(comp.id, comp);
+    }
+
+    const currentMap = new Map<string, Component>();
+    for (const comp of currentComponents) {
+      currentMap.set(comp.id, comp);
+    }
+
+    // Find added components
+    for (const comp of currentComponents) {
+      if (!previousComponents.has(comp.id)) {
+        changes.push({
+          component: comp.name,
+          changeType: "added",
+          currentVersion: this.getComponentKey(comp),
+        });
+      }
+    }
+
+    // Find removed components
+    for (const [id, comp] of previousComponents) {
+      if (!currentMap.has(id)) {
+        changes.push({
+          component: comp.name,
+          changeType: "removed",
+          previousVersion: this.getComponentKey(comp),
+        });
+      }
+    }
+
+    // Find modified components (comparing by component key)
+    for (const comp of currentComponents) {
+      const prevComp = previousComponents.get(comp.id);
+      if (prevComp) {
+        const currentKey = this.getComponentKey(comp);
+        const previousKey = this.getComponentKey(prevComp);
+
+        if (currentKey !== previousKey) {
+          changes.push({
+            component: comp.name,
+            changeType: "modified",
+            previousVersion: previousKey,
+            currentVersion: currentKey,
+          });
+        }
+
+        // Also check for structural changes (props, variants)
+        const propsChanged = this.propsChanged(prevComp, comp);
+        const variantsChanged = this.variantsChanged(prevComp, comp);
+
+        if ((propsChanged || variantsChanged) && !changes.some(c => c.component === comp.name && c.changeType === "modified")) {
+          changes.push({
+            component: comp.name,
+            changeType: "modified",
+            previousVersion: previousKey,
+            currentVersion: currentKey,
+          });
+        }
+      }
+    }
+
+    return changes;
+  }
+
+  /**
+   * Get component key from metadata tags
+   */
+  private getComponentKey(comp: Component): string | undefined {
+    const keyTag = comp.metadata.tags?.find(t => t.startsWith("component-key:"));
+    return keyTag?.replace("component-key:", "");
+  }
+
+  /**
+   * Check if props changed between components
+   */
+  private propsChanged(prev: Component, current: Component): boolean {
+    if (prev.props.length !== current.props.length) {
+      return true;
+    }
+
+    const prevPropNames = new Set(prev.props.map(p => p.name));
+    const currentPropNames = new Set(current.props.map(p => p.name));
+
+    for (const name of prevPropNames) {
+      if (!currentPropNames.has(name)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if variants changed between components
+   */
+  private variantsChanged(prev: Component, current: Component): boolean {
+    if (prev.variants.length !== current.variants.length) {
+      return true;
+    }
+
+    const prevVariantNames = new Set(prev.variants.map(v => v.name));
+    const currentVariantNames = new Set(current.variants.map(v => v.name));
+
+    for (const name of prevVariantNames) {
+      if (!currentVariantNames.has(name)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Detect orphan components between Figma and code
+   */
+  private detectOrphans(figmaComponents: Component[]): FigmaOrphanReport {
+    const codeComponents = new Set(
+      (this.config.codeComponents || []).map(name => this.normalizeComponentName(name))
+    );
+
+    const figmaComponentNames = new Set(
+      figmaComponents.map(c => this.normalizeComponentName(c.name))
+    );
+
+    const figmaOnly: string[] = [];
+    const codeOnly: string[] = [];
+    const matched: string[] = [];
+
+    // Find Figma components not in code
+    for (const comp of figmaComponents) {
+      const normalizedName = this.normalizeComponentName(comp.name);
+      if (codeComponents.has(normalizedName)) {
+        matched.push(comp.name);
+      } else {
+        figmaOnly.push(comp.name);
+      }
+    }
+
+    // Find code components not in Figma
+    for (const codeName of this.config.codeComponents || []) {
+      const normalizedName = this.normalizeComponentName(codeName);
+      if (!figmaComponentNames.has(normalizedName)) {
+        codeOnly.push(codeName);
+      }
+    }
+
+    return { figmaOnly, codeOnly, matched };
+  }
+
+  /**
+   * Normalize component name for comparison
+   */
+  private normalizeComponentName(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "") // Remove non-alphanumeric characters
+      .trim();
   }
 }

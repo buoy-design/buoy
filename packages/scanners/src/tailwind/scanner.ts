@@ -27,6 +27,26 @@ export interface TailwindScannerConfig {
   extractSemanticTokens?: boolean;
   /** Whether to detect class patterns across components for drift/duplication (default: false) */
   detectClassPatterns?: boolean;
+  /** Whether to scan for @apply directives in CSS files (default: true) */
+  scanApplyDirectives?: boolean;
+}
+
+/**
+ * Represents an @apply directive usage in CSS
+ */
+export interface ApplyDirectiveUsage {
+  /** File where @apply was found */
+  file: string;
+  /** Line number */
+  line: number;
+  /** CSS selector where @apply is used */
+  selector: string;
+  /** The classes applied via @apply */
+  classes: string[];
+  /** Arbitrary values found in the @apply */
+  arbitraryValues: string[];
+  /** Whether this @apply contains hardcoded values */
+  hasHardcodedValues: boolean;
 }
 
 /**
@@ -111,12 +131,16 @@ export interface TailwindScanResult {
   semanticTokens?: SemanticToken[];
   /** Class pattern analysis results */
   classPatterns?: ClassPatternAnalysis;
+  /** @apply directive usages found in CSS files */
+  applyDirectives?: ApplyDirectiveUsage[];
   stats: {
     filesScanned: number;
     arbitraryValuesFound: number;
     tokensExtracted: number;
     semanticTokensFound?: number;
     classPatternsAnalyzed?: number;
+    applyDirectivesFound?: number;
+    applyArbitraryValuesFound?: number;
   };
 }
 
@@ -142,6 +166,7 @@ export class TailwindScanner {
       extractThemeTokens: true,
       extractSemanticTokens: false,
       detectClassPatterns: false,
+      scanApplyDirectives: true,
       ...config,
     };
   }
@@ -295,6 +320,17 @@ export class TailwindScanner {
         classPatterns.duplicates.length +
         classPatterns.variantInconsistencies.length +
         classPatterns.extractablePatterns.length;
+    }
+
+    // Scan for @apply directives in CSS files
+    if (this.config.scanApplyDirectives) {
+      const applyDirectives = await this.scanApplyDirectives();
+      result.applyDirectives = applyDirectives;
+      result.stats.applyDirectivesFound = applyDirectives.length;
+      result.stats.applyArbitraryValuesFound = applyDirectives.reduce(
+        (sum, d) => sum + d.arbitraryValues.length,
+        0
+      );
     }
 
     // Deduplicate tokens by semantic name to avoid counting the same token multiple times
@@ -1826,6 +1862,121 @@ export class TailwindScanner {
       return 'typography';
     }
     return 'other';
+  }
+
+  /**
+   * Scan CSS files for @apply directive usage
+   * Detects hardcoded values and arbitrary values in @apply statements
+   */
+  private async scanApplyDirectives(): Promise<ApplyDirectiveUsage[]> {
+    const usages: ApplyDirectiveUsage[] = [];
+
+    // CSS file patterns to scan
+    const cssPatterns = [
+      '**/*.css',
+      '**/*.scss',
+      '**/*.sass',
+      '**/*.less',
+    ];
+
+    const exclude = [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/build/**',
+      '**/.next/**',
+      '**/vendor/**',
+      ...(this.config.exclude || []),
+    ];
+
+    for (const pattern of cssPatterns) {
+      try {
+        const files = await glob(pattern, {
+          cwd: this.config.projectRoot,
+          ignore: exclude,
+          absolute: true,
+        });
+
+        for (const file of files) {
+          try {
+            const content = readFileSync(file, 'utf-8');
+            const relativePath = file.replace(this.config.projectRoot + '/', '');
+            const fileUsages = this.extractApplyDirectivesFromFile(content, relativePath);
+            usages.push(...fileUsages);
+          } catch {
+            // Continue on read errors
+          }
+        }
+      } catch {
+        // Continue to next pattern
+      }
+    }
+
+    return usages;
+  }
+
+  /**
+   * Extract @apply directive usages from a CSS file
+   */
+  private extractApplyDirectivesFromFile(content: string, filePath: string): ApplyDirectiveUsage[] {
+    const usages: ApplyDirectiveUsage[] = [];
+    const lines = content.split('\n');
+
+    // Track current selector context
+    let currentSelector = '';
+    let braceDepth = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const lineNum = i + 1;
+
+      // Track selector context
+      const selectorMatch = line.match(/^\s*([\w\-.#:[\]="'\s,>+~*]+)\s*\{/);
+      if (selectorMatch) {
+        currentSelector = selectorMatch[1]!.trim();
+        braceDepth++;
+      }
+
+      // Track brace depth
+      const openBraces = (line.match(/\{/g) || []).length;
+      const closeBraces = (line.match(/\}/g) || []).length;
+      braceDepth += openBraces - closeBraces;
+
+      if (braceDepth <= 0) {
+        currentSelector = '';
+        braceDepth = 0;
+      }
+
+      // Match @apply directive
+      const applyMatch = line.match(/@apply\s+([^;]+);?/);
+      if (applyMatch) {
+        const classString = applyMatch[1]!.trim();
+        const classes = classString.split(/\s+/).filter(Boolean);
+
+        // Detect arbitrary values (classes with square brackets)
+        const arbitraryValues = classes.filter(cls =>
+          /\[[^\]]+\]/.test(cls)
+        );
+
+        // Detect hardcoded values (hex colors, px values in arbitrary brackets)
+        const hasHardcodedValues = arbitraryValues.some(cls =>
+          /#[0-9a-fA-F]{3,8}/.test(cls) || // Hex colors
+          /\[\d+px\]/.test(cls) || // Pixel values
+          /\[\d+rem\]/.test(cls) || // Rem values
+          /\[\d+em\]/.test(cls) // Em values
+        );
+
+        usages.push({
+          file: filePath,
+          line: lineNum,
+          selector: currentSelector || 'unknown',
+          classes,
+          arbitraryValues,
+          hasHardcodedValues,
+        });
+      }
+    }
+
+    return usages;
   }
 }
 

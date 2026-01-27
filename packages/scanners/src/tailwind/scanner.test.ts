@@ -1488,4 +1488,223 @@ const buttonVariants = cva(
       expect(result.drifts).toHaveLength(0);
     });
   });
+
+  describe('@apply directive scanning', () => {
+    beforeEach(() => {
+      // Reset glob mock to only return CSS pattern files for @apply tests
+      vi.mocked(glob.glob).mockReset();
+    });
+
+    it('detects @apply directives in CSS files', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(glob.glob).mockImplementation(async (pattern) => {
+        if (pattern === '**/*.css') {
+          return ['/test/project/src/styles.css'];
+        }
+        return [];
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+.btn {
+  @apply px-4 py-2 rounded-lg bg-blue-500 text-white;
+}
+
+.card {
+  @apply p-6 shadow-md border rounded-xl;
+}
+      `);
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+        scanApplyDirectives: true,
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.applyDirectives).toBeDefined();
+      expect(result.applyDirectives!.length).toBe(2);
+
+      const btnApply = result.applyDirectives!.find(a => a.selector === '.btn');
+      expect(btnApply).toBeDefined();
+      expect(btnApply!.classes).toContain('px-4');
+      expect(btnApply!.classes).toContain('bg-blue-500');
+
+      const cardApply = result.applyDirectives!.find(a => a.selector === '.card');
+      expect(cardApply).toBeDefined();
+      expect(cardApply!.classes).toContain('shadow-md');
+    });
+
+    it('detects hardcoded values in @apply directives', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(glob.glob).mockImplementation(async (pattern) => {
+        if (pattern === '**/*.css') {
+          return ['/test/project/src/styles.css'];
+        }
+        return [];
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+.container {
+  @apply mx-auto max-w-[1400px] px-[24px] lg:px-[32px];
+}
+
+.header {
+  @apply h-[72px] bg-[#1a1a1a] text-[14px];
+}
+      `);
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+        scanApplyDirectives: true,
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.applyDirectives).toBeDefined();
+      expect(result.applyDirectives!.length).toBe(2);
+
+      const containerApply = result.applyDirectives!.find(a => a.selector === '.container');
+      expect(containerApply).toBeDefined();
+      expect(containerApply!.hasHardcodedValues).toBe(true);
+      expect(containerApply!.arbitraryValues).toContain('max-w-[1400px]');
+      expect(containerApply!.arbitraryValues).toContain('px-[24px]');
+
+      const headerApply = result.applyDirectives!.find(a => a.selector === '.header');
+      expect(headerApply).toBeDefined();
+      expect(headerApply!.hasHardcodedValues).toBe(true);
+      expect(headerApply!.arbitraryValues).toContain('bg-[#1a1a1a]');
+    });
+
+    it('reports @apply usage in multiple files', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(glob.glob).mockImplementation(async (pattern) => {
+        if (pattern === '**/*.css') {
+          return [
+            '/test/project/src/components.css',
+            '/test/project/src/utilities.css',
+          ];
+        }
+        return [];
+      });
+      vi.mocked(fs.readFileSync).mockImplementation((path) => {
+        const pathStr = String(path);
+        if (pathStr.includes('components')) {
+          return `
+.btn-primary {
+  @apply bg-blue-500 text-white hover:bg-blue-600;
+}
+          `;
+        }
+        if (pathStr.includes('utilities')) {
+          return `
+.text-gradient {
+  @apply bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent;
+}
+          `;
+        }
+        return '';
+      });
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+        scanApplyDirectives: true,
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.applyDirectives).toBeDefined();
+      expect(result.applyDirectives!.length).toBe(2);
+
+      // Check files are tracked
+      const btnPrimary = result.applyDirectives!.find(a => a.selector === '.btn-primary');
+      expect(btnPrimary).toBeDefined();
+      expect(btnPrimary!.file).toContain('components.css');
+
+      const textGradient = result.applyDirectives!.find(a => a.selector === '.text-gradient');
+      expect(textGradient).toBeDefined();
+      expect(textGradient!.file).toContain('utilities.css');
+    });
+
+    it('handles nested @apply directives in media queries', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(glob.glob).mockImplementation(async (pattern) => {
+        if (pattern === '**/*.css') {
+          return ['/test/project/src/responsive.css'];
+        }
+        return [];
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+.responsive-card {
+  @apply p-4 rounded-md;
+}
+
+@media (min-width: 768px) {
+  .responsive-card {
+    @apply p-8 rounded-xl;
+  }
+}
+
+@screen lg {
+  .responsive-card {
+    @apply p-12 shadow-lg;
+  }
+}
+      `);
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+        scanApplyDirectives: true,
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.applyDirectives).toBeDefined();
+      // Should find all 3 @apply directives
+      expect(result.applyDirectives!.length).toBe(3);
+    });
+
+    it('does not scan @apply when scanApplyDirectives is false', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(glob.glob).mockResolvedValue([]);
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+        scanApplyDirectives: false,
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.applyDirectives).toBeUndefined();
+    });
+
+    it('correctly identifies responsive and state variants in @apply', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      // Only return file for *.css pattern, not for *.scss, *.sass, *.less
+      vi.mocked(glob.glob).mockImplementation(async (pattern) => {
+        if (pattern === '**/*.css') {
+          return ['/test/project/src/styles.css'];
+        }
+        return [];
+      });
+      vi.mocked(fs.readFileSync).mockReturnValue(`
+.interactive-button {
+  @apply px-4 py-2 bg-blue-500 hover:bg-blue-600 focus:ring-2 focus:ring-blue-400 md:px-6 lg:py-3;
+}
+      `);
+
+      const scanner = new TailwindScanner({
+        projectRoot: mockProjectRoot,
+        scanApplyDirectives: true,
+      });
+
+      const result = await scanner.scan();
+
+      expect(result.applyDirectives).toBeDefined();
+      expect(result.applyDirectives!.length).toBe(1);
+
+      const buttonApply = result.applyDirectives![0]!;
+      expect(buttonApply.classes).toContain('hover:bg-blue-600');
+      expect(buttonApply.classes).toContain('focus:ring-2');
+      expect(buttonApply.classes).toContain('md:px-6');
+      expect(buttonApply.classes).toContain('lg:py-3');
+    });
+  });
 });

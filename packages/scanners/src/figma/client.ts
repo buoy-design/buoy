@@ -3,6 +3,10 @@ export interface FigmaFile {
   document: FigmaDocument;
   components: Record<string, FigmaComponentMeta>;
   styles: Record<string, FigmaStyleMeta>;
+  /** File version (populated from Figma API response) */
+  version?: string;
+  /** Last modified timestamp */
+  lastModified?: string;
 }
 
 export interface FigmaDocument {

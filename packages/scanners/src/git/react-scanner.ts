@@ -83,6 +83,57 @@ const STYLE_PROPERTIES: Record<string, HardcodedValue["type"]> = {
 export interface ReactScannerConfig extends ScannerConfig {
   designSystemPackage?: string;
   componentPatterns?: string[];
+  /** Whether to analyze React hooks (default: true) */
+  analyzeHooks?: boolean;
+}
+
+/**
+ * Information about React hook usage
+ */
+export interface HookUsageInfo {
+  /** Name of the hook */
+  name: string;
+  /** Whether this is a custom hook */
+  isCustomHook: boolean;
+  /** Number of times this hook is used */
+  count: number;
+  /** Lines where the hook is used */
+  lines: number[];
+}
+
+/**
+ * React-specific component info
+ */
+export interface ReactComponentInfo {
+  /** Is wrapped in React.memo */
+  isMemoized: boolean;
+  /** Uses forwardRef */
+  usesForwardRef: boolean;
+  /** Is lazy loaded (React.lazy) */
+  isLazy: boolean;
+  /** Hooks used in this component */
+  hooks: HookUsageInfo[];
+  /** CSS-in-JS library detected (if any) */
+  cssInJs?: "styled-components" | "emotion" | "vanilla-extract" | "stitches";
+}
+
+/**
+ * Extended React scan result with hook analysis
+ */
+export interface ReactScanResult extends ScanResult<Component> {
+  /** Components using React.memo */
+  memoizedComponents: Component[];
+  /** Components using forwardRef */
+  forwardRefComponents: Component[];
+  /** Lazy-loaded components */
+  lazyComponents: Component[];
+  /** All custom hooks found in the codebase */
+  customHooks: string[];
+  /** Hook usage statistics */
+  hookStats: {
+    total: number;
+    byType: Record<string, number>;
+  };
 }
 
 export class ReactComponentScanner extends SignalAwareScanner<
@@ -92,28 +143,79 @@ export class ReactComponentScanner extends SignalAwareScanner<
   /** Default file patterns for React components */
   private static readonly DEFAULT_PATTERNS = ["**/*.tsx", "**/*.jsx", "**/*.ts", "**/*.js"];
 
-  async scan(): Promise<ScanResult<Component>> {
+  async scan(): Promise<ReactScanResult> {
     // Clear signals from previous scan
     this.clearSignals();
 
     // Use cache if available
-    let result: ScanResult<Component>;
+    let baseResult: ScanResult<Component>;
     if (this.config.cache) {
-      result = await this.runScanWithCache(
+      baseResult = await this.runScanWithCache(
         (file) => this.parseFile(file),
         ReactComponentScanner.DEFAULT_PATTERNS,
       );
     } else {
-      result = await this.runScan(
+      baseResult = await this.runScan(
         (file) => this.parseFile(file),
         ReactComponentScanner.DEFAULT_PATTERNS,
       );
     }
 
     // Post-process: detect and mark compound component groups based on shared prefixes
-    result.items = this.detectCompoundGroups(result.items);
+    baseResult.items = this.detectCompoundGroups(baseResult.items);
 
-    return result;
+    // Build React-specific result
+    const memoizedComponents = baseResult.items.filter(c =>
+      c.metadata.tags?.includes("react-memo")
+    );
+    const forwardRefComponents = baseResult.items.filter(c =>
+      c.metadata.tags?.includes("forward-ref")
+    );
+    const lazyComponents = baseResult.items.filter(c =>
+      c.metadata.tags?.includes("react-lazy")
+    );
+
+    // Collect custom hooks
+    const customHooks = new Set<string>();
+    const hookCounts: Record<string, number> = {};
+
+    for (const comp of baseResult.items) {
+      const hooksTag = comp.metadata.tags?.find(t => t.startsWith("hooks:"));
+      if (hooksTag) {
+        const hooks = hooksTag.replace("hooks:", "").split(",");
+        for (const hook of hooks) {
+          hookCounts[hook] = (hookCounts[hook] || 0) + 1;
+          if (hook.startsWith("use") && !this.isBuiltInHook(hook)) {
+            customHooks.add(hook);
+          }
+        }
+      }
+    }
+
+    return {
+      ...baseResult,
+      memoizedComponents,
+      forwardRefComponents,
+      lazyComponents,
+      customHooks: Array.from(customHooks),
+      hookStats: {
+        total: Object.values(hookCounts).reduce((sum, c) => sum + c, 0),
+        byType: hookCounts,
+      },
+    };
+  }
+
+  /**
+   * Check if a hook is a built-in React hook
+   */
+  private isBuiltInHook(name: string): boolean {
+    const builtInHooks = [
+      "useState", "useEffect", "useContext", "useReducer", "useCallback",
+      "useMemo", "useRef", "useImperativeHandle", "useLayoutEffect",
+      "useDebugValue", "useDeferredValue", "useTransition", "useId",
+      "useSyncExternalStore", "useInsertionEffect",
+    ];
+    return builtInHooks.includes(name);
   }
 
   /**
@@ -931,7 +1033,119 @@ export class ReactComponentScanner extends SignalAwareScanner<
       }
     }
 
+    // Detect hooks used in the component
+    if (this.config.analyzeHooks !== false) {
+      const hooks = this.detectHooksInNode(node, sourceFile);
+      if (hooks.length > 0) {
+        tags.push(`hooks:${hooks.join(",")}`);
+      }
+    }
+
+    // Detect React patterns (memo, forwardRef, lazy)
+    const patterns = this.detectReactPatterns(node, sourceFile);
+    tags.push(...patterns);
+
     return tags;
+  }
+
+  /**
+   * Detect hooks used in a component body
+   */
+  private detectHooksInNode(node: ts.Node, sourceFile: ts.SourceFile): string[] {
+    const hooks: Set<string> = new Set();
+
+    const visit = (n: ts.Node) => {
+      if (ts.isCallExpression(n)) {
+        const callText = n.expression.getText(sourceFile);
+
+        // Direct hook calls: useState(), useEffect(), etc.
+        if (/^use[A-Z]/.test(callText)) {
+          hooks.add(callText);
+        }
+
+        // React.useState(), React.useEffect(), etc.
+        if (ts.isPropertyAccessExpression(n.expression)) {
+          const propName = n.expression.name.getText(sourceFile);
+          if (/^use[A-Z]/.test(propName)) {
+            hooks.add(propName);
+          }
+        }
+      }
+
+      ts.forEachChild(n, visit);
+    };
+
+    // Only traverse the body of the function, not the entire node
+    const body = this.getFunctionBody(node);
+    if (body) {
+      ts.forEachChild(body, visit);
+    }
+
+    return Array.from(hooks).sort();
+  }
+
+  /**
+   * Get the function body from a node
+   */
+  private getFunctionBody(node: ts.Node): ts.Node | null {
+    if (ts.isFunctionDeclaration(node) && node.body) {
+      return node.body;
+    }
+    if (ts.isArrowFunction(node)) {
+      return node.body;
+    }
+    if (ts.isFunctionExpression(node) && node.body) {
+      return node.body;
+    }
+    // For variable declarations, get the initializer
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      if (ts.isArrowFunction(node.initializer)) {
+        return node.initializer.body;
+      }
+      if (ts.isFunctionExpression(node.initializer) && node.initializer.body) {
+        return node.initializer.body;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Detect React patterns like memo, forwardRef, lazy
+   */
+  private detectReactPatterns(node: ts.Node, sourceFile: ts.SourceFile): string[] {
+    const patterns: string[] = [];
+
+    // For variable declarations, check the initializer
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      const initText = node.initializer.getText(sourceFile);
+
+      // React.memo or memo()
+      if (/(?:React\.)?memo\s*\(/.test(initText)) {
+        patterns.push("react-memo");
+      }
+
+      // React.forwardRef or forwardRef()
+      if (/(?:React\.)?forwardRef\s*\(/.test(initText)) {
+        patterns.push("forward-ref");
+      }
+
+      // React.lazy or lazy()
+      if (/(?:React\.)?lazy\s*\(/.test(initText)) {
+        patterns.push("react-lazy");
+      }
+
+      // styled-components
+      if (/styled\s*\(|styled\.\w+/.test(initText)) {
+        patterns.push("styled-component");
+      }
+
+      // Emotion
+      if (/css\s*`|styled\s*\(/.test(initText) && /@emotion/.test(sourceFile.getFullText())) {
+        patterns.push("emotion");
+      }
+    }
+
+    return patterns;
   }
 
   /**

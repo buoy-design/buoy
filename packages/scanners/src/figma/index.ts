@@ -12,4 +12,7 @@ export {
 export {
   FigmaComponentScanner,
   type FigmaScannerConfig,
+  type FigmaScanResult,
+  type FigmaVersionChange,
+  type FigmaOrphanReport,
 } from "./component-scanner.js";

@@ -17,6 +17,62 @@ interface ExtendedPropDefinition extends PropDefinition {
 
 export interface AngularScannerConfig extends ScannerConfig {
   designSystemPackage?: string;
+  /** Path to Angular Material theme file for theme override detection */
+  materialTheme?: string;
+  /** Whether to analyze NgModules (default: true) */
+  analyzeModules?: boolean;
+}
+
+/**
+ * NgModule information
+ */
+export interface NgModuleInfo {
+  /** Module class name */
+  name: string;
+  /** Source file path */
+  path: string;
+  /** Line number where module is defined */
+  line: number;
+  /** Components declared in this module */
+  declarations: string[];
+  /** Modules imported by this module */
+  imports: string[];
+  /** Components/modules exported from this module */
+  exports: string[];
+  /** Providers in this module */
+  providers: string[];
+  /** Whether this is a feature module */
+  isFeatureModule?: boolean;
+}
+
+/**
+ * Extended Angular scan result with NgModule analysis
+ */
+export interface AngularScanResult extends ScanResult<Component> {
+  /** NgModules found in the codebase */
+  modules: NgModuleInfo[];
+  /** Standalone components (Angular 14+) */
+  standaloneComponents: Component[];
+  /** Module-based components */
+  moduleComponents: Component[];
+  /** Angular Material theme overrides detected */
+  materialOverrides: MaterialOverride[];
+}
+
+/**
+ * Angular Material theme override
+ */
+export interface MaterialOverride {
+  /** File where override was found */
+  file: string;
+  /** Line number */
+  line: number;
+  /** Type of override */
+  type: "color" | "typography" | "spacing" | "component-style";
+  /** The overridden value */
+  value: string;
+  /** The CSS property or mixin being overridden */
+  property: string;
 }
 
 interface AngularSource {
@@ -40,29 +96,45 @@ export class AngularComponentScanner extends SignalAwareScanner<
    */
   private static readonly DEFAULT_PATTERNS = ["**/*.ts"];
 
-  async scan(): Promise<ScanResult<Component>> {
+  async scan(): Promise<AngularScanResult> {
     // Clear signals from previous scan
     this.clearSignals();
 
-    let result: ScanResult<Component>;
+    let baseResult: ScanResult<Component>;
 
     // Use cache if available
     if (this.config.cache) {
-      result = await this.runScanWithCache(
+      baseResult = await this.runScanWithCache(
         (file) => this.parseFile(file),
         AngularComponentScanner.DEFAULT_PATTERNS,
       );
     } else {
-      result = await this.runScan(
+      baseResult = await this.runScan(
         (file) => this.parseFile(file),
         AngularComponentScanner.DEFAULT_PATTERNS,
       );
     }
 
     // Post-process: detect and mark compound component groups based on shared selector prefixes
-    result.items = this.detectCompoundGroups(result.items);
+    baseResult.items = this.detectCompoundGroups(baseResult.items);
 
-    return result;
+    // Analyze NgModules
+    const modules = this.config.analyzeModules !== false ? await this.analyzeNgModules() : [];
+
+    // Categorize components as standalone or module-based
+    const standaloneComponents = baseResult.items.filter(c => c.metadata.tags?.includes("standalone"));
+    const moduleComponents = baseResult.items.filter(c => !c.metadata.tags?.includes("standalone"));
+
+    // Analyze Angular Material theme overrides
+    const materialOverrides = this.config.materialTheme ? await this.analyzeMaterialTheme() : [];
+
+    return {
+      ...baseResult,
+      modules,
+      standaloneComponents,
+      moduleComponents,
+      materialOverrides,
+    };
   }
 
   getSourceType(): string {
@@ -206,6 +278,13 @@ export class AngularComponentScanner extends SignalAwareScanner<
       signalCollector?.collectComponentUsage(dep, line);
     }
 
+    // Detect standalone components (Angular 14+)
+    const isStandalone = this.isStandaloneComponent(decorator, sourceFile);
+    const tags: string[] = [];
+    if (isStandalone) {
+      tags.push("standalone");
+    }
+
     return {
       id: createComponentId(source as any, name),
       name,
@@ -216,7 +295,7 @@ export class AngularComponentScanner extends SignalAwareScanner<
       dependencies: hostDirectives,
       metadata: {
         deprecated: this.hasDeprecatedDecorator(node),
-        tags: [],
+        tags,
         hardcodedValues: hardcodedValues.length > 0 ? hardcodedValues : undefined,
       },
       scannedAt: new Date(),
@@ -1522,5 +1601,270 @@ export class AngularComponentScanner extends SignalAwareScanner<
     }
 
     return roots;
+  }
+
+  /**
+   * Analyze NgModules in the codebase
+   */
+  private async analyzeNgModules(): Promise<NgModuleInfo[]> {
+    const modules: NgModuleInfo[] = [];
+
+    // Get all TypeScript files that might contain NgModules
+    const { glob } = await import("glob");
+    const files = await glob("**/*.module.ts", {
+      cwd: this.config.projectRoot,
+      ignore: ["**/node_modules/**", "**/dist/**"],
+      absolute: true,
+    });
+
+    for (const filePath of files) {
+      try {
+        const content = readFileSync(filePath, "utf-8");
+        const sourceFile = ts.createSourceFile(
+          filePath,
+          content,
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.TS,
+        );
+        const relativePath = relative(this.config.projectRoot, filePath);
+
+        const visit = (node: ts.Node) => {
+          if (ts.isClassDeclaration(node) && node.name) {
+            const ngModuleDecorator = this.findNgModuleDecorator(node);
+            if (ngModuleDecorator) {
+              const moduleInfo = this.extractNgModuleInfo(
+                node,
+                ngModuleDecorator,
+                sourceFile,
+                relativePath,
+              );
+              if (moduleInfo) {
+                modules.push(moduleInfo);
+              }
+            }
+          }
+          ts.forEachChild(node, visit);
+        };
+
+        ts.forEachChild(sourceFile, visit);
+      } catch {
+        // Continue on error
+      }
+    }
+
+    return modules;
+  }
+
+  /**
+   * Find @NgModule decorator on a class
+   */
+  private findNgModuleDecorator(node: ts.ClassDeclaration): ts.Decorator | undefined {
+    const modifiers = ts.getDecorators(node);
+    if (!modifiers) return undefined;
+
+    return modifiers.find((decorator) => {
+      if (ts.isCallExpression(decorator.expression)) {
+        const expr = decorator.expression.expression;
+        return ts.isIdentifier(expr) && expr.text === "NgModule";
+      }
+      return false;
+    });
+  }
+
+  /**
+   * Extract NgModule information from decorator
+   */
+  private extractNgModuleInfo(
+    node: ts.ClassDeclaration,
+    decorator: ts.Decorator,
+    sourceFile: ts.SourceFile,
+    relativePath: string,
+  ): NgModuleInfo | null {
+    if (!node.name) return null;
+
+    const name = node.name.getText(sourceFile);
+    const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+
+    const moduleInfo: NgModuleInfo = {
+      name,
+      path: relativePath,
+      line,
+      declarations: [],
+      imports: [],
+      exports: [],
+      providers: [],
+    };
+
+    if (!ts.isCallExpression(decorator.expression)) return moduleInfo;
+
+    const args = decorator.expression.arguments;
+    if (args.length === 0) return moduleInfo;
+
+    const config = args[0];
+    if (!config || !ts.isObjectLiteralExpression(config)) return moduleInfo;
+
+    for (const prop of config.properties) {
+      if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
+        const propName = prop.name.text;
+
+        if (ts.isArrayLiteralExpression(prop.initializer)) {
+          const items = this.extractArrayIdentifiers(prop.initializer, sourceFile);
+
+          switch (propName) {
+            case "declarations":
+              moduleInfo.declarations = items;
+              break;
+            case "imports":
+              moduleInfo.imports = items;
+              break;
+            case "exports":
+              moduleInfo.exports = items;
+              break;
+            case "providers":
+              moduleInfo.providers = items;
+              break;
+          }
+        }
+      }
+    }
+
+    // Determine if this is a feature module (has declarations but isn't AppModule or CoreModule)
+    moduleInfo.isFeatureModule =
+      moduleInfo.declarations.length > 0 &&
+      !name.includes("App") &&
+      !name.includes("Core") &&
+      !name.includes("Shared");
+
+    return moduleInfo;
+  }
+
+  /**
+   * Extract identifiers from an array literal expression
+   */
+  private extractArrayIdentifiers(array: ts.ArrayLiteralExpression, sourceFile: ts.SourceFile): string[] {
+    const identifiers: string[] = [];
+
+    for (const element of array.elements) {
+      if (ts.isIdentifier(element)) {
+        identifiers.push(element.getText(sourceFile));
+      } else if (ts.isSpreadElement(element)) {
+        // Handle spread elements like ...sharedComponents
+        if (ts.isIdentifier(element.expression)) {
+          identifiers.push(`...${element.expression.getText(sourceFile)}`);
+        }
+      } else if (ts.isCallExpression(element)) {
+        // Handle calls like CommonModule.forRoot()
+        const callText = element.getText(sourceFile);
+        identifiers.push(callText);
+      }
+    }
+
+    return identifiers;
+  }
+
+  /**
+   * Analyze Angular Material theme file for overrides
+   */
+  private async analyzeMaterialTheme(): Promise<MaterialOverride[]> {
+    const overrides: MaterialOverride[] = [];
+
+    if (!this.config.materialTheme) return overrides;
+
+    try {
+      const { join } = await import("path");
+      const themePath = join(this.config.projectRoot, this.config.materialTheme);
+      const content = readFileSync(themePath, "utf-8");
+      const relativePath = this.config.materialTheme;
+
+      // Detect Material component style overrides
+      // Pattern: .mat-* selectors with custom styles
+      let lineNum = 1;
+
+      const lines = content.split("\n");
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i] || "";
+        lineNum = i + 1;
+
+        // Check for mat-* class overrides
+        if (line.includes(".mat-")) {
+          const matMatch = line.match(/\.mat-([\w-]+)/);
+          if (matMatch) {
+            overrides.push({
+              file: relativePath,
+              line: lineNum,
+              type: "component-style",
+              value: matMatch[0],
+              property: "selector",
+            });
+          }
+        }
+
+        // Check for theme color overrides
+        // Pattern: color: #xxx or background: #xxx outside of theme definition
+        const colorMatch = line.match(/(color|background(?:-color)?)\s*:\s*(#[0-9a-fA-F]{3,8}|rgb\([^)]+\))/);
+        if (colorMatch && !line.includes("mat.") && !line.includes("$mat-")) {
+          overrides.push({
+            file: relativePath,
+            line: lineNum,
+            type: "color",
+            value: colorMatch[2]!,
+            property: colorMatch[1]!,
+          });
+        }
+
+        // Check for spacing overrides
+        const spacingMatch = line.match(/(padding|margin)[\w-]*\s*:\s*(\d+(?:\.\d+)?(?:px|rem|em))/);
+        if (spacingMatch && !line.includes("$")) {
+          overrides.push({
+            file: relativePath,
+            line: lineNum,
+            type: "spacing",
+            value: spacingMatch[2]!,
+            property: spacingMatch[1]!,
+          });
+        }
+
+        // Check for typography overrides
+        const typographyMatch = line.match(/(font-size|font-weight|line-height)\s*:\s*([^;]+)/);
+        if (typographyMatch && !line.includes("$") && !line.includes("mat.")) {
+          overrides.push({
+            file: relativePath,
+            line: lineNum,
+            type: "typography",
+            value: typographyMatch[2]!.trim(),
+            property: typographyMatch[1]!,
+          });
+        }
+      }
+    } catch {
+      // Theme file not found or unreadable
+    }
+
+    return overrides;
+  }
+
+  /**
+   * Check if a component is standalone (Angular 14+)
+   */
+  private isStandaloneComponent(decorator: ts.Decorator, _sourceFile: ts.SourceFile): boolean {
+    if (!ts.isCallExpression(decorator.expression)) return false;
+
+    const args = decorator.expression.arguments;
+    if (args.length === 0) return false;
+
+    const config = args[0];
+    if (!config || !ts.isObjectLiteralExpression(config)) return false;
+
+    for (const prop of config.properties) {
+      if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
+        if (prop.name.text === "standalone") {
+          return prop.initializer.kind === ts.SyntaxKind.TrueKeyword;
+        }
+      }
+    }
+
+    return false;
   }
 }
